@@ -158,7 +158,7 @@ ADBClient.prototype = {
             })
             .then(function(data) {
                 this.fd = data;
-                return this.dexcmd_read_status('forward', 'wa', this.fd, 'host:forward:tcp:'+x.o.localport+';jdwp:'+x.o.jdwp);
+                return this.dexcmd_read_status('forward', 'wa', this.fd, 'host-serial:'+this.deviceid+':forward:tcp:'+x.o.localport+';jdwp:'+x.o.jdwp)
             })
             .then(function(data) {
                 return this.dexcmd('dc', this.fd);
