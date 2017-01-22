@@ -48,3 +48,5 @@ The following settings are used to configure the debugger:
 ## Questions / Problems
 
 If you run into any problems, tell us on [GitHub](https://github.com/adelphes/android-dev-ext/issues) or contact me on [Twitter](https://twitter.com/daveholoway).
+
+![Launch Android App](images/demo.gif)
