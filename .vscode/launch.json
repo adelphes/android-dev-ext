@@ -1,0 +1,36 @@
+// A launch configuration that launches the extension inside a new window
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch Extension",
+            "type": "extensionHost",
+            "request": "launch",
+            "runtimeExecutable": "${execPath}",
+            "args": ["--extensionDevelopmentPath=${workspaceRoot}" ],
+            "stopOnEntry": false
+        },
+		{
+			"name": "Server",
+			"type": "node",
+			"request": "launch",
+			"cwd": "${workspaceRoot}",
+			"program": "${workspaceRoot}/debugMain.js",
+			"args": [ "--server=4711" ]
+		},
+        {
+            "name": "Launch Tests",
+            "type": "extensionHost",
+            "request": "launch",
+            "runtimeExecutable": "${execPath}",
+            "args": ["--extensionDevelopmentPath=${workspaceRoot}", "--extensionTestsPath=${workspaceRoot}/test" ],
+            "stopOnEntry": false
+        }
+    ],
+	"compounds": [
+		{
+			"name": "Extension + Server",
+			"configurations": [ "Launch Extension", "Server" ]
+		}
+	]
+}

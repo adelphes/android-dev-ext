@@ -1,0 +1,113 @@
+{
+    "name": "android-dev-ext",
+    "displayName": "Android",
+    "description": "Android debugging support for VS Code",
+    "version": "0.1.0",
+    "publisher": "adelphes",
+    "preview": true,
+    "license": "MIT",
+    "engines": {
+        "vscode": "^1.8.0"
+    },
+    "categories": [
+        "Debuggers"
+    ],
+    "activationEvents": [
+    ],
+    "main": "./extension",
+    "contributes": {
+        "commands": [
+        ],
+        "breakpoints": [
+            {
+                "language": "java"
+            }
+        ],
+        "debuggers": [{
+            "type": "android",
+            "label": "Android Debug",
+            "program": "./debugMain.js",
+            "runtime": "node",
+
+            "configurationAttributes": {
+                "launch": {
+                    "required": ["appSrcRoot","apkFile","adbPort"],
+                    "properties": {
+                        "appSrcRoot": {
+                            "type": "string",
+                            "description": "Location of the App source files. This value must point to the root of your App source tree (containing AndroidManifest.xml)",
+                            "default": "${workspaceRoot}/app/src/main"
+                        },
+                        "apkFile": {
+                            "type": "string",
+                            "description": "Fully qualified path to the built APK (Android Application Package)",
+                            "default": "${workspaceRoot}/app/build/outputs/apk/app-debug.apk"
+                        },
+                        "adbPort": {
+                            "type": "integer",
+                            "description": "Port number to connect to the local ADB (Android Debug Bridge) instance. Default: 5037",
+                            "default": 5037
+                        },
+                        "staleBuild": {
+                            "type": "string",
+                            "description": "Launch behaviour if source files have been saved after the APK was built. One of: [\"ignore\" \"warn\" \"stop\"]. Default: \"warn\"",
+                            "default": "warn"
+                        },
+                        "targetDevice": {
+                            "type": "string",
+                            "description": "Target Device ID (as indicated by 'adb devices'). Use this to specify which device is used for deployment when multiple devices are connected.",
+                            "default": ""
+                        }
+                    }
+                }
+            },
+
+            "initialConfigurations": [
+                {
+                    "type": "android",
+                    "name": "Android Debug",
+                    "request": "launch",
+                    "appSrcRoot": "${workspaceRoot}/app/src/main",
+                    "apkFile": "${workspaceRoot}/app/build/outputs/apk/app-debug.apk",
+                    "adbPort": 5037
+                }
+            ],
+
+            "configurationSnippets": [
+                {
+                    "label": "Android: Launch Configuration",
+                    "description": "A new configuration for launching an Android app debugging session",
+                    "body": {
+                        "type": "android",
+                        "request": "launch",
+                        "name": "${2:Launch App}",
+                        "appSrcRoot": "^\"\\${workspaceRoot}/app/src/main\"",
+                        "apkFile": "^\"\\${workspaceRoot}/app/build/outputs/apk/app-debug.apk\"",
+                        "adbPort": 5037
+                    }
+                }
+            ],
+
+            "variables": {
+            }
+        }]
+    },
+    "scripts": {
+        "postinstall": "node ./node_modules/vscode/bin/install",
+        "test": "node ./node_modules/vscode/bin/test"
+    },
+    "dependencies": {
+        "vscode-debugprotocol": "^1.15.0",
+		"vscode-debugadapter": "^1.15.0",
+        "xmldom": "^0.1.27",
+        "xpath": "^0.0.23"
+    },
+    "devDependencies": {
+        "typescript": "^2.0.3",
+        "vscode": "^1.0.0",
+        "mocha": "^2.3.3",
+        "eslint": "^3.6.0",
+        "@types/node": "^6.0.40",
+        "@types/mocha": "^2.2.32"
+    }
+}
