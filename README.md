@@ -11,12 +11,12 @@ extension or you may run into problems with ADB.
 
 ## Limitations
 
-* This is a preview version so expect the unexpected. Please log any issues you find on GitHub.  
+* This is a preview version so expect the unexpected. Please log any issues you find on [GitHub](https://github.com/adelphes/android-dev-ext/issues).  
 * This extension **will not build your app**. 
 > You must use gradle or some other build procedure to create your APK. Once built, the extension can deploy and launch your app, allowing 
 you to debug it in the normal way.  
 * Some debugger options are yet to be implemented. You cannot modify local variable values or set conditional breakpoints and watch expressions must be simple variables.
-* If you require a must-have feature that isn't there yet, let us know on GitHub.  
+* If you require a must-have feature that isn't there yet, let us know on [GitHub](https://github.com/adelphes/android-dev-ext/issues).  
 * This extension does not provide any additional code completion or other editing enhancements.
 
 ## Extension Settings
@@ -50,4 +50,4 @@ The following settings are used to configure the debugger:
 
 ## Questions / Problems
 
-If you run into any problems, let us know on GitHub or via Twitter.
+If you run into any problems, tell us on [GitHub](https://github.com/adelphes/android-dev-ext/issues) or contact me on [Twitter](https://twitter.com/daveholoway).
