@@ -26,7 +26,7 @@
         "debuggers": [{
             "type": "android",
             "label": "Android Debug",
-            "program": "./debugMain.js",
+            "program": "./src/debugMain.js",
             "runtime": "node",
 
             "configurationAttributes": {

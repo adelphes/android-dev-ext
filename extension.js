@@ -6,7 +6,7 @@ var vscode = require('vscode');
 // your extension is activated the very first time the command is executed
 function activate(context) {
 
-    /* Nothing is done here. The debugger is launched from debugMain.js  */
+    /* Nothing is done here. The debugger is launched from src/debugMain.js  */
 
     // The commandId parameter must match the command field in package.json
     var disposables = [

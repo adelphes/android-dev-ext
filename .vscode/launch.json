@@ -15,7 +15,7 @@
 			"type": "node",
 			"request": "launch",
 			"cwd": "${workspaceRoot}",
-			"program": "${workspaceRoot}/debugMain.js",
+			"program": "${workspaceRoot}/src/debugMain.js",
 			"args": [ "--server=4711" ]
 		},
         {
