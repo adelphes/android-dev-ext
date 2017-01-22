@@ -23,9 +23,8 @@ const chrome = {
         }
     },
     runtime: {
-        _lastError:[],
-        get lastError() { return this._lastError.pop() },
-        set lastError(e) { this._lastError.push(e) }
+        lastError:null,
+        _noError() { this.lastError = null }
     },
     permissions: {
         request(usbPermissions, cb) {
@@ -34,20 +33,22 @@ const chrome = {
     },
     socket: {
         listen(socketId, host, port, max_connections, cb) {
-            var result = 0;
             var s = sockets_by_id[socketId];
             s._raw.listen(port, host, max_connections);
-            process.nextTick(cb, result);
+            process.nextTick(cb => {
+                chrome.runtime._noError();
+                cb(0);
+            }, cb);
         },
         connect(socketId, host, port, cb) {
             var s = sockets_by_id[socketId];
             s._raw.connect({port:port,host:host}, function(){
+                chrome.runtime._noError();
                 this.s.onerror = null;
                 this.cb.call(null,0);
             }.bind({s:s,cb:cb}));
             s.onerror = function(e) {
                 this.s.onerror = null;
-                chrome.runtime.lastError = e;
                 this.cb.call(null,-1);
             }.bind({s:s,cb:cb});
         },
@@ -58,7 +59,10 @@ const chrome = {
         setNoDelay(socketId, state, cb) {
             var s = sockets_by_id[socketId];
             s._raw.setNoDelay(state);
-            process.nextTick(cb, 1);
+            process.nextTick(cb => {
+                chrome.runtime._noError();
+                cb(1);
+            }, cb);
         },
         read(socketId, bufferSize, onRead) {
             if (!onRead && typeof(bufferSize) === 'function')
@@ -67,6 +71,7 @@ const chrome = {
             var s = sockets_by_id[socketId];
             if (bufferSize === 0) {
                 process.nextTick(function(onRead) {
+                    chrome.runtime._noError();
                     onRead.call(null, {resultCode:1,data:Buffer.alloc(0)});
                 }, onRead);
                 return;
@@ -87,6 +92,7 @@ const chrome = {
                         data:Buffer.from(this.readbuffer.slice(0,amount)),
                     };
                     this.readbuffer = this.readbuffer.slice(amount);
+                    chrome.runtime._noError();
                     this.read_requests.shift().onRead.call(null,readInfo);
                 }
                 this.onerror = this.onclose = null;
@@ -117,6 +123,7 @@ const chrome = {
                 var writeInfo = {
                     bytesWritten: this.len,
                 };
+                chrome.runtime._noError();
                 this.s.write_cbs.shift().call(null, writeInfo);
             }.bind({s:s,len:data.length,cb:cb}));
             s.write_cbs.push(cb);
@@ -150,6 +157,7 @@ const chrome = {
             readbuffer:Buffer.alloc(0),
         };
         socketInfo._raw.on('error', function(e) {
+            chrome.runtime.lastError = e;
             this.onerror && this.onerror(e);
         }.bind(socketInfo));
         socketInfo._raw.on('close', function(e) {
