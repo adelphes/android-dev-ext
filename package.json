@@ -12,8 +12,17 @@
     "categories": [
         "Debuggers"
     ],
+	"icon": "images/ade.png",
+	"galleryBanner": {
+		"color": "#5c2d91",
+		"theme": "dark"
+	},
     "activationEvents": [
     ],
+    "repository": {
+		"type": "git",
+        "url": "https://github.com/adelphes/android-dev-ext"
+    },
     "main": "./extension",
     "contributes": {
         "commands": [
