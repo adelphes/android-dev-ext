@@ -10,7 +10,8 @@ You must have [Android SDK Tools](https://developer.android.com/studio/releases/
 ## Limitations
 
 * This is a preview version so expect the unexpected. Please log any issues you find on [GitHub](https://github.com/adelphes/android-dev-ext/issues).  
-* This extension **will not build your app**. 
+* This extension **will not build your app**.  
+If you use gradle (or Android Studio), you can build your app from the command-line using `./gradlew assembleDebug`.
 > You must use gradle or some other build procedure to create your APK. Once built, the extension can deploy and launch your app, allowing you to debug it in the normal way.  
 * Some debugger options are yet to be implemented. You cannot modify local variable values or set conditional breakpoints and watch expressions must be simple variables.
 * If you require a must-have feature that isn't there yet, let us know on [GitHub](https://github.com/adelphes/android-dev-ext/issues).  
