@@ -139,6 +139,8 @@ class AndroidDebugSession extends DebugSession {
         this._locals_done = null;
         // the fifo queue of evaluations (watches, hover, etc)
         this._evals_queue = [];
+        // the last (current) exception info
+        this._last_exception = null;
 
         // since we want to send breakpoint events, we will assign an id to every event
         // so that the frontend can match events with breakpoints.
@@ -165,6 +167,12 @@ class AndroidDebugSession extends DebugSession {
 
 		// This debug adapter implements the configurationDoneRequest.
 		response.body.supportsConfigurationDoneRequest = true;
+        
+        // we support some exception options
+        response.body.exceptionBreakpointFilters = [
+            { label:'All Exceptions', filter:'all', default:false },
+            { label:'Uncaught Exceptions', filter:'uncaught', default:true },
+        ];
 
 		this.sendResponse(response);
 	}
@@ -276,6 +284,7 @@ class AndroidDebugSession extends DebugSession {
                 this.dbgr.on('bpstatechange', this, this.onBreakpointStateChange)
                     .on('bphit', this, this.onBreakpointHit)
                     .on('step', this, this.onStep)
+                    .on('exception', this, this.onException)
                     .on('disconnect', this, this.onDebuggerDisconnect);
                 this.waitForConfigurationDone = $.Deferred();
                 // - tell the client we're initialised and ready for breakpoint info, etc
@@ -406,6 +415,7 @@ class AndroidDebugSession extends DebugSession {
                         package: pkgname,
                         package_path: fpn,
                         srcroot: path.join(app_root,src_folder),
+                        public_classes: subfiles.filter(sf => /^[a-zA-Z_$][a-zA-Z0-9_$]*\.java$/.test(sf)).map(sf => sf.match(/^(.*)\.java$/)[1])
                     }
                 }
                 // add the subfiles to the list to process
@@ -566,6 +576,20 @@ class AndroidDebugSession extends DebugSession {
 		this.sendResponse(response);
 	}
 
+    setExceptionBreakPointsRequest(response /*: SetExceptionBreakpointsResponse*/, args /*: SetExceptionBreakpointsArguments*/) {
+        this.dbgr.clearBreakOnExceptions({response,args})
+            .then(x => {
+                if (x.args.filters.includes('all')) {
+                    x.set = this.dbgr.setBreakOnExceptions('both', x);
+                } else if (x.args.filters.includes('uncaught')) {
+                    x.set = this.dbgr.setBreakOnExceptions('uncaught', x);
+                } else {
+                    x.set = $.Deferred().resolveWith(this, [x]);
+                }
+                x.set.then(x => this.sendResponse(x.response));
+            });
+    }
+
 	threadsRequest(response/*: DebugProtocol.ThreadsResponse*/) {
 
         this.dbgr.allthreads(response)
@@ -633,9 +657,13 @@ class AndroidDebugSession extends DebugSession {
 	}
 
 	scopesRequest(response/*: DebugProtocol.ScopesResponse*/, args/*: DebugProtocol.ScopesArguments*/) {
+        var scopes = [new Scope("Local", args.frameId, false)];
+        if (this._last_exception) {
+            scopes.push(new Scope("Exception", this._last_exception.varref, false));
+        }
 
 		response.body = {
-			scopes: [new Scope("Local", args.frameId, false)]
+			scopes: scopes
 		};
 		this.sendResponse(response);
 	}
@@ -826,6 +854,17 @@ class AndroidDebugSession extends DebugSession {
             };
             this.sendResponse(response);
         }
+        else if (varinfo.exception) {
+            this.dbgr.getExceptionLocal(varinfo.exception, {varinfo,response})
+                .then((ex_local,x) => {
+                    x.ex_local = ex_local;
+                    return this.dbgr.invokeToString(ex_local.value, x.varinfo.threadid, ex_local.type.signature, x);
+                })
+                .then((call,x) => {
+                    call.name = '{msg}';
+                    return_mapped_vars(x.varinfo.cached = [call,x.ex_local], x.response);
+                });
+        }
         else {
             // frame locals request
             this.dbgr.getlocals(varinfo.frame.threadid, varinfo.frame, response)
@@ -843,6 +882,7 @@ class AndroidDebugSession extends DebugSession {
 	continueRequest(response/*: DebugProtocol.ContinueResponse*/, args/*: DebugProtocol.ContinueArguments*/) {
         D('Continue');
         this._variableHandles = {};
+        this._last_exception = null;
         // sometimes, the device is so quick that a breakpoint is hit
         // before we've completed the resume promise chain.
         // so tell the client that we've resumed now and just send a StoppedEvent
@@ -879,13 +919,12 @@ class AndroidDebugSession extends DebugSession {
     doStep(which, response, args) {
         D('step '+which);
         this._variableHandles = {};
+        this._last_exception = null;
+        this._running = true;
+        this._locals_done = $.Deferred();
         var threadid = ('000000000000000' + args.threadId.toString(16)).slice(-16);
-        this.dbgr.step(which, threadid)
-            .then(() => {
-                this._running = true;
-                this._locals_done = $.Deferred();
-        		this.sendResponse(response);
-            });
+        this.dbgr.step(which, threadid);
+        this.sendResponse(response);
     }
 
 	stepInRequest(response/*: DebugProtocol.NextResponse*/, args/*: DebugProtocol.StepInArguments*/) {
@@ -899,6 +938,24 @@ class AndroidDebugSession extends DebugSession {
 	stepOutRequest(response/*: DebugProtocol.NextResponse*/, args/*: DebugProtocol.StepOutArguments*/) {
         this.doStep('out', response, args);
 	}
+
+    /**
+     * Called by the debugger if an exception event is triggered
+     */
+    onException(e) {
+        D('exception hit: ' + JSON.stringify(e.throwlocation));
+        // it's possible for the debugger to send multiple exception notifications, depending on the package filters
+        // , so just ignore them if we've already stopped
+        if (!this._running) return;
+        this._running = false;
+        this._last_exception = {
+            exception: e.event.exception,
+            threadid: e.throwlocation.threadid,
+            varref: ++this._nextObjVarRef,
+        };
+        this._variableHandles[this._last_exception.varref] = this._last_exception;
+        this.sendEvent(new StoppedEvent("exception", parseInt(e.throwlocation.threadid,16)));
+    }
 
     /**
      * Called by VSCode to perform watch, console and hover evaluations

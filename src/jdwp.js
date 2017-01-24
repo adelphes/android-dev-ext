@@ -97,7 +97,7 @@ function _JDWP() {
 		}
 		
 		if (this.errorcode != 0) {
-		    console.error("Command failed: error " + this.errorcode);
+		    console.error("Command failed: error " + this.errorcode, this);
         }
 		
 		if (!this.errorcode && this.command && this.command.replydecodefn) {
@@ -131,6 +131,15 @@ function _JDWP() {
 	var DataCoder = {
 		_idsizes:null,
 
+		nullRefValue: function() {
+			if (!this._idsizes._nullreftypeid) {
+				var x = '00', len = this._idsizes.reftypeidsize * 2; // each byte needs 2 chars
+				while (x.length < len) x += x;
+				this._idsizes._nullreftypeid = x.slice(0, len); // should be power of 2, but just in case...
+			}
+			return this._idsizes._nullreftypeid;
+		},
+
 		decodeString: function(o) {
 			var rd = o.data;
 			var utf8len=(rd[o.idx++]<<24)+(rd[o.idx++]<<16)+(rd[o.idx++]<<8)+(rd[o.idx++]);
@@ -144,7 +153,7 @@ function _JDWP() {
 			var rd = o.data;
 			var res1=(rd[o.idx++]<<24)+(rd[o.idx++]<<16)+(rd[o.idx++]<<8)+(rd[o.idx++]);
 			var res2=(rd[o.idx++]<<24)+(rd[o.idx++]<<16)+(rd[o.idx++]<<8)+(rd[o.idx++]);
-			return intToHex(res1,8)+intToHex(res2,8);
+			return intToHex(res1>>>0,8)+intToHex(res2>>>0,8);	// >>> 0 ensures +ve value
 		},
 		decodeInt: function(o) {
 			var rd = o.data;
@@ -240,6 +249,9 @@ function _JDWP() {
 		},
 		decodeStatus : function(o) {
 			return this.mapflags(this.decodeInt(o), ['verified','prepared','initialized','error']);
+		},
+		decodeTaggedObjectID : function(o) {
+			return this.decodeValue(o);
 		},
 		decodeValue : function(o) {
 			var rd = o.data;
@@ -345,6 +357,13 @@ function _JDWP() {
             	        event.reqid = this.decodeInt(o);
             	        event.threadid = this.decodeORef(o);
             	        event.location = this.decodeLocation(o);
+            	        break;
+        	        case 4: // exception
+            	        event.reqid = this.decodeInt(o);
+            	        event.threadid = this.decodeORef(o);
+            	        event.throwlocation = this.decodeLocation(o);
+            	        event.exception = this.decodeTaggedObjectID(o);
+            	        event.catchlocation = this.decodeLocation(o);	// 0 = uncaught
             	        break;
         	        case 8: // classprepare
             	        event.reqid = this.decodeInt(o);
@@ -804,6 +823,19 @@ function _JDWP() {
 				}
 			);
 		},
+		GetObjectType:function(objectid) {
+			return new Command('GetObjectType:'+objectid, 9, 1,
+				function() {
+					var res=[];
+					DataCoder.encodeRef(res, objectid);
+					return res;
+				},
+				function(o) {
+					DataCoder.decodeRefType(o);
+					return DataCoder.decodeTRef(o);
+				}
+			);
+		},
 		GetFieldValues:function(objectid, fields) {
 			return new Command('GetFieldValues:'+objectid, 9, 2,
 				function() {
@@ -839,6 +871,27 @@ function _JDWP() {
 				function(o) {
 					// there's no return data - if we reach here, the update was successfull
 					return true;
+				}
+			);
+		},
+		InvokeMethod:function(objectid, threadid, classid, methodid, args) {
+			return new Command('InvokeMethod:'+[objectid, threadid, classid, methodid, args].join(','), 9, 6,
+				function() {
+					var res=[];
+					DataCoder.encodeRef(res, objectid);
+					DataCoder.encodeRef(res, threadid);
+					DataCoder.encodeRef(res, classid);
+					DataCoder.encodeRef(res, methodid);
+					DataCoder.encodeInt(res, args.length);
+					args.forEach(arg => DataCoder.encodeValue(res, arg.type, arg.value));
+					DataCoder.encodeInt(res, 1);	// INVOKE_SINGLE_THREADED
+					return res;
+				},
+				function(o) {
+					return {
+						return_value: DataCoder.decodeValue(o),
+						exception: DataCoder.decodeTaggedObjectID(o),
+					}
 				}
 			);
 		},
@@ -1011,6 +1064,39 @@ function _JDWP() {
 			    function(m1, i, res) {
 					res.push(m1.modkind);
 					DataCoder.encodeString(res, m1.pattern);
+			    },
+			    onevent
+			);
+		},
+		ClearExceptionBreak:function(requestid) {
+			// kind(4=exception)
+			return this.ClearEvent("exception",4,requestid);
+		},
+		SetExceptionBreak:function(pattern, caught, uncaught, onevent) {
+			// a wrapper around SetEventRequest
+			var mods = [{
+				modkind:8,	// exceptiononly
+				reftypeid: DataCoder.nullRefValue(),	// exception class
+				caught: caught,
+				uncaught: uncaught,
+			}];
+			pattern && mods.unshift({
+				modkind:5, // classmatch
+				pattern: pattern,
+			});
+			// kind(4=exception)
+			// suspendpolicy(0=none,1=event-thread,2=all)
+			return this.SetEventRequest("exception",4,2,mods,
+			    function(m, i, res) {
+					res.push(m.modkind);
+					switch(m.modkind) {
+						case 5: DataCoder.encodeString(res, m.pattern); break;
+						case 8:
+							DataCoder.encodeRef(res, m.reftypeid);
+							DataCoder.encodeBoolean(res, m.caught);
+							DataCoder.encodeBoolean(res, m.uncaught);
+							break;
+					}
 			    },
 			    onevent
 			);

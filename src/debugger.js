@@ -11,6 +11,7 @@ function Debugger() {
     this.connection = null;
     this.ons = {};
     this.breakpoints = { all: [], enabled: {}, bysrcloc: {} };
+    this.exception_ids = [];
     this.JDWP = new _JDWP();
     this.session = null;
     this.globals = Debugger.globals;
@@ -810,6 +811,100 @@ Debugger.prototype = {
             });
     },
 
+    getExceptionLocal: function (ex_ref_value, extra) {
+        var x = {
+            ex_ref_value: ex_ref_value,
+            extra: extra
+        };
+        return this.session.adbclient.jdwp_command({
+                ths: this,
+                extra: x,
+                cmd: this.JDWP.Commands.GetObjectType(ex_ref_value),
+            })
+            .then((typeref, x) => this.session.adbclient.jdwp_command({
+                ths: this,
+                extra: x,
+                cmd: this.JDWP.Commands.signature(typeref)
+            }))
+            .then((type, x) => {
+                x.type = type;
+                return this.gettypedebuginfo(type.signature, x)
+            })
+            .then((dbgtype, x) => {
+                return this._ensurefields(dbgtype[x.type.signature], x)
+            })
+            .then((typeinfo, x) => {
+                return this._mapvalues('exception', [{ name: '{ex}', type: x.type }], [x.ex_ref_value], {}, x);
+            })
+            .then((res, x) => {
+                return $.Deferred().resolveWith(this, [res[0], x.extra])
+            });
+    },
+
+    invokeMethod: function (objectid, threadid, type_signature, method_name, method_sig, args, extra) {
+        var x = { objectid, threadid, type_signature, method_name, method_sig, args, extra };
+        x.return_type_signature = method_sig.match(/\)(.*)/)[1];
+        return this.gettypedebuginfo(x.return_type_signature)
+            .then(dbgtypes => {
+                x.return_type = dbgtypes[x.return_type_signature].type;
+                return this.gettypedebuginfo(x.type_signature);
+            })
+            .then(dbgtype => this._ensuremethods(dbgtype[x.type_signature]))
+            .then(typeinfo => {
+                // resolving the methods only resolves the non-inherited methods
+                // if we can't find a matching method, we need to search the super types
+                var o = {
+                    dbgr:this,
+                    def:$.Deferred(),
+                    x: x,
+                    find_method(typeinfo) {
+                        for (var mid in typeinfo.methods) {
+                            var m = typeinfo.methods[mid];
+                            if ((m.name === this.x.method_name) && ((m.genericsig||m.sig) === this.x.method_sig)) {
+                                this.def.resolveWith(this, [typeinfo, m, this.x]);
+                                return;
+                            }
+                        }
+                        // search the supertype
+                        if (typeinfo.type.signature==='Ljava/lang/Object;') {
+                            this.def.rejectWith(this, [new Error('No such method: ' + this.x.method_name + ' ' + this.x.method_sig)]);
+                            return;
+                        }
+                        
+                        this.dbgr._ensuresuper(typeinfo)
+                            .then(typeinfo => {
+                                return this.dbgr.gettypedebuginfo(typeinfo.super.signature, typeinfo.super.signature)
+                            })
+                            .then((dbgtype, sig) => {
+                                return this.dbgr._ensuremethods(dbgtype[sig])
+                            })
+                            .then(typeinfo => {
+                                this.find_method(typeinfo)
+                            });
+                    }
+                }
+                o.find_method(typeinfo);
+                return o.def;
+            })
+            .then((typeinfo, method, x) => {
+                return this.session.adbclient.jdwp_command({
+                    ths: this,
+                    extra: x,
+                    cmd: this.JDWP.Commands.InvokeMethod(x.objectid, x.threadid, typeinfo.info.typeid, method.methodid, x.args),
+                });
+            })
+            .then((res, x) => {
+                if (/^0+$/.test(res.exception))
+                    return this._mapvalues('return', [{ name:'{return}', type:x.return_type }], [res.return_value], {}, x);
+                // todo - handle reutrn exceptions
+            })
+            .then((res, x) => $.Deferred().resolveWith(this, [res[0], x.extra]));  // res = {return_value, exception}
+    },
+
+    invokeToString(objectid, threadid, type_signature, extra) {
+        return this.invokeMethod(objectid, threadid, type_signature || 'Ljava/lang/Object;', 'toString', '()Ljava/lang/String;', [], extra);
+    },
+
     getstringchars: function (stringref, extra) {
         return this.session.adbclient.jdwp_command({
             ths: this,
@@ -1343,6 +1438,89 @@ Debugger.prototype = {
         }
     },
 
+    clearBreakOnExceptions: function(extra) {
+        var o = {
+            dbgr: this,
+            def: $.Deferred(),
+            extra: extra,
+            next() {
+                if (!this.dbgr.exception_ids.length) {
+                    return this.def.resolveWith(this.dbgr, [this.extra]); // done
+                }
+                // clear next pattern
+                this.dbgr.session.adbclient.jdwp_command({
+                        cmd: this.dbgr.JDWP.Commands.ClearExceptionBreak(this.dbgr.exception_ids.pop())
+                    })
+                    .then(() => this.next())
+                    .fail(e => this.def.rejectWith(this, [e]))
+            }
+        };
+        o.next();
+        return o.def;
+    },
+
+    setBreakOnExceptions: function(which, extra) {
+        var onevent = {
+            data: {
+                dbgr: this,
+            },
+            fn: function (e) {
+                this._findcmllocation(this.session.classes, e.event.throwlocation)
+                    .then(tloc => {
+                        this._findcmllocation(this.session.classes, e.event.catchlocation)
+                            .then(cloc => {
+                                var eventdata = {
+                                    event: e.event,
+                                    throwlocation: Object.assign({ threadid: e.event.threadid }, tloc),
+                                    catchlocation: Object.assign({ threadid: e.event.threadid }, cloc),
+                                };
+                                this.session.stoppedlocation = Object.assign({}, eventdata.throwlocation);
+                                this._trigger('exception', eventdata);
+                            })
+                    })
+            }.bind(this)
+        };
+
+        var c = false, u = false;
+        switch (which) {
+            case 'caught': c = true; break;
+            case 'uncaught': u = true; break;
+            case 'both': c = u = true; break;
+            default: throw new Error('Invalid exception option');
+        }
+        // when setting up the exceptions, we filter by packages containing public classes in the current session
+        // - each filter needs a separate call (I think), so we do this as an asynchronous list
+        var pkgs = this.session.build.packages;
+        var pkgs_to_monitor = Object.keys(pkgs).filter(pkgname => pkgs[pkgname].public_classes.length);
+        var o = {
+            dbgr: this,
+            pkgs: pkgs_to_monitor,
+            caught: c,
+            uncaught: u,
+            onevent: onevent,
+            cmds:[],
+            def: $.Deferred(),
+            extra: extra,
+            next() {
+                if (!this.pkgs.length) {
+                    this.def.resolveWith(this.dbgr, [this.extra]); // done
+                    return;
+                }
+                // setup next pattern
+                this.dbgr.session.adbclient.jdwp_command({
+                        cmd: this.dbgr.JDWP.Commands.SetExceptionBreak(this.pkgs.shift() + '.*', this.caught, this.uncaught, this.onevent),
+                    })
+                    .then(x => {
+                        this.dbgr.exception_ids.push(x.id);
+                        this.next();
+                    })
+                    .fail(e => this.def.rejectWith(this, [e]))
+            }
+        };
+        o.next();
+        return o.def;
+    },
+
     _loadclzinfo: function (signature) {
         return this.gettypedebuginfo(signature)
             .then(function (classes) {
@@ -1429,6 +1607,8 @@ Debugger.prototype = {
     },
 
     _findmethodasync: function (classes, location) {
+        // some locations are null (which causes the jdwp command to fail)
+        if (/^0+$/.test(location.cid)) return $.Deferred().resolveWith(this, [null]);
         var m = this._findmethod(classes, location.cid, location.mid);
         if (m) return $.Deferred().resolveWith(this, [m]);
         // convert the classid to a type signature
