@@ -41,8 +41,7 @@ class LogcatContent {
                     resolve(this.content);
                 }).fail(e => {
                     this._state = 'connect_failed';
-                    reject(e)
-                    this._provider._notifyLogDisconnected(this);
+                    reject(e);
                 })
         });
     }
@@ -267,6 +266,7 @@ class AndroidContentProvider /*extends TextDocumentContentProvider*/ {
         var doc = this._logs[uri];
         if (doc) return this._logs[uri].content;
         switch (uri.authority) {
+            // android-dev-ext://logcat/read?<deviceid>
             case 'logcat': return this.provideLogcatDocumentContent(uri);
         }
         throw new Error('Document Uri not recognised');
@@ -279,7 +279,7 @@ class AndroidContentProvider /*extends TextDocumentContentProvider*/ {
 }
 
 // the statics
-AndroidContentProvider.SCHEME = 'android-dev-ext'; // android-dev-ext://logcat/read?device=<deviceid>
+AndroidContentProvider.SCHEME = 'android-dev-ext';
 AndroidContentProvider.register = (ctx, workspace) => {
     var provider = new AndroidContentProvider();
     var registration = workspace.registerTextDocumentContentProvider(AndroidContentProvider.SCHEME, provider);
