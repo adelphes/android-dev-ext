@@ -17,14 +17,21 @@
         "color": "#5c2d91",
         "theme": "dark"
     },
-    "activationEvents": [],
+    "activationEvents": [
+        "onCommand:android-dev-ext.view_logcat"
+    ],
     "repository": {
         "type": "git",
         "url": "https://github.com/adelphes/android-dev-ext"
     },
     "main": "./extension",
     "contributes": {
-        "commands": [],
+        "commands": [
+            {
+                "command": "android-dev-ext.view_logcat",
+                "title": "Android: View Logcat"
+            }
+        ],
         "breakpoints": [
             {
                 "language": "java"
@@ -107,6 +114,7 @@
     "dependencies": {
         "vscode-debugprotocol": "^1.15.0",
         "vscode-debugadapter": "^1.15.0",
+        "ws":"^1.1.1",
         "xmldom": "^0.1.27",
         "xpath": "^0.0.23"
     },

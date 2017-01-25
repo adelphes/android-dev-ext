@@ -28,6 +28,14 @@ var Deferred = exports.Deferred = function(p, parent) {
             thendef._promise = thendef._original = p;
             return thendef;
         },
+        always(fn) {
+            var thendef = this.then(fn);
+            this.fail(function() {
+                // we cannot bind thendef to the function because we need the caller's this to resolve the thendef
+                thendef.resolveWith(this, Array.prototype.map.call(arguments,x=>x));
+            });
+            return thendef;
+        },
         fail(fn) { 
             var faildef = $.Deferred(null, this);
             var p = this._promise.catch(function(a) {
