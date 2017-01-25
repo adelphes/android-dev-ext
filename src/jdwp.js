@@ -396,7 +396,8 @@ function _JDWP() {
 			res.push((i)&255);
 		},
 		encodeChar: function(res, c) {
-			this.encodeShort(res, c.charCodeAt(0));
+			// c can either be a 1 char string or an integer
+			this.encodeShort(res, typeof c === 'string' ? c.charCodeAt(0) : c);
 		},
 		encodeString : function(res, s) {
 			var utf8bytes = getutf8bytes(s);
@@ -405,6 +406,7 @@ function _JDWP() {
 				res.push(utf8bytes[i]);
 		},
 		encodeRef: function(res, ref) {
+			if (ref === null) ref = this.nullRefValue();
 		    for(var i=0; i < ref.length; i+=2) {
 		        res.push(parseInt(ref.substring(i,i+2), 16));
 	        }

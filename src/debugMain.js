@@ -59,6 +59,11 @@ const NumberBaseConverter = {
         return negdigits.reverse().map(d => d.toString(base)).join('');
     },
     convertBase(str, fromBase, toBase) {
+        if (fromBase === 10 && /[eE]/.test(str)) {
+            // convert exponents to a string of zeros
+            var s = str.split(/[eE]/);
+            str = s[0] + '0'.repeat(parseInt(s[1],10)); // works for 0/+ve exponent,-ve throws
+        }
         var digits = str.split('').map(d => parseInt(d,fromBase)).reverse();
         var outArray = [], power = [1];
         for (var i = 0; i < digits.length; i++) {
@@ -68,6 +73,26 @@ const NumberBaseConverter = {
             power = this.multiplyByNumber(fromBase, power, toBase);
         }
         return outArray.reverse().map(d => d.toString(toBase)).join('');
+    },
+    decToHex(decstr, minlen) {
+        var res, isneg = decstr[0] === '-';
+        if (isneg) decstr = decstr.slice(1)
+        decstr = decstr.match(/^0*(.+)$/)[1];   // strip leading zeros
+        if (decstr.length < 16 && !/[eE]/.test(decstr)) {  // 16 = Math.pow(2,52).toString().length
+            // less than 52 bits - just use parseInt
+            res = parseInt(decstr, 10).toString(16);
+        } else {
+            res = NumberBaseConverter.convertBase(decstr, 10, 16);
+        }
+        if (isneg) {
+            res = NumberBaseConverter.twosComplement(res, 16);
+            if (/^[0-7]/.test(res)) res = 'f'+res;  //msb must be set for -ve numbers
+        } else if (/^[^0-7]/.test(res))
+            res = '0' + res;    // msb must not be set for +ve numbers
+        if (minlen && res.length < minlen) {
+            res = (isneg?'f':'0').repeat(minlen - res.length) + res;
+        }
+        return res;
     },
     hexToDec(hexstr, signed) {
         var res, isneg = /^[^0-7]/.test(hexstr);
@@ -103,10 +128,26 @@ const JTYPES = {
     isReference(t) { return /^[L[]/.test(t.signature) },
     isPrimitive(t) { return !JTYPES.isReference(t.signature) },
     isInteger(t) { return /^[BIJS]$/.test(t.signature) },
+    fromPrimSig(sig) { return JTYPES['byte,short,int,long,float,double,char,boolean'.split(',')['BSIJFDCZ'.indexOf(sig)]] },
 }
 
 function ensure_path_end_slash(p) {
     return p + (/[\\/]$/.test(p) ? '' : path.sep);
+}
+
+function decode_char(c) {
+    switch(true) {
+        case /^\\[^u]$/.test(c):
+            // backslash escape
+            var x = {b:'\b',f:'\f',r:'\r',n:'\n',t:'\t',v:'\v','0':String.fromCharCode(0)}[c[1]];
+            return x || c[1];
+        case /^\\u[0-9a-fA-F]{4}$/.test(c):
+            // unicode escape
+            return String.fromCharCode(parseInt(c.slice(2),16));
+        case c.length===1 : 
+            return c;
+    }
+    throw new Error('Invalid character value');
 }
 
 class AndroidDebugSession extends DebugSession {
@@ -173,6 +214,9 @@ class AndroidDebugSession extends DebugSession {
             { label:'All Exceptions', filter:'all', default:false },
             { label:'Uncaught Exceptions', filter:'uncaught', default:true },
         ];
+
+        // we support modifying variable values
+		response.body.supportsSetVariable = true;
 
 		this.sendResponse(response);
 	}
@@ -676,84 +720,81 @@ class AndroidDebugSession extends DebugSession {
     /**
      * Converts locals (or other vars) in debugger format into Variable objects used by VSCode
      */
-    _locals_to_variables(vars) {
-        return vars.map(v => {
-            var varref = 0, objvalue, typename = v.type.package ? `${v.type.package}.${v.type.typename}` : v.type.typename;
-            switch(true) {
-                case v.hasnullvalue && JTYPES.isReference(v.type):
-                    // null object or array type
-                    objvalue = 'null';
-                    break;
-                case v.type.signature === JTYPES.Object.signature:
-                    // Object doesn't really have anything worth seeing, so just treat it as unexpandable
-                    objvalue = v.type.typename;
-                    break;
-                case v.type.signature === JTYPES.String.signature:
-                    objvalue = JSON.stringify(v.string);
-                    if (v.biglen) {
-                        // since this is a big string - make it viewable on expand
-                        varref = ++this._nextObjVarRef;
-                        this._variableHandles[varref] = {varref:varref, bigstring:v};
-                        objvalue = `String (length:${v.biglen})`;
-                    }
-                    else if (this._expandable_prims) {
-                        // as a courtesy, allow strings to be expanded to see their length
-                        varref = ++this._nextObjVarRef;
-                        this._variableHandles[varref] = {varref:varref, signature:v.type.signature, primitive:true, value:v.string.length};
-                    }
-                    break;
-                case JTYPES.isArray(v.type):
-                    // non-null array type - if it's not zero-length add another variable reference so the user can expand
-                    if (v.arraylen) {
-                        varref = ++this._nextObjVarRef;
-                        this._variableHandles[varref] = { varref:varref, arrvar:v, range:[0,v.arraylen] };
-                    }
-                    objvalue = v.type.typename.replace(/]$/, v.arraylen+']');   // insert len as the final array bound
-                    break;
-                case JTYPES.isObject(v.type):
-                    // non-null object instance - add another variable reference so the user can expand
+    _local_to_variable(v) {
+        var varref = 0, objvalue, typename = v.type.package ? `${v.type.package}.${v.type.typename}` : v.type.typename;
+        switch(true) {
+            case v.hasnullvalue && JTYPES.isReference(v.type):
+                // null object or array type
+                objvalue = 'null';
+                break;
+            case v.type.signature === JTYPES.Object.signature:
+                // Object doesn't really have anything worth seeing, so just treat it as unexpandable
+                objvalue = v.type.typename;
+                break;
+            case v.type.signature === JTYPES.String.signature:
+                objvalue = JSON.stringify(v.string);
+                if (v.biglen) {
+                    // since this is a big string - make it viewable on expand
                     varref = ++this._nextObjVarRef;
-                    this._variableHandles[varref] = {varref:varref, objvar:v};
-                    objvalue = v.type.typename;
-                    break;
-                case v.type.signature === 'C': 
-                    const cmap = {'\f':'f','\r':'r','\n':'n','\t':'t','\v':'v','\'':'\'','\\':'\\'}, cc = v.value.charCodeAt(0);
-                    if (cmap[v.value]) {
-                        objvalue = `'\\${cmap[v.value]}'`;
-                    } else if (cc < 32) {
-                        objvalue = cc ? `'\\u${('000'+cc.toString(16)).slice(-4)}'` : "'\\0'";
-                    } else objvalue = `'${v.value}'`;
-                    break;
-                case v.type.signature === 'J':
-                    // because JS cannot handle 64bit ints, we need a bit of extra work
-                    var v64hex = v.value.replace(/[^0-9a-fA-F]/g,'');
-                    objvalue = NumberBaseConverter.hexToDec(v64hex, true);
-                    break;
-                default:
-                    // other primitives: int, boolean, etc
-                    objvalue = v.value.toString();
-                    break;
-            }
-            // as a courtesy, allow integer and character values to be expanded to show the value in alternate bases
-            if (this._expandable_prims && /^[IJBSC]$/.test(v.type.signature)) {
+                    this._variableHandles[varref] = {varref:varref, bigstring:v};
+                    objvalue = `String (length:${v.biglen})`;
+                }
+                else if (this._expandable_prims) {
+                    // as a courtesy, allow strings to be expanded to see their length
+                    varref = ++this._nextObjVarRef;
+                    this._variableHandles[varref] = {varref:varref, signature:v.type.signature, primitive:true, value:v.string.length};
+                }
+                break;
+            case JTYPES.isArray(v.type):
+                // non-null array type - if it's not zero-length add another variable reference so the user can expand
+                if (v.arraylen) {
+                    varref = ++this._nextObjVarRef;
+                    this._variableHandles[varref] = { varref:varref, arrvar:v, range:[0,v.arraylen] };
+                }
+                objvalue = v.type.typename.replace(/]$/, v.arraylen+']');   // insert len as the final array bound
+                break;
+            case JTYPES.isObject(v.type):
+                // non-null object instance - add another variable reference so the user can expand
                 varref = ++this._nextObjVarRef;
-                this._variableHandles[varref] = {varref:varref, signature:v.type.signature, primitive:true, value:v.value};
-            }
-            return {
-                name: v.name,
-                type: typename,
-                value: objvalue,
-                variablesReference: varref,
-            }
-        });
-
+                this._variableHandles[varref] = {varref:varref, objvar:v};
+                objvalue = v.type.typename;
+                break;
+            case v.type.signature === 'C': 
+                const cmap = {'\b':'b','\f':'f','\r':'r','\n':'n','\t':'t','\v':'v','\'':'\'','\\':'\\'}, cc = v.value.charCodeAt(0);
+                if (cmap[v.value]) {
+                    objvalue = `'\\${cmap[v.value]}'`;
+                } else if (cc < 32) {
+                    objvalue = cc ? `'\\u${('000'+cc.toString(16)).slice(-4)}'` : "'\\0'";
+                } else objvalue = `'${v.value}'`;
+                break;
+            case v.type.signature === 'J':
+                // because JS cannot handle 64bit ints, we need a bit of extra work
+                var v64hex = v.value.replace(/[^0-9a-fA-F]/g,'');
+                objvalue = NumberBaseConverter.hexToDec(v64hex, true);
+                break;
+            default:
+                // other primitives: int, boolean, etc
+                objvalue = v.value.toString();
+                break;
+        }
+        // as a courtesy, allow integer and character values to be expanded to show the value in alternate bases
+        if (this._expandable_prims && /^[IJBSC]$/.test(v.type.signature)) {
+            varref = ++this._nextObjVarRef;
+            this._variableHandles[varref] = {varref:varref, signature:v.type.signature, primitive:true, value:v.value};
+        }
+        return {
+            name: v.name,
+            type: typename,
+            value: objvalue,
+            variablesReference: varref,
+        }
     }
 
 	variablesRequest(response/*: DebugProtocol.VariablesResponse*/, args/*: DebugProtocol.VariablesArguments*/) {
 
         const return_mapped_vars = (vars, response) => {
             response.body = {
-                variables: this._locals_to_variables(vars.filter(v => v.valid))
+                variables: vars.filter(v => v.valid).map(v => this._local_to_variable(v))
             };
             this.sendResponse(response);
         }
@@ -957,6 +998,175 @@ class AndroidDebugSession extends DebugSession {
         this.sendEvent(new StoppedEvent("exception", parseInt(e.throwlocation.threadid,16)));
     }
 
+    setVariableRequest(response/*: DebugProtocol.SetVariableResponse*/, args/*: DebugProtocol.SetVariableArguments*/) {
+        const failSetVariableRequest = (response, reason) => {
+            response.success = false;
+            response.message = reason;
+            this.sendResponse(response);
+        }
+
+        var v = this._variableHandles[args.variablesReference];
+        if (!v || !v.cached) {
+            failSetVariableRequest(response, `Variable '${args.name}' not found`);
+            return;
+        }
+
+        var destvar = v.cached.find(v => v.name===args.name);
+
+        // be nice and remove any superfluous whitespace
+        var value = args.value.trim();
+
+        if (!args || !args.value) {
+            // just ignore blank requests
+            var vsvar = this._local_to_variable(destvar);
+            response.body = {
+                value: vsvar.value,
+                type: vsvar.type,
+                variablesReference: vsvar.variablesReference,
+            };
+            this.sendResponse(response);
+            return;
+        }
+
+        // non-string reference types can only set to null
+        if (/^L/.test(destvar.type.signature) && destvar.type.signature !== JTYPES.String.signature) {
+            if (value !== 'null') {
+                failSetVariableRequest(response, 'Object references can only be set to null');
+                return;
+            }
+        }
+
+        // convert the new value into a debugger-compatible object
+        var m, num, data, datadef;
+        switch(true) {
+            case value === 'null':
+                data = {valuetype:'oref',value:null}; // null object reference
+                break;
+            case /^(true|false)$/.test(value):
+                data = {valuetype:'boolean',value:value!=='false'}; // boolean literal
+                break;
+            case !!(m=value.match(/^[+-]?0x([0-9a-f]+)$/i)):
+                // hex integer- convert to decimal and fall through
+                if (m[1].length < 52/4)
+                    value = parseInt(value, 16).toString(10);
+                else
+                    value = NumberBaseConverter.hexToDec(value);
+                m=value.match(/^[+-]?[0-9]+([eE][+]?[0-9]+)?$/);
+                // fall-through
+            case !!(m=value.match(/^[+-]?[0-9]+([eE][+]?[0-9]+)?$/)):
+                // decimal integer
+                num = parseFloat(value, 10);    // parseInt() can't handle exponents
+                switch(true) {
+                    case (num >= -128 && num <= 127): data = {valuetype:'byte',value:num}; break;
+                    case (num >= -32768 && num <= 32767): data = {valuetype:'short',value:num}; break;
+                    case (num >= -2147483648 && num <= 2147483647): data = {valuetype:'int',value:num}; break;
+                    case /inf/i.test(num): failSetVariableRequest(response,`Value '${args.value}' exceeds the maximum number range.`); return;
+                    case /^[FD]$/.test(destvar.type.signature): data = {valuetype:'float',value:num}; break;
+                    default:
+                        // long (or larger) - need to use the arbitrary precision class
+                        data = {valuetype:'long',value:NumberBaseConverter.decToHex(value, 16)};
+                        switch(true){
+                            case data.value.length > 16: 
+                            case num > 0 && data.value.length===16 && /[^0-7]/.test(data.value[0]):
+                                // number exceeds signed 63 bit - make it a float
+                                data = {valuetype:'float',value:num}; 
+                                break;
+                        }
+                }
+                break;            
+            case !!(m=value.match(/^(Float|Double)\s*\.\s*(POSITIVE_INFINITY|NEGATIVE_INFINITY|NaN)$/)):
+                // Java special float constants
+                data = {valuetype:m[1].toLowerCase(),value:{POSITIVE_INFINITY:Infinity,NEGATIVE_INFINITY:-Infinity,NaN:NaN}[m[2]]};
+                break;
+            case !!(m=value.match(/^([+-])?infinity$/i)):// allow js infinity
+                data = {valuetype:'float',value:m[1]!=='-'?Infinity:-Infinity};
+                break;
+            case !!(m=value.match(/^nan$/i)): // allow js nan
+                data = {valuetype:'float',value:NaN};
+                break;
+            case !!(m=value.match(/^[+-]?[0-9]+[eE][-][0-9]+([dDfF])?$/)):
+            case !!(m=value.match(/^[+-]?[0-9]*\.[0-9]+(?:[eE][+-]?[0-9]+)?([dDfF])?$/)):
+                // decimal float
+                num = parseFloat(value);
+                data = {valuetype:/^[dD]$/.test(m[1]) ? 'double': 'float',value:num}; 
+                break;
+            case !!(m=value.match(/^'(?:\\u([0-9a-fA-F]{4})|\\([bfrntv0'])|(.))'$/)):
+                // character literal
+                var cvalue = m[1] ? String.fromCharCode(parseInt(m[1],16)) : 
+                    m[2] ? {b:'\b',f:'\f',r:'\r',n:'\n',t:'\t',v:'\v',0:'\0',"'":"'"}[m[2]]
+                    : m[3]
+                data = {valuetype:'char',value:cvalue};
+                break;
+            case !!(m=value.match(/^"[^"\\\n]*(\\.[^"\\\n]*)*"$/)):
+                // string literal - we need to get the runtime to create a new string first
+                datadef = this.createJavaString(value).then(stringlit => ({valuetype:'oref', value:stringlit.value}));
+                break;
+            default:
+                // invalid literal
+                failSetVariableRequest(response, `'${args.value}' is not a valid literal value.`);
+                return;
+        }
+
+        if (!datadef) {
+            // as a nicety, if the destination is a string, stringify any primitive value
+            if (data.valuetype !== 'oref' && destvar.type.signature === JTYPES.String.signature) {
+                datadef = this.createJavaString(data.value.toString(), {israw:true})
+                    .then(stringlit => ({valuetype:'oref', value:stringlit.value}));
+            } else if (destvar.type.signature.length===1) {
+                // if the destination is a primitive, we need to range-check it here
+                // Neither our debugger nor the JDWP endpoint validates primitives, so we end up with
+                // weirdness if we allow primitives to be set with out-of-range values
+                var validmap = {
+                    B:'byte,char',   // char may not fit - we special-case this later
+                    S:'byte,short,char',
+                    I:'byte,short,int,char',
+                    J:'byte,short,int,long,char',
+                    F:'byte,short,int,long,char,float',
+                    D:'byte,short,int,long,char,double,float',
+                    C:'byte,short,char',Z:'boolean',
+                    isCharInRangeForByte: c => c.charCodeAt(0) < 256,
+                };
+                var is_in_range = (validmap[destvar.type.signature]||'').indexOf(data.valuetype) >= 0;
+                if (destvar.type.signature === 'B' && data.valuetype === 'char')
+                    is_in_range = validmap.isCharInRangeForByte(data.value);
+                if (!is_in_range) {
+                    failSetVariableRequest(response, `Value '${args.value}' is not compatible with variable type: ${destvar.type.typename}`);
+                    return;
+                }
+                // check complete - make sure the type matches the destination and use a resolved deferred with the value
+                if (destvar.type.signature!=='C' && data.valuetype === 'char') 
+                    data.value = data.value.charCodeAt(0);  // convert char to it's int value
+                if (destvar.type.signature==='J' && typeof data.value === 'number') 
+                    data.value = NumberBaseConverter.decToHex(''+data.value,16);  // convert ints to hex-string longs
+                data.valuetype = destvar.type.typename;
+
+                datadef = $.Deferred().resolveWith(this,[data]);
+            }
+        }
+
+        datadef.then(data => {
+            // setxxxvalue sets the new value and then returns a new local for the variable
+            switch(destvar.vtype) {
+                case 'field': return this.dbgr.setfieldvalue(destvar, data);
+                case 'local': return this.dbgr.setlocalvalue(destvar, data);
+                default: throw new Error('Unsupported variable type');
+            }
+        })
+        .then(newlocalvar => {
+            Object.assign(destvar, newlocalvar);
+            var vsvar = this._local_to_variable(destvar);
+            response.body = {
+                value: vsvar.value,
+                type: vsvar.type,
+                variablesReference: vsvar.variablesReference,
+            };
+            this.sendResponse(response);
+        })
+        .fail(e => {
+            failSetVariableRequest(response, 'Variable update failed.');
+        });
+	}
+
     /**
      * Called by VSCode to perform watch, console and hover evaluations
      */
@@ -1002,6 +1212,12 @@ class AndroidDebugSession extends DebugSession {
         this.doEvaluateRequest.apply(this, this._evals_queue[0]);
     }
 
+    createJavaString(s, opts) {
+        const raw = (opts && opts.israw) ? s : s.slice(1,-1).replace(/\\u[0-9a-fA-F]{4}|\\./,decode_char);
+        // return a deferred, which resolves to a local variable named 'literal'
+        return this.dbgr.createstring(raw);
+    }
+
     doEvaluateRequest(response, args) {
 
         // just in case the user starts the app running again, before we've evaluated everything in the queue
@@ -1045,7 +1261,7 @@ class AndroidDebugSession extends DebugSession {
             return res;
         }
         var parse_expression = function(e) {
-            var root_term = e.expr.match(/^(?:(true(?![\w$]))|(false(?![\w$]))|(null(?![\w$]))|([a-zA-Z_$][a-zA-Z0-9_$]*)|(\d+(?:\.\d+)?)|('[^\\']')|('\\[frntv0]')|('\\u[0-9a-fA-F]{4}')|("[^"]*"))/);
+            var root_term = e.expr.match(/^(?:(true(?![\w$]))|(false(?![\w$]))|(null(?![\w$]))|([a-zA-Z_$][a-zA-Z0-9_$]*)|(\d+(?:\.\d+)?)|('[^\\']')|('\\[bfrntv0]')|('\\u[0-9a-fA-F]{4}')|("[^"]*"))/);
             if (!root_term) return null;
             var res = {
                 root_term: root_term[0],
@@ -1067,15 +1283,6 @@ class AndroidDebugSession extends DebugSession {
                 if ((m.array_or_fncall = parse_array_or_fncall(e)) === null) return null;
             }
             return res;
-        }
-        const descape_char = (c) => {
-            if (c.length===2) {
-                // backslash escape
-                var x = {'f':'\f','r':'\r','n':'\n','t':'\t',v:'\v'}[c[1]];
-                return x || (c[1]==='0'?String.fromCharCode(0):c[1]);
-            }
-            // unicode escape
-            return String.fromCharCode(parseInt(c.slice(2,6),16));
         }
         var reject_evaluation = (msg) => $.Deferred().rejectWith(this, [new Error(msg)]);
         var evaluate_number = (n) => {
@@ -1102,16 +1309,13 @@ class AndroidDebugSession extends DebugSession {
                     local = evaluate_number(expr.root_term);
                     break;
                 case 'char':
-                    local = expr.root_term[1]; // fall-through
                 case 'echar':
                 case 'uchar':
-                    !local && (local = descape_char(expr.root_term.slice(1,-1))); // fall-through
-                    local = { vtype:'literal',name:'',hasnullvalue:false,type:JTYPES.char,value:local,valid:true };
+                    local = { vtype:'literal',name:'',hasnullvalue:false,type:JTYPES.char,value:decode_char(expr.root_term.slice(1,-1)),valid:true };
                     break;
                 case 'string':
-                    const raw = expr.root_term.slice(1,-1).replace(/\\u[0-9a-fA-F]{4}|\\./,descape_char);
                     // we must get the runtime to create string instances
-                    q = this.dbgr.createstring(raw);
+                    q = this.createJavaString(expr.root_term);
                     local = {valid:true};   // make sure we don't fail the evaluation
                     break;
             }
@@ -1173,7 +1377,7 @@ class AndroidDebugSession extends DebugSession {
             // the expression is well-formed - start the (asynchronous) evaluation
             evaluate_expression(parsed_expression)
                 .then(function(response,local) {
-                    var v = this._locals_to_variables([local])[0];
+                    var v = this._local_to_variable(local);
                     this.sendResponseAndDoNext(response, v.value, v.variablesReference);
                 }.bind(this,response))
                 .fail(function(response,reason) {
