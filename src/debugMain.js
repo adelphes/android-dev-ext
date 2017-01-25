@@ -1149,10 +1149,15 @@ class AndroidDebugSession extends DebugSession {
             switch(destvar.vtype) {
                 case 'field': return this.dbgr.setfieldvalue(destvar, data);
                 case 'local': return this.dbgr.setlocalvalue(destvar, data);
+                case 'arrelem': 
+                    var idx = parseInt(args.name, 10), count=1;
+                    if (idx < 0 || idx >= destvar.data.arrobj.arraylen) throw new Error('Array index out of bounds');
+                    return this.dbgr.setarrayvalues(destvar.data.arrobj, idx, count, data);
                 default: throw new Error('Unsupported variable type');
             }
         })
         .then(newlocalvar => {
+            if (destvar.vtype === 'arrelem') newlocalvar = newlocalvar[0];
             Object.assign(destvar, newlocalvar);
             var vsvar = this._local_to_variable(destvar);
             response.body = {
@@ -1163,7 +1168,7 @@ class AndroidDebugSession extends DebugSession {
             this.sendResponse(response);
         })
         .fail(e => {
-            failSetVariableRequest(response, 'Variable update failed.');
+            failSetVariableRequest(response, 'Variable update failed. '+(e.message||''));
         });
 	}
 
