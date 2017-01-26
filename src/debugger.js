@@ -1491,10 +1491,10 @@ Debugger.prototype = {
         // when setting up the exceptions, we filter by packages containing public classes in the current session
         // - each filter needs a separate call (I think), so we do this as an asynchronous list
         var pkgs = this.session.build.packages;
-        var pkgs_to_monitor = Object.keys(pkgs).filter(pkgname => pkgs[pkgname].public_classes.length);
+        var pkgs_to_monitor = c ? Object.keys(pkgs).filter(pkgname => pkgs[pkgname].public_classes.length) : [];
         var o = {
             dbgr: this,
-            pkgs: pkgs_to_monitor,
+            filters: pkgs_to_monitor.map(pkg=>pkg+'.*'),
             caught: c,
             uncaught: u,
             onevent: onevent,
@@ -1502,13 +1502,20 @@ Debugger.prototype = {
             def: $.Deferred(),
             extra: extra,
             next() {
-                if (!this.pkgs.length) {
-                    this.def.resolveWith(this.dbgr, [this.extra]); // done
-                    return;
+                var uncaught = false;
+                if (!this.filters.length) {
+                    if (!this.uncaught) {
+                        this.def.resolveWith(this.dbgr, [this.extra]); // done
+                        return;
+                    }
+                    // setup the uncaught exception break - with no filter
+                    uncaught = true;
+                    this.filters.push(null);
+                    this.caught = this.uncaught = false;
                 }
                 // setup next pattern
                 this.dbgr.session.adbclient.jdwp_command({
-                        cmd: this.dbgr.JDWP.Commands.SetExceptionBreak(this.pkgs.shift() + '.*', this.caught, this.uncaught, this.onevent),
+                        cmd: this.dbgr.JDWP.Commands.SetExceptionBreak(this.filters.shift(), this.caught, uncaught, this.onevent),
                     })
                     .then(x => {
                         this.dbgr.exception_ids.push(x.id);
