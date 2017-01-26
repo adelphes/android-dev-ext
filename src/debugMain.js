@@ -191,6 +191,7 @@ class AndroidDebugSession extends DebugSession {
         this._variableHandles = {};
         this._frameBaseId  =  0x00010000; // high, so we don't clash with thread id's
         this._nextObjVarRef = 0x10000000; // high, so we don't clash with thread or frame id's
+        this._sourceRefs = { all:[null] };  // hashmap + array of (non-zero) source references
 
         // flag to distinguish unexpected disconnection events (initiated from the device) vs user-terminated requests
         this._isDisconnecting = false;
@@ -671,6 +672,8 @@ class AndroidDebugSession extends DebugSession {
                 const maxLevels = typeof x.args.levels === 'number' ? x.args.levels : frames.length-startFrame;
                 const endFrame = Math.min(startFrame + maxLevels, frames.length);
                 var stack = [], totalFrames = frames.length, highest_known_source=0;
+                const android_src_path = process.env.ANDROID_HOME || '{android sdk}';
+                const device_api_level = this.dbgr.session.apilevel || '25';
                 for (var i= startFrame; i < endFrame; i++) {
                     // the stack_frame_id must be unique across all threads
                     const stack_frame_id = (x.args.threadId * this._frameBaseId) + i;
@@ -684,7 +687,21 @@ class AndroidDebugSession extends DebugSession {
                         continue;  // ignore frames which have no location (they're probably synthetic)
                     }
                     const linenum = srcloc && this.convertDebuggerLineToClient(srcloc.linenum);
-                    const src = sourcefile && new Source(sourcefile, (pkginfo && path.join(pkginfo.package_path,sourcefile))||'', pkginfo ? 0 : 1);
+                    var srcRefId = 0;
+                    if (!pkginfo) {
+                        var sig = frames[i].method.owningclass.type.signature, srcInfo = this._sourceRefs[sig];
+                        if (!srcInfo) {
+                            this._sourceRefs.all.push(srcInfo = { 
+                                id: this._sourceRefs.all.length, 
+                                signature:sig,
+                                filepath:path.join(android_src_path,'sources','android-'+device_api_level,sig.slice(1,-1).replace(/\//g,path.sep)+'.java'),
+                                content:null 
+                            });
+                            this._sourceRefs[sig] = srcInfo;
+                        }
+                        srcRefId = srcInfo.id;
+                    }
+                    const src = sourcefile && new Source(sourcefile, pkginfo ? path.join(pkginfo.package_path,sourcefile) : srcInfo.filepath, srcRefId );
                     pkginfo && (highest_known_source=i);
                     stack.push(new StackFrame(stack_frame_id, name, src, linenum, 0));
                 }
@@ -713,7 +730,23 @@ class AndroidDebugSession extends DebugSession {
 	}
 
     sourceRequest(response/*: DebugProtocol.SourceResponse*/, args/*: DebugProtocol.SourceArguments*/) {
-        response.body = { content:'// The source for this class is unavailable.' }
+        var content = '// The source for this class is unavailable.'
+        var srcInfo = this._sourceRefs.all[args.sourceReference];
+        if (srcInfo) {
+            if (srcInfo.content !== null) {
+                content = srcInfo.content;
+            } else if (process.env.ANDROID_HOME && /^L.+;$/.test(srcInfo.signature)) {
+                fs.readFile(srcInfo.filepath, 'utf8', (err,file_content) => {
+                    if (!err) {
+                        srcInfo.content = content = file_content;
+                    }
+                    response.body = { content };
+                    this.sendResponse(response);
+                });
+                return;
+            }
+        }
+        response.body = { content };
         this.sendResponse(response);
     }
 
