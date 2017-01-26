@@ -2,6 +2,14 @@
 
 This is a preview version of the Android for VS Code Extension. The extension allows developers to install, launch and debug Android Apps from within the VS Code environment.
 
+## Features
+* Line by line code stepping
+* Breakpoints
+* Variable inspection and modification
+* Logcat viewing [ Command Palette -> Android: View Logcat ]
+* Break on exceptions
+* Step through Android sources
+
 ## Requirements
 
 You must have [Android SDK Tools](https://developer.android.com/studio/releases/sdk-tools.html) installed. This extension communicates with your device via the ADB (Android Debug Bridge) interface.  
@@ -13,7 +21,7 @@ You must have [Android SDK Tools](https://developer.android.com/studio/releases/
 * This extension **will not build your app**.  
 If you use gradle (or Android Studio), you can build your app from the command-line using `./gradlew assembleDebug`.
 > You must use gradle or some other build procedure to create your APK. Once built, the extension can deploy and launch your app, allowing you to debug it in the normal way.  
-* Some debugger options are yet to be implemented. You cannot modify local variable values or set conditional breakpoints and watch expressions must be simple variables.
+* Some debugger options are yet to be implemented. You cannot set conditional breakpoints and watch expressions must be simple variables.
 * If you require a must-have feature that isn't there yet, let us know on [GitHub](https://github.com/adelphes/android-dev-ext/issues).  
 * This extension does not provide any additional code completion or other editing enhancements.
 
