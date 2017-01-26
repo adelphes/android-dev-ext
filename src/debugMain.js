@@ -555,6 +555,7 @@ class AndroidDebugSession extends DebugSession {
             if (!javabp.vsbp) return;
             var verified = !!javabp.state.match(/set|enabled/);
             javabp.vsbp.verified = verified;
+            javabp.vsbp.message = null;
             this.sendEvent(new BreakpointEvent('updated', javabp.vsbp));
         });
     }
@@ -598,6 +599,7 @@ class AndroidDebugSession extends DebugSession {
                 breakpoints: args.lines.map(l => {
                     var bp = new Breakpoint(false,l);
                     bp.id = ++this._breakpointId;
+                    bp.message = 'The breakpoint location is outside of the project source tree';
                     return bp;
                 })
             };
@@ -626,6 +628,8 @@ class AndroidDebugSession extends DebugSession {
                 const bp = new Breakpoint(verified, this.convertDebuggerLineToClient(dbgline));
                 // the breakpoint *must* have an id field or it won't update properly
                 bp.id = ++this._breakpointId;
+                if (javabp.state === 'notloaded')
+                    bp.message = 'The runtime hasn\'t loaded this code location';
                 javabp.vsbp = bp;
             }
             javabp.vsbp.order = idx;
