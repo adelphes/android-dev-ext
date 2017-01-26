@@ -1023,12 +1023,12 @@ Debugger.prototype = {
         // for those fields that are strings, retrieve the text
         for (var i in stringfields) {
             if (stringfields[i].hasnullvalue || !stringfields[i].valid) continue;
-            var def = this._getstringlen(stringfields[i].value)
-                .then(function (len) {
+            var def = this._getstringlen(stringfields[i].value, stringfields[i])
+                .then(function (len, strfield) {
                     if (len > 10000)
-                        return $.Deferred().resolveWith(this, [len, stringfields[i]]);
+                        return $.Deferred().resolveWith(this, [len, strfield]);
                     // retrieve the actual chars
-                    return this.getstringchars(stringfields[i].value, stringfields[i]);
+                    return this.getstringchars(strfield.value, strfield);
                 })
                 .then(function (str, strfield) {
                     if (typeof (str) === 'number') {
@@ -1575,7 +1575,10 @@ Debugger.prototype = {
     },
 
     line_idx_to_source_location: function (method, idx) {
-        if (!method || !method.linetable || !method.linetable.lines)
+        if (!method || !method.linetable || !method.linetable.lines || !method.linetable.lines.length)
+            return null;
+        var m = method.owningclass.type.signature.match(/^L([^;$]+)[$a-zA-Z0-9_]*;$/);
+        if (!m)
             return null;
         var lines = method.linetable.lines, prevk = 0;
         for (var k in lines) {
@@ -1588,15 +1591,18 @@ Debugger.prototype = {
             if (lines[k].linecodeidx > idx)
                 k = prevk;
             // convert the class signature to a file location
-            var m = method.owningclass.type.signature.match(/^L([^;$]+)[$a-zA-Z0-9_]*;$/);
-            if (!m)
-                return null;
             return {
                 qtype: m[1],
                 linenum: lines[k].linenum,
+                exact: lines[k].linecodeidx === idx,
             };
         }
-        return null;
+        // just return the last location in the list
+        return {
+            qtype: m[1],
+            linenum: lines[lines.length-1].linenum,
+            exact: false,
+        };
     },
 
     _findcmllocation: function (classes, loc) {

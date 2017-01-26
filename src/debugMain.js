@@ -176,13 +176,15 @@ class AndroidDebugSession extends DebugSession {
         this._expandable_prims = false;
         // true if the app is resumed, false if stopped (exception, breakpoint, etc)
         this._running = false;
-        // a promise to wait on for the stack variables to evaluate
-        this._locals_done = null;
+        // a hashmap<frameId,Deferred> of promises to wait on for the stack variables to evaluate
+        this._locals_done = {};
         // the fifo queue of evaluations (watches, hover, etc)
         this._evals_queue = [];
         // the last (current) exception info
         this._last_exception = null;
         this._exmsg_var_name = ':msg';  // the special name given to exception message fields
+        // path to the the ANDROID_HOME/sources/<api> (only set if it's a valid path)
+        this._android_sources_path = '';
 
         // since we want to send breakpoint events, we will assign an id to every event
         // so that the frontend can match events with breakpoints.
@@ -311,6 +313,21 @@ class AndroidDebugSession extends DebugSession {
                 // - before we continue, splunk the apk file data because node *still* hangs when evaluating large arrays
                 this._apk_file_data = null;
 
+                // get the API level of the device
+                return this._device.adbclient.shell_cmd({command:'getprop ro.build.version.sdk'});
+            })
+            .then(apilevel => {
+                apilevel = apilevel.trim();
+
+                // look for the android sources folder appropriate for this device
+                if (process.env.ANDROID_HOME && apilevel) {
+                    var sources_path = path.join(process.env.ANDROID_HOME,'sources','android-'+apilevel);
+                    fs.stat(sources_path, (err,stat) => {
+                        if (!err && stat && stat.isDirectory())
+                            this._android_sources_path = sources_path;
+                    });
+                }
+
                 // start the launch
                 var launchActivity = args.launchActivity;
                 if (!launchActivity)
@@ -321,7 +338,7 @@ class AndroidDebugSession extends DebugSession {
                     packages:Object.assign({}, this.src_packages.packages),
                     launchActivity: launchActivity,
                 };
-                this.LOG(`Launching ${build.pkgname+'/'+launchActivity} on device ${this._device.serial}`);
+                this.LOG(`Launching ${build.pkgname+'/'+launchActivity} on device ${this._device.serial} [API:${apilevel||'?'}]`);
                 return this.dbgr.startDebugSession(build, this._device.serial, launchActivity);
             })
             .then(() => {
@@ -673,7 +690,7 @@ class AndroidDebugSession extends DebugSession {
                 const maxLevels = typeof x.args.levels === 'number' ? x.args.levels : frames.length-startFrame;
                 const endFrame = Math.min(startFrame + maxLevels, frames.length);
                 var stack = [], totalFrames = frames.length, highest_known_source=0;
-                const android_src_path = process.env.ANDROID_HOME || '{android sdk}';
+                const android_src_path = this._android_sources_path || '{Android SDK}';
                 const device_api_level = this.dbgr.session.apilevel || '25';
                 for (var i= startFrame; i < endFrame; i++) {
                     // the stack_frame_id must be unique across all threads
@@ -681,13 +698,13 @@ class AndroidDebugSession extends DebugSession {
                     this._variableHandles[stack_frame_id] = { varref: stack_frame_id, frame: frames[i], threadId:x.args.threadId };
                     const name = `${frames[i].method.owningclass.name}.${frames[i].method.name}`;
                     const pkginfo = this.src_packages.packages[frames[i].method.owningclass.type.package];
-                    const sourcefile = frames[i].method.owningclass.src.sourcefile;
                     const srcloc = this.dbgr.line_idx_to_source_location(frames[i].method, frames[i].location.idx);
-                    if (!srcloc) {
+                    if (!srcloc && !pkginfo) {
                         totalFrames--;
                         continue;  // ignore frames which have no location (they're probably synthetic)
                     }
                     const linenum = srcloc && this.convertDebuggerLineToClient(srcloc.linenum);
+                    const sourcefile = frames[i].method.owningclass.src.sourcefile || (frames[i].method.owningclass.type.signature.match(/([^\/$]+)[;$]/)[1]+'.java');
                     var srcRefId = 0;
                     if (!pkginfo) {
                         var sig = frames[i].method.owningclass.type.signature, srcInfo = this._sourceRefs[sig];
@@ -695,14 +712,20 @@ class AndroidDebugSession extends DebugSession {
                             this._sourceRefs.all.push(srcInfo = { 
                                 id: this._sourceRefs.all.length, 
                                 signature:sig,
-                                filepath:path.join(android_src_path,'sources','android-'+device_api_level,sig.slice(1,-1).replace(/\//g,path.sep)+'.java'),
+                                filepath:path.join(android_src_path,frames[i].method.owningclass.type.package.replace(/[.]/g,path.sep), sourcefile),
                                 content:null 
                             });
                             this._sourceRefs[sig] = srcInfo;
                         }
                         srcRefId = srcInfo.id;
                     }
-                    const src = sourcefile && new Source(sourcefile, pkginfo ? path.join(pkginfo.package_path,sourcefile) : srcInfo.filepath, srcRefId );
+                    // if this is not a known package, check if android sources is valid
+                    // - if it is, return the expected path - VSCode will auto-load it
+                    // - if not, set the path to null and a sourceRequest will be made.
+                    const srcpath = pkginfo ? path.join(pkginfo.package_path,sourcefile)
+                        : this._android_sources_path ? srcInfo.filepath
+                        : null;
+                    const src = new Source(sourcefile, srcpath, srcRefId);
                     pkginfo && (highest_known_source=i);
                     stack.push(new StackFrame(stack_frame_id, name, src, linenum, 0));
                 }
@@ -739,24 +762,48 @@ class AndroidDebugSession extends DebugSession {
 	}
 
     sourceRequest(response/*: DebugProtocol.SourceResponse*/, args/*: DebugProtocol.SourceArguments*/) {
-        var content = '// The source for this class is unavailable.'
-        var srcInfo = this._sourceRefs.all[args.sourceReference];
-        if (srcInfo) {
-            if (srcInfo.content !== null) {
-                content = srcInfo.content;
-            } else if (process.env.ANDROID_HOME && /^L.+;$/.test(srcInfo.signature)) {
-                fs.readFile(srcInfo.filepath, 'utf8', (err,file_content) => {
-                    if (!err) {
-                        srcInfo.content = content = file_content;
-                    }
-                    response.body = { content };
-                    this.sendResponse(response);
-                });
-                return;
-            }
+        var content = 
+`/*
+  The source for this class is unavailable.
+
+  Source files for each Android API level can be downloaded using the Android SDK Manager.
+
+  To display the file, you must download the sources matching the API level of your device or
+  emulator and ensure that your ANDROID_HOME environment path is configured correctly.
+*/
+`;
+        // don't actually attempt to load the file here - just recheck to see if the sources
+        // path is valid yet.
+        if (process.env.ANDROID_HOME && this.dbgr.session.apilevel) {
+            var sources_path = path.join(process.env.ANDROID_HOME,'sources','android-'+this.dbgr.session.apilevel);
+            fs.stat(sources_path, (err,stat) => {
+                if (!err && stat && stat.isDirectory())
+                    this._android_sources_path = sources_path;
+            });
         }
+
         response.body = { content };
         this.sendResponse(response);
+    }
+
+    _ensureLocals(frameId) {
+        // retrieve the varinfo associated with the id
+        var varinfo = this._variableHandles[frameId];
+        if (!varinfo) return $.Deferred().rejectWith(this, [new Error('Invalid frameId: '+frameId)]);
+        // if we're currently processing it (or we've finished), just return the promise
+        if (this._locals_done[frameId]) return this._locals_done[frameId];
+        // create a new promise
+        var def = this._locals_done[frameId] = $.Deferred();
+        // we should never be running when this is called, but just in case...
+        if (this._running) return def;
+
+        this.dbgr.getlocals(varinfo.frame.threadid, varinfo.frame, {def:def,varinfo:varinfo})
+            .then((locals,x) => {
+                // cache the results and resolve the promise
+                x.varinfo.cached = locals;
+                x.def.resolveWith(this, [x.varinfo]);
+            });
+        return def;
     }
 
     /**
@@ -948,17 +995,14 @@ class AndroidDebugSession extends DebugSession {
             };
             this.sendResponse(response);
         }
-        else {
+        else if (varinfo.frame) {
             // frame locals request
-            this.dbgr.getlocals(varinfo.frame.threadid, varinfo.frame, response)
-                .then((locals, response) => {
-                    varinfo.cached = locals;
-                    return_mapped_vars(locals, response);
-                    if (this._locals_done) {
-                        this._locals_done.resolveWith(this, [locals]);
-                        this._locals_done = null;
-                    };
+            this._ensureLocals(args.variablesReference)
+                .then(varinfo => {
+                    return_mapped_vars(varinfo.cached, response);
                 });
+        } else {
+            // something else?
         }
 	}
 
@@ -966,12 +1010,12 @@ class AndroidDebugSession extends DebugSession {
         D('Continue');
         this._variableHandles = {};
         this._last_exception = null;
+        this._locals_done = {};
         // sometimes, the device is so quick that a breakpoint is hit
         // before we've completed the resume promise chain.
         // so tell the client that we've resumed now and just send a StoppedEvent
         // if it ends up failing
         this._running = true;
-        this._locals_done = $.Deferred();
         this.dbgr.resume()
             .then(() => {
                 if (args.is_start)
@@ -1003,8 +1047,8 @@ class AndroidDebugSession extends DebugSession {
         D('step '+which);
         this._variableHandles = {};
         this._last_exception = null;
+        this._locals_done = {};
         this._running = true;
-        this._locals_done = $.Deferred();
         var threadid = ('000000000000000' + args.threadId.toString(16)).slice(-16);
         this.dbgr.step(which, threadid);
         this.sendResponse(response);
@@ -1239,15 +1283,7 @@ class AndroidDebugSession extends DebugSession {
         this._evals_queue.push([response,args]);
         if (this._evals_queue.length > 1)
             return;
-        if (this._locals_done) {
-            // wait for the promise to be resolved (after the locals have been retrieved)
-            this._locals_done.then(() => {
-                // start the evaluations
-                this.doNextEvaluateRequest();
-            });
-            return;
-        }
-        // we reach here if the program is paused, all the queued evaluations are done and a new evaluation is requested
+        // start the evaluations
         this.doNextEvaluateRequest();
     }
 
@@ -1260,7 +1296,13 @@ class AndroidDebugSession extends DebugSession {
 
     doNextEvaluateRequest() {
         if (!this._evals_queue.length) return;
-        this.doEvaluateRequest.apply(this, this._evals_queue[0]);
+        var args = this._evals_queue[0][1];
+        // if there's no frameId, we are being asked to evaluate the value in the 'global' context
+        var getLocals = args.frameId ? this._ensureLocals(args.frameId) : $.Deferred().resolve();
+        // wait for any locals in the given context to be retrieved
+        getLocals.then(() => {
+            this.doEvaluateRequest.apply(this, this._evals_queue[0]);
+        });
     }
 
     createJavaString(s, opts) {
