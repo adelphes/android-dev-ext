@@ -627,6 +627,28 @@ function _JDWP() {
 				}
 			);
 		},
+		GetStaticFieldValues:function(typeid, fields) {
+			return new Command('GetStaticFieldValues:'+typeid, 2, 6,
+				function() {
+					var res=[];
+					DataCoder.encodeRef(res, typeid);
+					DataCoder.encodeInt(res, fields.length);
+					for (var i in fields) {
+						DataCoder.encodeRef(res, fields[i].fieldid);
+					}
+					return res;
+				},
+				function(o) {
+					var res = [];
+					var arrlen = DataCoder.decodeInt(o);
+					while (--arrlen>=0) {
+    					var v = DataCoder.decodeValue(o);
+					    res.push(v);
+					}
+					return res;
+				}
+			);
+		},
 		sourcefile:function(ci) {
 			return new Command('SourceFile:'+ci.name, 2, 7,
 				function() {
@@ -650,7 +672,9 @@ function _JDWP() {
 					var arrlen = DataCoder.decodeInt(o);
 					var res = [];
 					while (--arrlen>=0) {
-						res.push(DataCoder.decodeList(o, [{fieldid:'fref'},{name:'string'},{type:'signature'},{genericsig:'string'},{modbits:'int'}]));
+						var field = DataCoder.decodeList(o, [{fieldid:'fref'},{name:'string'},{type:'signature'},{genericsig:'string'},{modbits:'int'}]);
+						field.typeid = ci.info.typeid;
+						res.push(field);
 					}
 					return res;
 				}

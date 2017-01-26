@@ -794,14 +794,38 @@ Debugger.prototype = {
             })
             .then(function (typeinfo, x) {
                 x.typeinfo = typeinfo;
+                // the Android runtime now pointlessly barfs into logcat if an instance value is used
+                // to retrieve a static field. So, we now split into two calls...
+                x.splitfields = typeinfo.fields.reduce((z,f) => {
+                    if (f.modbits & 8) z.static.push(f); else z.instance.push(f);
+                    return z;
+                }, {instance:[],static:[]});
+                // if there are no instance fields, just resolve with an empty array
+                if (!x.splitfields.instance.length)
+                    return $.Deferred().resolveWith(this,[[], x]);
                 return this.session.adbclient.jdwp_command({
                     ths: this,
                     extra: x,
-                    cmd: this.JDWP.Commands.GetFieldValues(x.objvar.value, typeinfo.fields),
+                    cmd: this.JDWP.Commands.GetFieldValues(x.objvar.value, x.splitfields.instance),
                 });
             })
-            .then(function (fieldvalues, x) {
-                return this._mapvalues('field', x.typeinfo.fields, fieldvalues, { objvar: x.objvar }, x);
+            .then(function (instance_fieldvalues, x) {
+                x.instance_fieldvalues = instance_fieldvalues;
+                // and now the statics (with a type reference)
+                if (!x.splitfields.static.length)
+                    return $.Deferred().resolveWith(this,[[], x]);
+                return this.session.adbclient.jdwp_command({
+                    ths: this,
+                    extra: x,
+                    cmd: this.JDWP.Commands.GetStaticFieldValues(x.splitfields.static[0].typeid, x.splitfields.static),
+                });
+            })
+            .then(function (static_fieldvalues, x) {
+                x.static_fieldvalues = static_fieldvalues;
+                // make sure the fields and values match up...
+                var fields = x.splitfields.instance.concat(x.splitfields.static);
+                var values = x.instance_fieldvalues.concat(x.static_fieldvalues);
+                return this._mapvalues('field', fields, values, { objvar: x.objvar }, x);
             })
             .then(function (res, x) {
                 for (var i = 0; i < res.length; i++) {
