@@ -182,6 +182,7 @@ class AndroidDebugSession extends DebugSession {
         this._evals_queue = [];
         // the last (current) exception info
         this._last_exception = null;
+        this._exmsg_var_name = ':msg';  // the special name given to exception message fields
 
         // since we want to send breakpoint events, we will assign an id to every event
         // so that the frontend can match events with breakpoints.
@@ -719,13 +720,21 @@ class AndroidDebugSession extends DebugSession {
 
 	scopesRequest(response/*: DebugProtocol.ScopesResponse*/, args/*: DebugProtocol.ScopesArguments*/) {
         var scopes = [new Scope("Local", args.frameId, false)];
-        if (this._last_exception) {
-            scopes.push(new Scope("Exception", this._last_exception.varref, false));
-        }
-
 		response.body = {
 			scopes: scopes
 		};
+
+        if (this._last_exception && !this._last_exception.objvar) {
+            this.dbgr.getExceptionLocal(this._last_exception.exception, {response,scopes})
+                .then((ex_local,x) => {
+                    this._last_exception.objvar = ex_local;
+                    // put the exception first - otherwise it can get lost if there's a lot of locals
+                    x.scopes.unshift(new Scope("Exception: "+ex_local.type.typename, this._last_exception.varref, false));
+            		this.sendResponse(x.response);
+                })
+                .fail(e => { this.sendResponse(response); });
+            return;
+        }
 		this.sendResponse(response);
 	}
 
@@ -847,6 +856,17 @@ class AndroidDebugSession extends DebugSession {
                     return this.dbgr.getfieldvalues(x.varinfo.objvar, x);
                 })
                 .then((fields, x) => {
+                    // add an extra msg field for exceptions
+                    if (!x.varinfo.exception) return;
+                    x.fields = fields;
+                    return this.dbgr.invokeToString(x.varinfo.objvar.value, x.varinfo.threadid, varinfo.objvar.type.signature, x)
+                        .then((call,x) => {
+                            call.name = this._exmsg_var_name;
+                            x.fields.unshift(call);
+                            return $.Deferred().resolveWith(this, [x.fields, x]);
+                        });
+                })
+                .then((fields, x) => {
                     // ignore supertypes of Object
                     x.supertype && x.supertype.signature!=='Ljava/lang/Object;' && fields.unshift({
                         vtype:'super',
@@ -927,17 +947,6 @@ class AndroidDebugSession extends DebugSession {
                 variables: variables
             };
             this.sendResponse(response);
-        }
-        else if (varinfo.exception) {
-            this.dbgr.getExceptionLocal(varinfo.exception, {varinfo,response})
-                .then((ex_local,x) => {
-                    x.ex_local = ex_local;
-                    return this.dbgr.invokeToString(ex_local.value, x.varinfo.threadid, ex_local.type.signature, x);
-                })
-                .then((call,x) => {
-                    call.name = '{msg}';
-                    return_mapped_vars(x.varinfo.cached = [call,x.ex_local], x.response);
-                });
         }
         else {
             // frame locals request
@@ -1045,6 +1054,10 @@ class AndroidDebugSession extends DebugSession {
         }
 
         var destvar = v.cached.find(v => v.name===args.name);
+        if (!destvar || !/^(field|local|arrelem)$/.test(destvar.vtype)) {
+            failSetVariableRequest(response, `The value is read-only and cannot be updated.`);
+            return;
+        }
 
         // be nice and remove any superfluous whitespace
         var value = args.value.trim();
@@ -1261,6 +1274,13 @@ class AndroidDebugSession extends DebugSession {
         // just in case the user starts the app running again, before we've evaluated everything in the queue
         if (this._running) {
         	return this.sendResponseAndDoNext(response, '(running)');
+        }
+
+        // special case for evaluating exception messages
+        // - this is called if the user uses "Copy value" from the locals
+        if (args.expression===this._exmsg_var_name && this._last_exception && this._last_exception.cached) {
+            var msglocal = this._last_exception.cached.find(v => v.name===this._exmsg_var_name);
+            if (msglocal) return this.sendResponseAndDoNext(response, msglocal.string);
         }
 
         var parse_array_or_fncall = function(e) {
