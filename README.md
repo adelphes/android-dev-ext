@@ -12,7 +12,7 @@ This is a preview version of the Android for VS Code Extension. The extension al
 
 ## Requirements
 
-You must have [Android SDK Tools](https://developer.android.com/studio/releases/sdk-tools.html) installed. This extension communicates with your device via the ADB (Android Debug Bridge) interface.  
+You must have [Android SDK Platform Tools](https://developer.android.com/studio/releases/platform-tools.html) installed. This extension communicates with your device via the ADB (Android Debug Bridge) interface.  
 > You are not required to have Android Studio installed - if you have Android Studio installed, make sure there are no active instances of it when using this extension or you may run into problems with ADB.
 
 ## Limitations
