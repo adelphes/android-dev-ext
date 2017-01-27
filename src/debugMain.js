@@ -222,6 +222,9 @@ class AndroidDebugSession extends DebugSession {
         // we support modifying variable values
 		response.body.supportsSetVariable = true;
 
+        // we support hit-count conditional breakpoints
+        response.body.supportsHitConditionalBreakpoints = true;
+
 		this.sendResponse(response);
 	}
 
@@ -582,8 +585,14 @@ class AndroidDebugSession extends DebugSession {
      */
 	setBreakPointsRequest(response/*: DebugProtocol.SetBreakpointsResponse*/, args/*: DebugProtocol.SetBreakpointsArguments*/) {
 		var srcfpn = args.source && args.source.path;
-		var clientLines = args.lines;
         D('setBreakPointsRequest: ' + srcfpn);
+
+        const unverified_breakpoint = (src_bp,reason) => {
+            var bp = new Breakpoint(false,src_bp.line);
+            bp.id = ++this._breakpointId;
+            bp.message = reason;
+            return bp;
+        }
 
         // the file must lie inside one of the source packages we found (and it must be have a .java extension)
         var srcfolder = path.dirname(srcfpn);
@@ -596,12 +605,7 @@ class AndroidDebugSession extends DebugSession {
             // source file is not a java file or is outside of the known source packages
             // just send back a list of unverified breakpoints
             response.body = {
-                breakpoints: args.lines.map(l => {
-                    var bp = new Breakpoint(false,l);
-                    bp.id = ++this._breakpointId;
-                    bp.message = 'The breakpoint location is outside of the project source tree';
-                    return bp;
-                })
+                breakpoints: args.breakpoints.map(bp => unverified_breakpoint(bp, 'The breakpoint location is outside of the project source tree'))
             };
     		this.sendResponse(response);
             return;
@@ -612,16 +616,26 @@ class AndroidDebugSession extends DebugSession {
         var relative_fpn = srcfpn.slice(pkginfo.srcroot.length);
 
         // delete any existing breakpoints not in the list
+        var src_line_nums = args.breakpoints.map(bp => bp.line);
         this.dbgr.clearbreakpoints(javabp => {
-            var remove = javabp.srcfpn===relative_fpn && !clientLines.includes(javabp.linenum);
+            var remove = javabp.srcfpn===relative_fpn && !src_line_nums.includes(javabp.linenum);
             if (remove) javabp.vsbp = null;
             return remove;
         });
 
         // return the list of new and existing breakpoints
-        var breakpoints = clientLines.map((line,idx) => {
-            var dbgline = this.convertClientLineToDebugger(line);
-            var javabp = this.dbgr.setbreakpoint(relative_fpn, dbgline);
+        var breakpoints = args.breakpoints.map((src_bp,idx) => {
+            var dbgline = this.convertClientLineToDebugger(src_bp.line);
+            var options = {}; 
+            if (src_bp.hitCondition) {
+                // the hit condition is an expression that requires evaluation
+                // until we get more comprehensive evaluation support, just allow integer literals
+                var m = src_bp.hitCondition.match(/^\s*(?:0x([0-9a-f]+)|0b([01]+)|0*(\d+([e]\+?\d+)?))\s*$/i);
+                var hitcount = m && (m[3] ? parseFloat(m[3]) : m[2] ? parseInt(m[2],2) : parseInt(m[1],16));
+                if (!m || hitcount < 0 || hitcount > 0x7fffffff) return unverified_breakpoint(src_bp, 'The breakpoint is configured with an invalid hit count value');
+                options.hitcount = hitcount;
+            }
+            var javabp = this.dbgr.setbreakpoint(relative_fpn, dbgline, options);
             if (!javabp.vsbp) {
                 // state is one of: set,notloaded,enabled,removed
                 var verified = !!javabp.state.match(/set|enabled/);
@@ -1291,13 +1305,6 @@ class AndroidDebugSession extends DebugSession {
         this.doNextEvaluateRequest();
     }
 
-    sendResponseAndDoNext(response, value, varref) {
-        response.body = { result:value, variablesReference:varref|0 };
-        this.sendResponse(response);
-        this._evals_queue.shift();
-        this.doNextEvaluateRequest();
-    }
-
     doNextEvaluateRequest() {
         if (!this._evals_queue.length) return;
         var args = this._evals_queue[0][1];
@@ -1317,19 +1324,48 @@ class AndroidDebugSession extends DebugSession {
 
     doEvaluateRequest(response, args) {
 
+        const sendEvaluateResponseAndDoNext = (value, varref) => {
+            response.body = { result:value, variablesReference:varref|0 };
+            this.sendResponse(response);
+            this._evals_queue.shift();
+            this.doNextEvaluateRequest();
+        }
+
         // just in case the user starts the app running again, before we've evaluated everything in the queue
         if (this._running) {
-        	return this.sendResponseAndDoNext(response, '(running)');
+        	sendEvaluateResponseAndDoNext('(running)');
+            return;
         }
+
+        var v = this._variableHandles[args.frameId];
+        var locals = v && v.frame && v.cached;
+
+        this.evaluate(args.expression, locals)
+            .then((value,variablesReference) => {
+            	sendEvaluateResponseAndDoNext(value, variablesReference);
+            })
+            .fail(err => {
+            	sendEvaluateResponseAndDoNext(err.message);
+            });
+    }
+
+    /*
+        Asynchronously evaluate an expression
+    */
+    evaluate(expression, locals) {
+        D('evaluate: ' + expression);
+
+        const reject_evaluation = (msg) => $.Deferred().rejectWith(this, [new Error(msg)]);
+        const resolve_evaluation = (value, variablesReference) => $.Deferred().resolveWith(this, [value, variablesReference]);
 
         // special case for evaluating exception messages
         // - this is called if the user uses "Copy value" from the locals
-        if (args.expression===this._exmsg_var_name && this._last_exception && this._last_exception.cached) {
+        if (expression===this._exmsg_var_name && this._last_exception && this._last_exception.cached) {
             var msglocal = this._last_exception.cached.find(v => v.name===this._exmsg_var_name);
-            if (msglocal) return this.sendResponseAndDoNext(response, msglocal.string);
+            if (msglocal) return resolve_evaluation(msglocal.string);
         }
 
-        var parse_array_or_fncall = function(e) {
+        const parse_array_or_fncall = function(e) {
             var arg, res = {arr:[], call:null};
             // pre-call array indexes
             while (e.expr[0] === '[') {
@@ -1364,7 +1400,7 @@ class AndroidDebugSession extends DebugSession {
             }
             return res;
         }
-        var parse_expression = function(e) {
+        const parse_expression = function(e) {
             var root_term = e.expr.match(/^(?:(true(?![\w$]))|(false(?![\w$]))|(null(?![\w$]))|([a-zA-Z_$][a-zA-Z0-9_$]*)|(\d+(?:\.\d+)?)|('[^\\']')|('\\[bfrntv0]')|('\\u[0-9a-fA-F]{4}')|("[^"]*"))/);
             if (!root_term) return null;
             var res = {
@@ -1388,13 +1424,12 @@ class AndroidDebugSession extends DebugSession {
             }
             return res;
         }
-        var reject_evaluation = (msg) => $.Deferred().rejectWith(this, [new Error(msg)]);
-        var evaluate_number = (n) => {
+        const evaluate_number = (n) => {
             const numtype = /\./.test(n) ? JTYPES.double : JTYPES.int;
             const iszero = /^0+(\.0*)?$/.test(n);
             return { vtype:'literal',name:'',hasnullvalue:iszero,type:numtype,value:n,valid:true };
         }
-        var evaluate_expression = (expr) => {
+        const evaluate_expression = (expr) => {
             var q = $.Deferred(), local;
             switch(expr.root_term_type) {
                 case 'boolean':
@@ -1405,9 +1440,8 @@ class AndroidDebugSession extends DebugSession {
                     local = { vtype:'literal',name:'',hasnullvalue:true,type:JTYPES.null,value:nullvalue,valid:true };
                     break;
                 case 'ident':
-                    var v = this._variableHandles[args.frameId];
-                    if (v && v.frame && v.cached)
-                        local = v.cached.find(l => l.name === expr.root_term);
+                    if (!locals) reject_evaluation(`Cannot find variable: ${expr.root_term}`);
+                    local = locals.find(l => l.name === expr.root_term);
                     break;
                 case 'number':
                     local = evaluate_number(expr.root_term);
@@ -1437,7 +1471,7 @@ class AndroidDebugSession extends DebugSession {
                 q.resolveWith(this,[local]);
             return q;
         }
-        var evaluate_array_element = (index_expr, arr_local) => {
+        const evaluate_array_element = (index_expr, arr_local) => {
             if (arr_local.type.signature[0] !== '[') return reject_evaluation('TypeError: value is not an array');
             if (arr_local.hasnullvalue) return reject_evaluation('NullPointerException');
             return evaluate_expression(index_expr)
@@ -1449,10 +1483,10 @@ class AndroidDebugSession extends DebugSession {
                 }.bind(this,arr_local))
                 .then(els => els[0])
         }
-        var evaluate_methodcall = (m, obj_local) => {
+        const evaluate_methodcall = (m, obj_local) => {
             return reject_evaluation('Error: method calls are not supported');
         }
-        var evaluate_member = (m, obj_local) => {
+        const evaluate_member = (m, obj_local) => {
             if (!JTYPES.isReference(obj_local.type)) return reject_evaluation('TypeError: value is not a reference type');
             if (obj_local.hasnullvalue) return reject_evaluation('NullPointerException');
             if (m.array_or_fncall.call) return evaluate_methodcall(m, obj_local);
@@ -1473,25 +1507,21 @@ class AndroidDebugSession extends DebugSession {
                     return field;
                 })
         }
-        D('evaluate: ' + args.expression);
-        var e = { expr:args.expression };
+
+        var e = { expr:expression.trim() };
         var parsed_expression = parse_expression(e);
         // if there's anything left, it's an error
         if (parsed_expression && !e.expr) {
             // the expression is well-formed - start the (asynchronous) evaluation
-            evaluate_expression(parsed_expression)
-                .then(function(response,local) {
+            return evaluate_expression(parsed_expression)
+                .then(local => {
                     var v = this._local_to_variable(local);
-                    this.sendResponseAndDoNext(response, v.value, v.variablesReference);
-                }.bind(this,response))
-                .fail(function(response,reason) {
-                    this.sendResponseAndDoNext(response, reason.message);
-                }.bind(this,response))
-            return;
+                    return resolve_evaluation(v.value, v.variablesReference);
+                });
         }
 
         // the expression is not well-formed
-        this.sendResponseAndDoNext(response, 'not available');
+        return reject_evaluation('not available');
 	}
 
 }

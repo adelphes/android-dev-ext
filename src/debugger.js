@@ -498,7 +498,7 @@ Debugger.prototype = {
         return this.breakpoints.all.slice();
     },
 
-    setbreakpoint: function (srcfpn, line) {
+    setbreakpoint: function (srcfpn, line, conditions) {
         var cls = this._splitsrcfpn(srcfpn);
         var bid = cls.qtype + ':' + line;
         var newbp = this.breakpoints.bysrcloc[bid];
@@ -510,8 +510,11 @@ Debugger.prototype = {
             pkg: cls.pkg,
             type: cls.type,
             linenum: line,
+            conditions: Object.assign({},conditions),
             sigpattern: new RegExp('^L' + cls.qtype + '([$][$a-zA-Z0-9_]+)?;$'),
-            state: 'set'// set,notloaded,enabled,removed
+            state: 'set', // set,notloaded,enabled,removed
+            hitcount: 0,    // number of times this bp was hit during execution
+            stopcount: 0.   // number of times this bp caused a break into the debugger
         };
         this.breakpoints.all.push(newbp);
         this.breakpoints.bysrcloc[bid] = newbp;
@@ -1334,13 +1337,25 @@ Debugger.prototype = {
                     linenum: bp.linenum,
                     threadid: e.event.threadid
                 };
-
                 var eventdata = {
                     event: e.event,
                     stoppedlocation: stoppedloc,
                     bp: x.dbgr.breakpoints.enabled[cmlkey].bp,
                 };
                 x.dbgr.session.stoppedlocation = stoppedloc;
+                // if this was a conditional breakpoint, it will have been automatically cleared
+                // - set a new (unconditional) breakpoint in it's place
+                if (bp.conditions.hitcount) {
+                    bp.hitcount += bp.conditions.hitcount;
+                    delete bp.conditions.hitcount;
+                    var bploc = x.dbgr.breakpoints.enabled[cmlkey].bploc;
+                    x.dbgr.session.adbclient.jdwp_command({
+                        cmd: x.dbgr.JDWP.Commands.SetBreakpoint(bploc.c, bploc.m, bploc.l, null, onevent),
+                    });
+                } else {
+                    bp.hitcount++;
+                }
+                bp.stopcount++;
                 x.dbgr._trigger('bphit', eventdata);
             }
         };
@@ -1355,11 +1370,12 @@ Debugger.prototype = {
             cmlkeys.push(cmlkey);
             this.breakpoints.enabled[cmlkey] = {
                 bp: bploc.bp,
+                bploc: {c:bploc.c,m:bploc.m,l:bploc.l},
                 requestid: null,
             };
             bparr.push(bploc.bp);
             var cmd = this.session.adbclient.jdwp_command({
-                cmd: this.JDWP.Commands.SetBreakpoint(bploc.c, bploc.m, bploc.l, onevent),
+                cmd: this.JDWP.Commands.SetBreakpoint(bploc.c, bploc.m, bploc.l, bploc.bp.conditions.hitcount, onevent),
             });
             setbpcmds.push(cmd);
         }

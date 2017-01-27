@@ -1051,21 +1051,35 @@ function _JDWP() {
 			    onevent
 			);
 		},
-		SetBreakpoint:function(ci, mi, idx, onevent) {
+		SetBreakpoint:function(ci, mi, idx, hitcount, onevent) {
 			// a wrapper around SetEventRequest
 			var mods = [{
 			    modkind:7, // location
-			    loc:{ type:ci.info.reftype.value, cid:ci.info.typeid, mid:mi.methodid, idx:idx }
+			    loc:{ type:ci.info.reftype.value, cid:ci.info.typeid, mid:mi.methodid, idx:idx },
+				encode(res) {
+					res.push(this.modkind);
+					res.push(this.loc.type);
+					DataCoder.encodeRef(res, this.loc.cid);
+					DataCoder.encodeRef(res, this.loc.mid);
+					DataCoder.encodeLong(res, this.loc.idx);
+				}
 		    }];
+			if (hitcount > 0) {
+				// remember when setting a hitcount, the event is automatically cancelled after being fired
+				mods.unshift({
+					modkind:1,
+					count: hitcount,
+					encode(res) {
+						res.push(this.modkind);
+						DataCoder.encodeInt(res, this.count);
+					}
+				})
+			}
 			// kind(2=breakpoint)
 			// suspendpolicy(0=none,1=event-thread,2=all)
 			return this.SetEventRequest("breakpoint",2,2,mods,
-			    function(m1, i, res) {
-					res.push(m1.modkind);
-					res.push(m1.loc.type);
-					DataCoder.encodeRef(res, m1.loc.cid);
-					DataCoder.encodeRef(res, m1.loc.mid);
-					DataCoder.encodeLong(res, m1.loc.idx);
+			    function(m, i, res) {
+					m.encode(res,i);
 			    },
 			    onevent
 			);
