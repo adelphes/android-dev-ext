@@ -849,7 +849,7 @@ class AndroidDebugSession extends DebugSession {
                     // ignore supertypes of Object
                     x.supertype && x.supertype.signature!=='Ljava/lang/Object;' && fields.unshift({
                         vtype:'super',
-                        name:'super',
+                        name:':super',
                         hasnullvalue:false,
                         type: x.supertype,
                         value: x.varinfo.objvar.value,
@@ -1273,10 +1273,12 @@ class AndroidDebugSession extends DebugSession {
         const resolve_evaluation = (value, variablesReference) => $.Deferred().resolveWith(this, [value, variablesReference]);
 
         // special case for evaluating exception messages
-        // - this is called if the user uses "Copy value" from the locals
+        // - this is called if the user tries to evaluate ':msg' from the locals
         if (expression===this._exmsg_var_name && this._last_exception && this._last_exception.cached) {
             var msglocal = this._last_exception.cached.find(v => v.name===this._exmsg_var_name);
-            if (msglocal) return resolve_evaluation(msglocal.string);
+            if (msglocal) {
+                return resolve_evaluation(this._local_to_variable(msglocal).value);
+            }
         }
 
         const parse_array_or_fncall = function(e) {
@@ -1330,7 +1332,7 @@ class AndroidDebugSession extends DebugSession {
             while (e.expr[0] === '.') {
                 // member expression
                 e.expr = e.expr.slice(1).trim();
-                var m, member_name = e.expr.match(/^[a-zA-Z_$][a-zA-Z0-9_$]*/);
+                var m, member_name = e.expr.match(/^:?[a-zA-Z_$][a-zA-Z0-9_$]*/);   // allow : at start for :super and :msg
                 if (!member_name) return null;
                 res.members.push(m = {member:member_name[0], array_or_fncall:null})
                 e.expr = e.expr.slice(m.member.length).trim();
@@ -1403,23 +1405,32 @@ class AndroidDebugSession extends DebugSession {
         const evaluate_member = (m, obj_local) => {
             if (!JTYPES.isReference(obj_local.type)) return reject_evaluation('TypeError: value is not a reference type');
             if (obj_local.hasnullvalue) return reject_evaluation('NullPointerException');
-            if (m.array_or_fncall.call) return evaluate_methodcall(m, obj_local);
+            var chain;
+            if (m.array_or_fncall.call){
+                chain = evaluate_methodcall(m, obj_local);
+            } 
             // length is a 'fake' field of arrays, so special-case it
-            if (JTYPES.isArray(obj_local.type) && m.member==='length') 
-                return evaluate_number(obj_local.arraylen);
-            return this.dbgr.getfieldvalues(obj_local, m)
-                .then((fields,m) => {
-                    var field = fields.find(f => f.name === m.member);
-                    if (!field) return reject_evaluation('no such field: '+m.member);
-                    if (m.array_or_fncall.arr.length) {
-                        var q = $.Deferred();
-                        m.array_or_fncall.arr.reduce((q,index_expr) => {
-                            return q.then(function(index_expr,local) { return evaluate_array_element(index_expr,local) }.bind(this,index_expr));
-                        }, q);
-                        return q.resolveWith(this, [field]);
-                    }
-                    return field;
-                })
+            else if (JTYPES.isArray(obj_local.type) && m.member==='length') {
+                chain = evaluate_number(obj_local.arraylen);
+            }
+            // we also special-case :super (for object instances)
+            else if (JTYPES.isObject(obj_local.type) && m.member === ':super') {
+                chain = this.dbgr.getsuperinstance(obj_local);
+            } 
+            // anything else must be a real field
+            else {
+                chain = this.dbgr.getFieldValue(obj_local, m.member, true)
+            }
+
+            return chain.then(local => {
+                if (m.array_or_fncall.arr.length) {
+                    var q = $.Deferred();
+                    m.array_or_fncall.arr.reduce((q,index_expr) => {
+                        return q.then(function(index_expr,local) { return evaluate_array_element(index_expr,local) }.bind(this,index_expr));
+                    }, q);
+                    return q.resolveWith(this, [local]);
+                }
+            });
         }
 
         var e = { expr:expression.trim() };

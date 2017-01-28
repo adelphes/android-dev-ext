@@ -721,6 +721,15 @@ Debugger.prototype = {
             });
     },
 
+    getsuperinstance: function (local, extra) {
+        return this.getsupertype(local, {local,extra})
+            .then(function (supertypeinfo, x) {
+                var castobj = Object.assign({}, x.local);
+                castobj.type = supertypeinfo;
+                return $.Deferred().resolveWith(this, [castobj, x.extra]);
+            });
+    },
+
     createstring: function (string, extra) {
         return this.ensureconnected({ string: string, extra: extra })
             .then(function (x) {
@@ -836,6 +845,25 @@ Debugger.prototype = {
                 }
                 return $.Deferred().resolveWith(this, [res, x.extra]);
             });
+    },
+
+    getFieldValue: function(objvar, fieldname, includeInherited, extra) {
+        const findfield = x => {
+            return this.getfieldvalues(x.objvar, x)
+                .then((fields, x) => {
+                    var field = fields.find(f => f.name === x.fieldname);
+                    if (field) return $.Deferred().resolveWith(this,[field,x.extra]);
+                    if (!x.includeInherited || x.objvar.type.signature==='Ljava/lang/Object;')
+                        return $.Deferred().rejectWith(this,[new Error('No such field: '+x.fieldname), x.extra]);
+                    // search supertype
+                    return this.getsuperinstance(x.objvar, x)
+                        .then((superobjvar,x) => {
+                            x.objvar = superobjvar;
+                            return x.findfield(x);
+                        });
+                });
+        }
+        return findfield({findfield, objvar, fieldname, includeInherited, extra});
     },
 
     getExceptionLocal: function (ex_ref_value, extra) {
