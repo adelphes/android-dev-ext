@@ -721,7 +721,8 @@ class AndroidDebugSession extends DebugSession {
     _ensureLocals(frameId) {
         // retrieve the varinfo associated with the id
         var varinfo = this._variableHandles[frameId];
-        if (!varinfo) return $.Deferred().rejectWith(this, [new Error('Invalid frameId: '+frameId)]);
+        if (!varinfo) 
+            return $.Deferred().rejectWith(this, [new Error('Invalid frameId: '+frameId)]);
         // if we're currently processing it (or we've finished), just return the promise
         if (this._locals_done[frameId]) return this._locals_done[frameId];
         // create a new promise
@@ -734,7 +735,10 @@ class AndroidDebugSession extends DebugSession {
                 // cache the results and resolve the promise
                 x.varinfo.cached = locals;
                 x.def.resolveWith(this, [x.varinfo]);
-            });
+            })
+            .fail(e => {
+                x.def.rejectWith(this, [e]);
+            })
         return def;
     }
 
@@ -1208,59 +1212,72 @@ class AndroidDebugSession extends DebugSession {
         // so we have to queue them or we end up with strange results
 
         if (this._running) {
-            response.body = { result:'(running)', variablesReference:0 };
-        	this.sendResponse(response);
+            response.success = false;
+            response.message = '(running)';
+            this.sendResponse(response);
             return;
         }
-        this._evals_queue.push([response,args]);
-        if (this._evals_queue.length > 1)
+
+        // look for a matching entry in the list (other than at index:0)
+        var previdx = this._evals_queue.findIndex(e => e.args.expression === args.expression);
+        if (previdx > 0) {
+            // if we find a match, immediately fail the old one and queue the new one
+            var prev = this._evals_queue.splice(previdx,1)[0];
+            prev.response.success = false;
+            prev.response.message = '(evaluating)';
+            this.sendResponse(prev.response);
+        }
+        // if there's no frameId, we are being asked to evaluate the value in the 'global' context
+        var getlocals = args.frameId ? this._ensureLocals(args.frameId) : $.Deferred().resolve([]);
+
+        this._evals_queue.push({response,args,getlocals});
+
+        // if we're currently processing, just wait
+        if (this._evals_queue.length > 1) {
             return;
-        // start the evaluations
+        }
+
+        // begin processing
         this.doNextEvaluateRequest();
     }
 
     doNextEvaluateRequest() {
-        if (!this._evals_queue.length) return;
-        var args = this._evals_queue[0][1];
-        // if there's no frameId, we are being asked to evaluate the value in the 'global' context
-        var getLocals = args.frameId ? this._ensureLocals(args.frameId) : $.Deferred().resolve();
+        if (!this._evals_queue.length) {
+            return;
+        }
+        if (this._running) {
+            while (this._evals_queue.length) {
+                var {response} = this._evals_queue.shift();
+                response.success = false;
+                response.message = '(running)';
+                this.sendResponse(response);
+            }
+            return;
+        }
+        var {response, args, getlocals} = this._evals_queue[0];
+
         // wait for any locals in the given context to be retrieved
-        getLocals.then(() => {
-            this.doEvaluateRequest.apply(this, this._evals_queue[0]);
-        });
+        getlocals.then(locals => {
+                return this.evaluate(args.expression, locals && locals.cached);
+            })
+            .then((value,variablesReference) => {
+                response.body = { result:value, variablesReference:variablesReference|0 };
+            })
+            .fail(e => {
+                response.success = false;
+                response.message = e.message;
+            })
+            .always(() => {
+                this.sendResponse(response);
+                this._evals_queue.shift();
+                this.doNextEvaluateRequest();
+            })
     }
 
     createJavaString(s, opts) {
         const raw = (opts && opts.israw) ? s : s.slice(1,-1).replace(/\\u[0-9a-fA-F]{4}|\\./,decode_char);
         // return a deferred, which resolves to a local variable named 'literal'
         return this.dbgr.createstring(raw);
-    }
-
-    doEvaluateRequest(response, args) {
-
-        const sendEvaluateResponseAndDoNext = (value, varref) => {
-            response.body = { result:value, variablesReference:varref|0 };
-            this.sendResponse(response);
-            this._evals_queue.shift();
-            this.doNextEvaluateRequest();
-        }
-
-        // just in case the user starts the app running again, before we've evaluated everything in the queue
-        if (this._running) {
-        	sendEvaluateResponseAndDoNext('(running)');
-            return;
-        }
-
-        var v = this._variableHandles[args.frameId];
-        var locals = v && v.frame && v.cached;
-
-        this.evaluate(args.expression, locals)
-            .then((value,variablesReference) => {
-            	sendEvaluateResponseAndDoNext(value, variablesReference);
-            })
-            .fail(err => {
-            	sendEvaluateResponseAndDoNext(err.message);
-            });
     }
 
     /*
@@ -1356,8 +1373,7 @@ class AndroidDebugSession extends DebugSession {
                     local = { vtype:'literal',name:'',hasnullvalue:true,type:JTYPES.null,value:nullvalue,valid:true };
                     break;
                 case 'ident':
-                    if (!locals) return reject_evaluation(`Cannot find variable: ${expr.root_term}`);
-                    local = locals.find(l => l.name === expr.root_term);
+                    local = locals && locals.find(l => l.name === expr.root_term);
                     break;
                 case 'number':
                     local = evaluate_number(expr.root_term);

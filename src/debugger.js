@@ -712,6 +712,8 @@ Debugger.prototype = {
     },
 
     getsupertype: function (local, extra) {
+        if (local.type.signature==='Ljava/lang/Object;')
+            return $.Deferred().rejectWith(this,[new Error('java.lang.Object has no super type')]);
         return this.gettypedebuginfo(local.type.signature, { local: local, extra: extra })
             .then(function (dbgtype, x) {
                 return this._ensuresuper(dbgtype[x.local.type.signature])
