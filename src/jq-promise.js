@@ -50,6 +50,8 @@ var Deferred = exports.Deferred = function(p, parent) {
                 var res = this.fn.apply(this.def._context,a);
                 if (res === undefined)
                     return a;
+                if (res && res._isdeferred)
+                    return res._promise;
                 return res;
             }.bind({def:faildef,fn:fn}));
             faildef._promise = faildef._original = p;
