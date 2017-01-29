@@ -855,8 +855,10 @@ Debugger.prototype = {
                 .then((fields, x) => {
                     var field = fields.find(f => f.name === x.fieldname);
                     if (field) return $.Deferred().resolveWith(this,[field,x.extra]);
-                    if (!x.includeInherited || x.objvar.type.signature==='Ljava/lang/Object;')
-                        return $.Deferred().rejectWith(this,[new Error('No such field: '+x.fieldname), x.extra]);
+                    if (!x.includeInherited || x.objvar.type.signature==='Ljava/lang/Object;') {
+                        var fqtname = [x.reqtype.package,x.reqtype.typename].join('.');
+                        return $.Deferred().rejectWith(this,[new Error(`No such field '${x.fieldname}' in type ${fqtname}`), x.extra]);
+                    }
                     // search supertype
                     return this.getsuperinstance(x.objvar, x)
                         .then((superobjvar,x) => {
@@ -865,7 +867,7 @@ Debugger.prototype = {
                         });
                 });
         }
-        return findfield({findfield, objvar, fieldname, includeInherited, extra});
+        return findfield({findfield, objvar, fieldname, includeInherited, extra, reqtype:objvar.type});
     },
 
     getExceptionLocal: function (ex_ref_value, extra) {
@@ -1060,6 +1062,8 @@ Debugger.prototype = {
                     arrayfields.push(info);
                 else if (keys[i].type.signature === 'Ljava/lang/String;')
                     stringfields.push(info);
+                else if (keys[i].type.signature === 'C')
+                    info.char = info.valid ? String.fromCodePoint(info.value) : '';
                 i++;
             }
         }

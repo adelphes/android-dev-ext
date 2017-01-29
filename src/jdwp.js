@@ -169,7 +169,7 @@ function _JDWP() {
 			return i<32768?i:i-65536;
 		},
 		decodeChar: function(o) {
-			return String.fromCharCode((o.data[o.idx++]<<8)+o.data[o.idx++]);
+			return (o.data[o.idx++]<<8)+o.data[o.idx++];	// uint16
 		},
 		decodeBoolean: function(o) {
 			return o.data[o.idx++] != 0;
