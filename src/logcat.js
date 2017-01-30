@@ -2,6 +2,7 @@
 // vscode stuff
 const { EventEmitter, Uri } = require('vscode');
 // node and external modules
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const WebSocketServer = require('ws').Server;
@@ -26,6 +27,7 @@ class LogcatContent {
         this._notifying = 0;
         this._refreshRate = 200;    // ms
         this._state = '';
+        this._htmltemplate = '';
         this._adbclient = new ADBClient(uri.query);
         this._initwait = new Promise((resolve, reject) => {
             this._state = 'connecting';
@@ -44,11 +46,12 @@ class LogcatContent {
                     reject(e);
                 })
         });
+        LogcatContent.byLogcatID[this._logcatid] = this;
     }
     get content() {
         if (this._initwait) return this._initwait;
         if (this._state !== 'disconnected')
-            return this.htmlBootstrap(true, '');
+            return this.htmlBootstrap({connected:true, status:'',oldlogs:''});
         // if we're in the disconnected state, and this.content is called, it means the user has requested
         // this logcat again - check if the device has reconnected
         return this._initwait = new Promise((resolve, reject) => {
@@ -71,94 +74,65 @@ class LogcatContent {
                 this._oldhtmllogs = this._prevlogs._oldhtmllogs;
                 this._prevlogs = null;
                 this._initwait = null;
-                var cached_content = this.htmlBootstrap(false, 'Device disconnected');
+                var cached_content = this.htmlBootstrap({connected:false, status:'Device disconnected',oldlogs: this._oldhtmllogs.join(os.EOL)});
                 resolve(cached_content);
             })
         });
     }
-    sendDisconnectMsg() {
+    sendClientMessage(msg) {
         var clients = LogcatContent._wss.clients.filter(client => client._logcatid === this._logcatid);
-        clients.forEach(client => client.send(':disconnect'));
+        clients.forEach(client => client.send(msg+'\n'));   // include a newline to try and persuade a buffer write
+    }
+    sendDisconnectMsg() {
+        this.sendClientMessage(':disconnect');
+    }
+    onClientConnect(client) {
+        if (this._oldhtmllogs.length) {
+            var lines = '<div class="logblock">' + this._oldhtmllogs.join(os.EOL) + '</div>';
+            client.send(lines);
+        }
+        // if the window is tabbed away and then returned to, vscode assumes the content
+        // has not changed from the original bootstrap. So it proceeds to load the html page (with no data),
+        // causing a connection to the WSServer as if the connection is still valid (which it was, originally).
+        // If it's not, tell the client (again) that the device has disconnected
+        if (this._state === 'disconnected')
+            this.sendDisconnectMsg();
+    }
+    onClientMessage(client, message) {
+        if (message === 'cmd:clear_logcat') {
+            if (this._state !== 'connected') return;
+            new ADBClient(this._adbclient.deviceid).shell_cmd({command:'logcat -c'})
+                .then(() => {
+                    // clear everything and tell the clients
+                    this._logs = []; this._htmllogs = []; this._oldhtmllogs = [];
+                    this.sendClientMessage(':logcat_cleared');
+                })
+                .fail(e => {
+                    D('Clear logcat command failed: ' + e.message);
+                })
+        }
     }
     updateLogs() {
         // no point in formatting the data if there are no connected clients
         var clients = LogcatContent._wss.clients.filter(client => client._logcatid === this._logcatid);
         if (clients.length) {
-            var lines = '<div style="display:inline-block">' + this._htmllogs.join('') + '</div>';
+            var lines = '<div class="logblock">' + this._htmllogs.join(os.EOL) + '</div>';
             clients.forEach(client => client.send(lines));
         }
         // once we've updated all the clients, discard the info
-        this._oldhtmllogs = this._htmllogs.concat(this._oldhtmllogs).slice(0, 5000);
+        this._oldhtmllogs = this._htmllogs.concat(this._oldhtmllogs).slice(0, 10000);
         this._htmllogs = [], this._logs = [];
     }
-    htmlBootstrap(connected, statusmsg) {
-        return `<!DOCTYPE html>
-            <html><head>
-            <style type="text/css">
-                .V {color:#999}
-                .D {color:#519B4F}
-                .I {color:#CCC0D3}
-                .W {color:#BD955C}
-                .E {color:#f88}
-                .F {color:#f66}
-                .hide {display:none}
-                .unhide {display:inline-block}
-            </style></head>
-            <body style="color:#fff;font-size:.9em">
-            <div id="status" style="color:#888">${statusmsg}</div>
-            <div id="rows">${this._oldhtmllogs.join(os.EOL)}</div>
-            <script>
-                function start() {
-                    var rows = document.getElementById('rows');
-                    var last_known_scroll_position=0, selectall=0;
-                    var selecttext = (rows) => {
-                        if (!rows) return window.getSelection().empty();
-                        var range = document.createRange();
-                        range.selectNode(rows);
-                        window.getSelection().addRange(range);
-                    }
-                    window.addEventListener('scroll', function(e) {
-                        if ((last_known_scroll_position = window.scrollY)===0) {
-                            var hidden = document.getElementsByClassName('hide');
-                            for (var i=hidden.length-1; i>=0; i--)
-                                hidden[i].className='unhide';
-                        }
-                    });
-                    window.addEventListener('keypress', function(e) {
-                        if (e.ctrlKey && /[aA]/.test(e.key) && !selectall) {
-                            selectall = 1;
-                            selecttext(rows);
-                        }
-                    });
-                    window.addEventListener('keyup', function(e) {
-                        selectall = 0;
-                        /^escape$/i.test(e.key) && selecttext(null);
-                    });
-                    var setStatus = (x) => { document.getElementById('status').textContent = x; }
-                    var connect = () => {
-                        try { 
-                            setStatus('Connecting...');
-                            var x = new WebSocket('ws://127.0.0.1:${LogcatContent._wssport}/${this._logcatid}');
-                            x.onopen = e => { setStatus('') };x.onclose = e => { };x.onerror = e => { setStatus('Connection error')  }
-                            x.onmessage = e => {
-                                var logs = e.data;
-                                if (/^:disconnect$/.test(logs)) {
-                                    x.close(),setStatus('Device disconnected');
-                                    return;
-                                }
-                                if (last_known_scroll_position > 0) 
-                                    logs = '<div class="hide">'+logs+'</div>';
-                                rows && rows.insertAdjacentHTML('afterbegin',logs);
-                            };
-                        }
-                        catch(e) { setStatus('Connection exception') }
-                    }
-                    ${connected ? '' : '//'} connect();
-                }
-                setTimeout(start, 100);
-            </script>
-            </body>
-            </html>`;
+    htmlBootstrap(vars) {
+        if (!this._htmltemplate)
+            this._htmltemplate = fs.readFileSync(path.join(__dirname,'res/logcat.html'), 'utf8');
+        vars = Object.assign({
+            logcatid: this._logcatid,
+            wssport: LogcatContent._wssport,
+        }, vars);
+        // simple value replacement using !{name} as the placeholder
+        var html = this._htmltemplate.replace(/!\{(.*?)\}/g, (match,expr) => ''+(vars[expr.trim()]||''));
+        return html;
     }
     renotify() {
         if (++this._notifying > 1) return;
@@ -172,16 +146,17 @@ class LogcatContent {
     }
     onLogcatContent(e) {
         if (e.logs.length) {
-            var mrfirst = e.logs.slice().reverse();
-            this._logs = mrfirst.concat(this._logs);
-            mrfirst.forEach(log => {
+            var mrlast = e.logs.slice();
+            this._logs = this._logs.concat(mrlast);
+            mrlast.forEach(log => {
                 if (!(log = log.trim())) return;
                 // replace html-interpreted chars
                 var m = log.match(/^\d\d-\d\d\s+?\d\d:\d\d:\d\d\.\d+?\s+?(.)/);
                 var style = (m && m[1]) || '';
                 log = log.replace(/[&"'<>]/g, c => ({ '&': '&amp;', '"': '&quot;', "'": '&#39;', '<': '&lt;', '>': '&gt;' }[c]));
-                this._htmllogs.unshift(`<div class="${style}">${log}</div>`);
-            })
+                this._htmllogs.unshift(`<div class="log ${style}">${log}</div>`);
+                
+            });
             this.renotify();
         }
     }
@@ -191,6 +166,9 @@ class LogcatContent {
         this.sendDisconnectMsg();
     }
 }
+
+// hashmap of all LogcatContent instances, keyed on device id
+LogcatContent.byLogcatID = {};
 
 LogcatContent.initWebSocketServer = function () {
     if (LogcatContent._wssdone) {
@@ -210,13 +188,18 @@ LogcatContent.initWebSocketServer = function () {
                 this.wss.on('connection', client => {
                     // the client uses the url path to signify which logcat data it wants
                     client._logcatid = client.upgradeReq.url.match(/^\/?(.*)$/)[1];
-                    // we're not really interested in anything the client sends
-                    /*client.on('message', message => {
-                        console.log('ws received: %s', message);
-                    });
-                    client.on('close', e => {
-                        console.log('ws close');
+                    var lc = LogcatContent.byLogcatID[client._logcatid];
+                    if (lc) lc.onClientConnect(client);
+                    else client.close();
+                    client.on('message', function(message) {
+                        var lc = LogcatContent.byLogcatID[this._logcatid];
+                        if (lc) lc.onClientMessage(this, message);
+                    }.bind(client));
+                    /*client.on('close', e => {
+                        console.log('client close');
                     });*/
+                    // try and make sure we don't delay writes
+                    client._socket && typeof(client._socket.setNoDelay)==='function' && client._socket.setNoDelay(true);
                 });
                 this.wss = null;
                 LogcatContent._wssdone.resolveWith(LogcatContent, []);

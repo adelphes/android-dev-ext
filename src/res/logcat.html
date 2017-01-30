@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf8">
+    <style type="text/css">
+        .V {color:#777} .vscode-light .V {color:#999} .vscode-high-contrast .V {color:#fff}
+        .D {color:#8b8} .vscode-light .D {color:#292} .vscode-high-contrast .D {color:#0a0}
+        .I {color:#99a} .vscode-light .I {color:#557} .vscode-high-contrast .I {color:#aaf}
+        .W {color:#C84} .vscode-light .W {color:#F80} .vscode-high-contrast .W {color:#f80}
+        .E {color:#f88} .vscode-light .E {color:#f55} .vscode-high-contrast .E {color:#f00}
+        .F {color:#f66} .vscode-light .F {color:#f00} .vscode-high-contrast .F {color:#f00}
+        .hide {display:none}
+        .logblock {display:inline-block}
+        .a {display:flex;flex-direction:column;position:absolute;top:0;bottom:0;left:0;right:0;}
+        .b {flex:0 0 auto;border-bottom: 1px solid rgba(128,128,128,.2); padding-bottom: .2em}
+        .vscode-high-contrast .b {border-color: #0cc}
+        .c {flex: 1 1 auto;overflow:auto;padding-top: .2em}
+        .g {margin:.6em .2em 0 .2em;background: none;border: 1px solid #444; color:#888;padding:.3em .8em;font-size: .9em}
+        .g:hover:enabled {color:#ccc;cursor: pointer} .g:focus:enabled,.g:focus:hover:enabled {color:#eee;cursor: pointer}
+        .vscode-light .g:enabled {color: #666;}
+        .vscode-light .g:hover:enabled,.vscode-light .g:focus:enabled,.vscode-light .g:focus:hover:enabled {color: #333;background: #eee;}
+        .vscode-high-contrast .g:enabled {color: #fff;border-color: #0cc;background:none;}
+        .vscode-high-contrast .g:hover:enabled,.vscode-high-contrast .g:focus:enabled {border-color: darkorange;}
+        .h{display: flex;align-items: center;flex-wrap: wrap;}
+        .log { white-space:nowrap  }
+        .filter { display:none  }
+        body {font-size:.9em}
+        #q {margin:.6em .2em 0 .2em;padding:.3em;width:20em;outline:none;border:solid 1px #444;color: #eee;background:rgba(128,128,128,.05);}
+        #q:hover { border-color: #464; } 
+        #q:focus,#q:focus:hover { border-color: #4a4; }
+        .vscode-light #q {color: #333;border-color: #444;background:none;}
+        .vscode-light #q:hover { border-color: #464; } 
+        .vscode-light #q:focus,.vscode-light #q:focus:hover { border-color: #4a4; }
+        .vscode-high-contrast #q {color: #fff;border-color: #0cc;background:none;}
+        .vscode-high-contrast #q:hover {border-color: darkorange;}
+        .vscode-high-contrast #q:focus,.vscode-high-contrast #q:focus:hover {border-color: darkorange;}
+        #lcount {font-family:monospace;font-size:1em;margin-top:.4em}
+        .vscode-dark  #lcount {color:#484;} .vscode-light #lcount {color:#484;} .vscode-high-contrast #lcount {color:#0d0;}
+        .vscode-dark  #status {color:#eee;} .vscode-light #status {color:#333;} .vscode-high-contrast #status {color:#fff;}
+    </style>
+</head>
+<body>
+    <div class="a">
+        <div class="b">
+            <div class="h"><input id="q" placeholder="Filter regex"/><button id="clearlcbtn" class="g" disabled="true">Clear logcat</button></div>
+            <div id="lcount"></div>
+        </div>
+        <div id="rc" class="c">
+            <div id="status">!{status}</div>
+            <div id="rows">!{oldlogs}</div>
+        </div>
+    </div>
+    <script>
+            (function() {
+                const getId = document.getElementById.bind(document);
+                const setStatus = (x) => { getId('status').textContent = ''+x; }
+                const start = () => {
+                    var rows = getId('rows'), filter = getId('q');
+                    var last_known_scroll_position=0, selectall=0, logcount=0, currfilter,ws;
+                    var selecttext = (rows) => {
+                        if (!rows) return window.getSelection().empty();
+                        var range = document.createRange();
+                        range.selectNode(rows);
+                        window.getSelection().addRange(range);
+                    };
+                    getId('clearlcbtn').onclick = (e) => {
+                        ws && ws.send('cmd:clear_logcat');
+                    }
+                    getId('rc').onscroll = (e) => {
+                        if ((last_known_scroll_position = e.target.scrollTop)===0) {
+                            var hidden = document.getElementsByClassName('hide');
+                            for (var i=hidden.length-1; i>=0; i--)
+                                hidden[i].className = hidden[i].className.replace(/\bhide\b/g,'').trim();
+                        }
+                    };
+                    updateLogCountDisplay = () => {
+                        var msg = currfilter ? `${currfilter.matchCounts.true}/${logcount}` : logcount
+                        getId('lcount').textContent = msg;
+                    }
+                    showFilterErr = (msg) => {
+                        filter.style['border-color'] = 'red';
+                    }
+                    updateFilter = (new_filter_source) => {
+                        if (currfilter && currfilter.source === new_filter_source) return;  // nothing's changed
+                        var newfilter = null;
+                        if (new_filter_source) {
+                            try {
+                                newfilter = new RegExp(new_filter_source, 'i');
+                                newfilter.matchCounts = {true:0,false:0};
+                            }
+                            catch(err) { return showFilterErr('Invalid regular expression') }
+                        }
+                        // reset the filtered elements
+                        var logs = document.getElementsByClassName('log');
+                        for (var i=logs.length-1,m; i>=0; i--) {
+                            m = newfilter ? newfilter.test(logs[i].textContent) : 1;
+                            logs[i].className = logs[i].className.replace(/\bfilter\b|$/g,m?'':' filter').trim();
+                            newfilter && newfilter.matchCounts[!!m]++;
+                        }
+                        currfilter = newfilter;
+                        updateLogCountDisplay();
+                    }
+                    var filter_pause = 0;
+                    filter.oninput = (e) => {
+                        if (filter_pause++) return;
+                        filter.style['border-color'] = '';
+                        ({
+                            wait() {
+                                setTimeout(() => {
+                                    if (filter_pause === 1)
+                                        return filter_pause=0,updateFilter(filter.value);
+                                    filter_pause = 1;
+                                    this.wait();
+                                },250);
+                            }
+                        }).wait();
+                    };
+                    filter.onkeyup = (e) => {
+                        // when enter/escape is pressed - lose focus
+                        /^(escape|enter)$/i.test(e.key) && filter.blur();
+                    }
+                    window.addEventListener('keypress', function(e) {
+                        if (e.ctrlKey && /[aA]/.test(e.key) && !selectall) {
+                            selectall = 1;
+                            selecttext(rows);
+                        }
+                    });
+                    window.addEventListener('keyup', function(e) {
+                        selectall = 0;
+                        /^escape$/i.test(e.key) && selecttext(null);
+                    });
+                    var connect = () => {
+                        try { 
+                            setStatus('Connecting...');
+                            var x = new WebSocket('ws://127.0.0.1:!{wssport}/!{logcatid}');
+                            x.onopen = e => { 
+                                setStatus('');getId('clearlcbtn').disabled = false;ws = x;
+                            };
+                            x.onclose = e => { 
+                                ws = null;
+                                getId('clearlcbtn').disabled = true;
+                            };
+                            x.onerror = e => { setStatus('Connection error')  }
+                            x.onmessage = e => {
+                                if (!rows) return;
+                                var rawlogs = e.data.trim();
+                                if (/^:disconnect$/.test(rawlogs)) {
+                                    x.close(),setStatus('Device disconnected');
+                                    return;
+                                }
+                                if (/^:logcat_cleared$/.test(rawlogs)) {
+                                    rows.innerHTML = '';
+                                    rows.insertAdjacentHTML('afterbegin','<div>---- log cleared ----</div>');
+                                    logcount = 0;
+                                    if (currfilter) currfilter.matchCounts = {true:0,false:0};
+                                    updateLogCountDisplay();
+                                    return;
+                                }
+                                if (last_known_scroll_position > 0) 
+                                    rawlogs = '<div class="hide">'+rawlogs+'</div>';
+                                rows.insertAdjacentHTML('afterbegin',rawlogs);
+                                var logs = rows.firstElementChild.getElementsByClassName('log');
+                                logcount += logs.length;
+                                // apply the filter to the newly insert elements
+                                if (currfilter) {
+                                    for (var i=logs.length-1,m; i>=0; i--) {
+                                        m = currfilter.test(logs[i].textContent);
+                                        if (!m) logs[i].className += ' filter';
+                                        currfilter.matchCounts[!!m]++;
+                                    }
+                                }
+                                updateLogCountDisplay();
+                            };
+                        }
+                        catch(e) { setStatus('Connection exception') }
+                    }
+                    !{connected} && connect();
+                }
+
+                window.addEventListener("load", function(event) {
+                    try { start(); } catch(e) {setStatus('start exception: '+e.message);}
+                });
+            })();
+    </script>
+</body>
+</html>
