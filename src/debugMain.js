@@ -60,6 +60,13 @@ function is_subpath_of(fpn, subpath) {
     return fpn.slice(0,subpath.length) === subpath;
 }
 
+function get_thread_id(tid, format) {
+    switch(format) {
+        case 'string': return ('000000000000000' + tid.toString(16)).slice(-16);
+        case 'int': return parseInt(tid, 16);
+    }
+}
+
 function decode_char(c) {
     switch(true) {
         case /^\\[^u]$/.test(c):
@@ -489,10 +496,11 @@ class AndroidDebugSession extends DebugSession {
     }
 
     onBreakpointHit(e) {
+        // if we step into a breakpoint, both onBreakpointHit and onStep will be called
+        if (!this._running) return;
         D('Breakpoint hit: ' + JSON.stringify(e.stoppedlocation));
         this._running = false;
-        var tid = parseInt(e.stoppedlocation.threadid,16);
-        this.sendEvent(new StoppedEvent("breakpoint", tid));
+        this.sendEvent(new StoppedEvent("breakpoint", get_thread_id(e.stoppedlocation.threadid,'int')));
     }
 
     markAllThreadsStopped(reason, exclude) {
@@ -500,7 +508,7 @@ class AndroidDebugSession extends DebugSession {
             .then(threads => {
                 if (Array.isArray(exclude))
                     threads = threads.filter(t => !exclude.includes(t));
-                threads.forEach(t => this.sendEvent(new StoppedEvent(reason, parseInt(t,16))));
+                threads.forEach(tid => this.sendEvent(new StoppedEvent(reason, get_thread_id(tid,'int'))));
             });
     }
 
@@ -638,7 +646,7 @@ class AndroidDebugSession extends DebugSession {
         this.dbgr.allthreads(response)
             .then((threads, response) => {
                 // convert the (hex) thread strings into real numbers
-                var tids = threads.map(t => parseInt(t,16));
+                var tids = threads.map(tid => get_thread_id(tid,'int'));
                 response.body = {
                     threads: tids.map(tid => new Thread(tid, `Thread (id:${tid})`))
                 };
@@ -655,8 +663,8 @@ class AndroidDebugSession extends DebugSession {
 	 */
 	stackTraceRequest(response/*: DebugProtocol.StackTraceResponse*/, args/*: DebugProtocol.StackTraceArguments*/) {
 
-        // debugger threadid's are a padded 64bit hex number
-        var threadid = ('000000000000000' + args.threadId.toString(16)).slice(-16);
+        // debugger threadid's are a padded 64bit hex string
+        var threadid = get_thread_id(args.threadId, 'string');
         // retrieve the (stack) frames from the debugger
         this.dbgr.getframes(threadid, {response:response, args:args})
             .then((frames, x) => {
@@ -1019,9 +1027,11 @@ class AndroidDebugSession extends DebugSession {
      * Called by the debugger after a step operation has completed
      */
     onStep(e) {
+        // if we step into a breakpoint, both onBreakpointHit and onStep will be called
+        if (!this._running) return;
         D('step hit: ' + JSON.stringify(e.stoppedlocation));
         this._running = false;
-        this.sendEvent(new StoppedEvent("step", parseInt(e.stoppedlocation.threadid,16)));
+        this.sendEvent(new StoppedEvent("step", get_thread_id(e.stoppedlocation.threadid,'int')));
     }
 
     /**
@@ -1033,8 +1043,7 @@ class AndroidDebugSession extends DebugSession {
         this._last_exception = null;
         this._locals_done = {};
         this._running = true;
-        var threadid = ('000000000000000' + args.threadId.toString(16)).slice(-16);
-        this.dbgr.step(which, threadid);
+        this.dbgr.step(which, get_thread_id(args.threadId,'string'));
         this.sendResponse(response);
     }
 
@@ -1054,10 +1063,10 @@ class AndroidDebugSession extends DebugSession {
      * Called by the debugger if an exception event is triggered
      */
     onException(e) {
-        D('exception hit: ' + JSON.stringify(e.throwlocation));
         // it's possible for the debugger to send multiple exception notifications, depending on the package filters
         // , so just ignore them if we've already stopped
         if (!this._running) return;
+        D('exception hit: ' + JSON.stringify(e.throwlocation));
         this._running = false;
         this._last_exception = {
             exception: e.event.exception,
@@ -1065,7 +1074,7 @@ class AndroidDebugSession extends DebugSession {
             varref: ++this._nextObjVarRef,
         };
         this._variableHandles[this._last_exception.varref] = this._last_exception;
-        this.sendEvent(new StoppedEvent("exception", parseInt(e.throwlocation.threadid,16)));
+        this.sendEvent(new StoppedEvent("exception", get_thread_id(e.throwlocation.threadid,'int')));
     }
 
     setVariableRequest(response/*: DebugProtocol.SetVariableResponse*/, args/*: DebugProtocol.SetVariableArguments*/) {
