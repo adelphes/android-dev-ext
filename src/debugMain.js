@@ -54,6 +54,12 @@ function ensure_path_end_slash(p) {
     return p + (/[\\/]$/.test(p) ? '' : path.sep);
 }
 
+function is_subpath_of(fpn, subpath) {
+    if (!subpath || !fpn) return false;
+    subpath = ensure_path_end_slash(''+subpath);
+    return fpn.slice(0,subpath.length) === subpath;
+}
+
 function decode_char(c) {
     switch(true) {
         case /^\\[^u]$/.test(c):
@@ -520,11 +526,16 @@ class AndroidDebugSession extends DebugSession {
             if ((pkginfo = this.src_packages.packages[pkg]).package_path === srcfolder) break;
             pkginfo = null;
         }
-        if (!pkginfo || !/\.java$/.test(srcfpn)) {
+        // if it's not in our source packages, check if it's in the Android source file cache
+        if (!pkginfo && is_subpath_of(srcfpn, this._android_sources_path)) {
+            // create a fake pkginfo to use to construct the bp
+            pkginfo = { srcroot:this._android_sources_path }
+        }
+        if (!pkginfo || !/\.java$/i.test(srcfpn)) {
             // source file is not a java file or is outside of the known source packages
             // just send back a list of unverified breakpoints
             response.body = {
-                breakpoints: args.breakpoints.map(bp => unverified_breakpoint(bp, 'The breakpoint location is outside of the project source tree'))
+                breakpoints: args.breakpoints.map(bp => unverified_breakpoint(bp, 'The breakpoint location is not valid'))
             };
     		this.sendResponse(response);
             return;
@@ -532,7 +543,7 @@ class AndroidDebugSession extends DebugSession {
 
         // our debugger requires a relative fpn beginning with / , rooted at the java source base folder
         // - it should look like: /some/package/name/abc.java
-        var relative_fpn = srcfpn.slice(pkginfo.srcroot.length);
+        var relative_fpn = srcfpn.slice(pkginfo.srcroot.match(/^(.*?)[\\/]?$/)[1].length);
 
         // delete any existing breakpoints not in the list
         var src_line_nums = args.breakpoints.map(bp => bp.line);
@@ -543,7 +554,14 @@ class AndroidDebugSession extends DebugSession {
         });
 
         // return the list of new and existing breakpoints
-        var breakpoints = args.breakpoints.map((src_bp,idx) => {
+        // - setting a debugger bp is now asynchronous, so we do this as an orderly queue
+        const _setup_breakpoints = (o, idx, javabp_arr) => {
+            javabp_arr = javabp_arr || [];
+            var src_bp = o.args.breakpoints[idx|=0];
+            if (!src_bp) {
+                // done
+                return $.Deferred().resolveWith(this, [javabp_arr]);
+            }
             var dbgline = this.convertClientLineToDebugger(src_bp.line);
             var options = {}; 
             if (src_bp.hitCondition) {
@@ -554,26 +572,51 @@ class AndroidDebugSession extends DebugSession {
                 if (!m || hitcount < 0 || hitcount > 0x7fffffff) return unverified_breakpoint(src_bp, 'The breakpoint is configured with an invalid hit count value');
                 options.hitcount = hitcount;
             }
-            var javabp = this.dbgr.setbreakpoint(relative_fpn, dbgline, options);
-            if (!javabp.vsbp) {
-                // state is one of: set,notloaded,enabled,removed
-                var verified = !!javabp.state.match(/set|enabled/);
-                const bp = new Breakpoint(verified, this.convertDebuggerLineToClient(dbgline));
-                // the breakpoint *must* have an id field or it won't update properly
-                bp.id = ++this._breakpointId;
-                if (javabp.state === 'notloaded')
-                    bp.message = 'The runtime hasn\'t loaded this code location';
-                javabp.vsbp = bp;
-            }
-            javabp.vsbp.order = idx;
-			return javabp.vsbp;
-        });
+            return this.dbgr.setbreakpoint(o.relative_fpn, dbgline, options)
+                .then(javabp => {
+                    if (!javabp.vsbp) {
+                        // state is one of: set,notloaded,enabled,removed
+                        var verified = !!javabp.state.match(/set|enabled/);
+                        const bp = new Breakpoint(verified, this.convertDebuggerLineToClient(dbgline));
+                        // the breakpoint *must* have an id field or it won't update properly
+                        bp.id = ++this._breakpointId;
+                        if (javabp.state === 'notloaded')
+                            bp.message = 'The runtime hasn\'t loaded this code location';
+                        javabp.vsbp = bp;
+                    }
+                    javabp.vsbp.order = idx;
+                    javabp_arr.push(javabp);
+                }).
+                then(javabp => _setup_breakpoints(o, ++idx, javabp_arr));
+        };
 
-		// send back the actual breakpoint positions
-		response.body = {
-			breakpoints: breakpoints
-		};
-		this.sendResponse(response);
+        if (!this._set_breakpoints_queue) {
+            this._set_breakpoints_queue = {
+                _dbgr:this,
+                _queue:[],
+                add(item) {
+                    if (this._queue.push(item) > 1) return;
+                    this._next();
+                },
+                _setup_breakpoints: _setup_breakpoints,
+                _next() {
+                    if (!this._queue.length) return;  // done
+                    this._setup_breakpoints(this._queue[0]).then(javabp_arr => {
+                        // send back the VS Breakpoint instances
+                        var response = this._queue[0].response;
+                        response.body = {
+                            breakpoints: javabp_arr.map(javabp => javabp.vsbp)
+                        };
+                        this._dbgr.sendResponse(response);
+                        // .. and do the next one
+                        this._queue.shift();
+                        this._next();
+                    });
+                },
+            };
+        }
+
+        this._set_breakpoints_queue.add({args,response,relative_fpn});
 	}
 
     setExceptionBreakPointsRequest(response /*: SetExceptionBreakpointsResponse*/, args /*: SetExceptionBreakpointsArguments*/) {

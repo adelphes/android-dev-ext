@@ -137,8 +137,8 @@ Debugger.prototype = {
             adbclient: null,
             stoppedlocation: null,
             classes: {},
-            // classprepare notifier done
-            cpndone: false,
+            // classprepare filters
+            cpfilters: [],
             preparedclasses: [],
         }
         return this;
@@ -502,7 +502,7 @@ Debugger.prototype = {
         var cls = this._splitsrcfpn(srcfpn);
         var bid = cls.qtype + ':' + line;
         var newbp = this.breakpoints.bysrcloc[bid];
-        if (newbp) return newbp;
+        if (newbp) return $.Deferred().resolveWith(this, [newbp]);
         newbp = {
             id: bid,
             srcfpn: srcfpn,
@@ -522,25 +522,25 @@ Debugger.prototype = {
         // what happens next depends upon what state we are in
         switch (this.status()) {
             case 'connected':
-                //this._changebpstate([newbp], 'set');
-                //this._changebpstate([newbp], 'notloaded');
                 newbp.state = 'notloaded';
-                if (this.session.cpndone) {
-                    var bploc = this._findbplocation(this.session.classes, newbp);
-                    if (bploc) {
-                        this._setupbreakpointsevent([bploc]);
-                    }
-                }
-                break;
+                // try and load the class - if the runtime hasn't loaded it yet, this will just return an empty classes object
+                return this._loadclzinfo('L'+newbp.qtype+';')
+                    .then(classes => {
+                        if (!Object.keys(classes).length)
+                             return this._ensureClassPrepareForPackage(newbp.pkg);
+                        var bploc = this._findbplocation(classes, newbp);
+                        if (bploc)
+                            return this._setupbreakpointsevent([bploc]);
+                    })
+                    .then(() => newbp)
             case 'connecting':
             case 'disconnected':
             default:
-                //this._changebpstate([newbp], 'set');
                 newbp.state = 'set';
                 break;
         }
 
-        return newbp;
+        return $.Deferred().resolveWith(this, [newbp]);
     },
 
     clearbreakpoint: function (srcfpn, line) {
@@ -1456,29 +1456,28 @@ Debugger.prototype = {
 
     _initbreakpoints: function () {
         var deferreds = [{ dbgr: this }];
-        var donetypes = {};
         // reset any current associations
         this.breakpoints.enabled = {};
         // set all the breakpoints to the notloaded state
         this._changebpstate(this.breakpoints.all, 'notloaded');
 
-        // setup class prepare notifications for all the current packages
+        // setup class prepare notifications for all the packages associated with breakpoints
         // when each class is prepared, we initialise any breakpoints for it
-        for (var pkg in this.session.build.packages) {
-            try {
-                var def = this._setupclassprepareevent(pkg + '.*', _onclassprepared);
-                deferreds.push(def);
-            } catch (e) {
-                D('Ignoring additional class prepared notification for: ' + preppedclass.type.signature);
-            }
-        }
+        var cpdefs = this.breakpoints.all.map(bp => this._ensureClassPrepareForPackage(bp.pkg));
+        deferreds = deferreds.concat(cpdefs);
 
         return $.when.apply($, deferreds).then(function (x) {
-            x.dbgr.session.cpndone = true;
             return $.Deferred().resolveWith(x.dbgr);
         });
+    },
 
-        function _onclassprepared(preppedclass) {
+    _ensureClassPrepareForPackage: function(pkg) {
+        var filter = pkg + '.*';
+        if (this.session.cpfilters.includes(filter))
+            return $.Deferred().resolveWith(this,[]); // already setup
+
+        this.session.cpfilters.push(filter);
+        return this._setupclassprepareevent(filter, preppedclass => {
             // if the class prepare events have overlapping packages (mypackage.*, mypackage.another.*), we will get
             // multiple notifications (which duplicates breakpoints, etc)
             if (this.session.preparedclasses.includes(preppedclass.type.signature)) {
@@ -1502,6 +1501,7 @@ Debugger.prototype = {
                             bplocs.push(bploc);
                         }
                     }
+                    if (!bplocs.length) return;
                     // set all the breakpoints in one go...
                     return this._setupbreakpointsevent(bplocs);
                 })
@@ -1509,7 +1509,7 @@ Debugger.prototype = {
                     // when all the breakpoints for the newly-prepared type have been set...
                     this._resumesilent();
                 });
-        }
+        });
     },
 
     clearBreakOnExceptions: function(extra) {
