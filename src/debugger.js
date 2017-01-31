@@ -140,6 +140,7 @@ Debugger.prototype = {
             // classprepare filters
             cpfilters: [],
             preparedclasses: [],
+            stepids: {},    // hashmap<threadid,stepid>
         }
         return this;
     },
@@ -1320,16 +1321,26 @@ Debugger.prototype = {
         return cmd.promise();
     },
 
+    _clearLastStepRequest: function (threadid, extra) {
+        if (!this.session || !this.session.stepids[threadid])
+            return $.Deferred().resolveWith(this,[extra]);
+
+        var clearStepCommand = this.session.adbclient.jdwp_command({
+            cmd: this.JDWP.Commands.ClearStep(this.session.stepids[threadid]),
+            extra: extra,
+        }).then((decoded, extra) => extra);
+        this.session.stepids[threadid] = 0;
+        return clearStepCommand;
+    },
+
     _setupstepevent: function (steptype, threadid) {
         var onevent = {
             data: {
                 dbgr: this,
             },
             fn: function (e) {
-                e.data.dbgr.session.adbclient.jdwp_command({
-                    cmd: e.data.dbgr.JDWP.Commands.ClearStep(e.event.reqid),
-                })
-                    .then(function () {
+                e.data.dbgr._clearLastStepRequest(e.event.threadid, e)
+                    .then(function (e) {
                         var x = e.data;
                         var loc = e.event.location;
 
@@ -1351,6 +1362,10 @@ Debugger.prototype = {
         };
         var cmd = this.session.adbclient.jdwp_command({
             cmd: this.JDWP.Commands.SetSingleStep(steptype, threadid, onevent),
+        }).then(res => {
+            // save the step id so we can manually clear it if an exception break occurs
+            if (this.session && res && res.id) 
+                this.session.stepids[threadid] = res.id;
         });
 
         return cmd.promise();
@@ -1539,19 +1554,23 @@ Debugger.prototype = {
                 dbgr: this,
             },
             fn: function (e) {
-                this._findcmllocation(this.session.classes, e.event.throwlocation)
-                    .then(tloc => {
-                        this._findcmllocation(this.session.classes, e.event.catchlocation)
-                            .then(cloc => {
-                                var eventdata = {
-                                    event: e.event,
-                                    throwlocation: Object.assign({ threadid: e.event.threadid }, tloc),
-                                    catchlocation: Object.assign({ threadid: e.event.threadid }, cloc),
-                                };
-                                this.session.stoppedlocation = Object.assign({}, eventdata.throwlocation);
-                                this._trigger('exception', eventdata);
-                            })
-                    })
+                // if this exception break occurred during a step request, we must manually clear the event
+                // or the (device-side) debugger will crash on next step
+                this._clearLastStepRequest(e.event.threadid, e).then(e => {
+                    this._findcmllocation(this.session.classes, e.event.throwlocation)
+                        .then(tloc => {
+                            this._findcmllocation(this.session.classes, e.event.catchlocation)
+                                .then(cloc => {
+                                    var eventdata = {
+                                        event: e.event,
+                                        throwlocation: Object.assign({ threadid: e.event.threadid }, tloc),
+                                        catchlocation: Object.assign({ threadid: e.event.threadid }, cloc),
+                                    };
+                                    this.session.stoppedlocation = Object.assign({}, eventdata.throwlocation);
+                                    this._trigger('exception', eventdata);
+                                })
+                        })
+                });
             }.bind(this)
         };
 
