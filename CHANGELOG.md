@@ -1,5 +1,14 @@
 # Change Log
 
+## version 0.3.0
+* Support for Logcat filtering using regular expressions
+* Improved expression parsing with support for arithmetic, bitwise, logical and relational operators
+* Multi-threaded debugging support (experimental)
+* Hit count breakpoints
+* Android source breakpoints
+* Automatic adb server start
+* Bug fixes
+
 ## version 0.2.0
 * Support for Logcat viewing [ Command Palette -> Android: View Logcat ]
 * Support for modifying local variables, object fields and array elements (literal values only)
