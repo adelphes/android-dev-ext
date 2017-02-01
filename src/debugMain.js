@@ -307,8 +307,23 @@ class AndroidDebugSession extends DebugSession {
                 if (!launchActivity)
                     if (!(launchActivity = this.apk_file_info.launcher))
                         return fail_launch('No valid launch activity found in AndroidManifest.xml or launch.json');
-                return this.findSuitableDevice(args.targetDevice);
+
+                return new ADBClient().test_adb_connection()
+                    .then(err => {
+                        // if adb is not running, see if we can start it ourselves using ANDROID_HOME (and a sensible port number)
+                        var adbport = ws_proxy.adbport;
+                        if (err && process.env.ANDROID_HOME && typeof adbport === 'number' && adbport > 0 && adbport < 65536) {
+                            var adbpath = path.join(process.env.ANDROID_HOME, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');
+                            var adbargs = ['-P',''+adbport,'start-server'];
+                            try {
+                                this.LOG([adbpath, ...adbargs].join(' '));
+                                var stdout = require('child_process').execFileSync(adbpath, adbargs, {cwd:process.env.ANDROID_HOME, encoding:'utf8'});
+                                this.LOG(stdout);
+                            } catch (ex) {} // if we fail, it doesn't matter - the device query will fail and the user will have to work it out themselves
+                        }
+                    })
             })
+            .then(() => this.findSuitableDevice(args.targetDevice))
             .then(device => {
                 this._device = device;
                 this._device.adbclient = new ADBClient(this._device.serial);

@@ -87,6 +87,29 @@ ADBClient.prototype = {
             });
     },
 
+    test_adb_connection : function(o) {
+        var x = {o:o||{},deferred:$.Deferred()};
+        this.proxy_connect()
+            .then(function() {
+                return this.dexcmd('cn');
+            })
+            .then(function(data) {
+                this.fd = data;
+                return this.dexcmd('dc', this.fd);
+            })
+            .then(function() {
+                return this.proxy_disconnect();
+            })
+            .then(function() {
+                x.deferred.resolveWith(x.o.ths||this, [null, x.o.extra]);
+            })
+            .fail(function(err) {
+                // if we fail, still resolve the deferred, passing the error
+                x.deferred.resolveWith(x.o.ths||this, [err, x.o.extra]);
+            });
+        return x.deferred;
+    },
+
     list_devices : function(o) {
         var x = {o:o||{},deferred:$.Deferred()};
         this.proxy_connect()
