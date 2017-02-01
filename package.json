@@ -66,6 +66,16 @@
                                 "description": "Port number to connect to the local ADB (Android Debug Bridge) instance. Default: 5037",
                                 "default": 5037
                             },
+                            "autoStartADB": {
+                                "type": "boolean",
+                                "description": "Automatically launch 'adb start-server' if not already started. Default: true",
+                                "default": true
+                            },
+                            "logcatPort": {
+                                "type": "integer",
+                                "description": "Port number to use for the internal logcat websocket link. Changes to this value only apply when the extension is restarted. Default: 7038",
+                                "default": 7038
+                            },
                             "staleBuild": {
                                 "type": "string",
                                 "description": "Launch behaviour if source files have been saved after the APK was built. One of: [\"ignore\" \"warn\" \"stop\"]. Default: \"warn\"",

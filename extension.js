@@ -1,20 +1,15 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 const vscode = require('vscode');
-const { AndroidContentProvider, openLogcatWindow } = require('./src/logcat');
+const { AndroidContentProvider } = require('./src/contentprovider');
+const { openLogcatWindow } = require('./src/logcat');
 
 function getADBPort() {
-    var adbPort = 5037;
-    // there's surely got to be a better way than this...
-    var configs = vscode.workspace.getConfiguration('launch.configurations');
-    for (var i=0,config; config=configs.get(''+i); i++) {
-        if (config.type!=='android') continue;
-        if (config.request!=='launch') continue;
-        if (typeof config.adbPort === 'number' && config.adbPort === (config.adbPort|0))
-            adbPort = config.adbPort;
-        break;
-    }
-    return adbPort;
+    var defaultPort = 5037;
+    var adbPort = AndroidContentProvider.getLaunchConfigSetting('adbPort', defaultPort);
+    if (typeof adbPort === 'number' && adbPort === (adbPort|0))
+        return adbPort;
+    return defaultPort;
 }
 
 // this method is called when your extension is activated

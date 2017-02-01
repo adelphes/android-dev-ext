@@ -8,6 +8,7 @@ const path = require('path');
 const WebSocketServer = require('ws').Server;
 // our stuff
 const { ADBClient } = require('./adbclient');
+const { AndroidContentProvider } = require('./contentprovider');
 const $ = require('./jq-promise');
 const { D } = require('./util');
 
@@ -171,19 +172,29 @@ class LogcatContent {
 LogcatContent.byLogcatID = {};
 
 LogcatContent.initWebSocketServer = function () {
+
     if (LogcatContent._wssdone) {
         // already inited
         return LogcatContent._wssdone;
     }
+
+    // retrieve the logcat websocket port
+    var default_wssport = 7038;
+    var wssport = AndroidContentProvider.getLaunchConfigSetting('logcatPort', default_wssport);
+    if (typeof wssport !== 'number' || wssport <= 0 || wssport >= 65536 || wssport !== (wssport|0))
+        wssport = default_wssport;
+
     LogcatContent._wssdone = $.Deferred();
     ({
         wss: null,
-        port: 31100,
+        startport: wssport,
+        port: wssport,
         retries: 0,
         tryCreateWSS() {
             this.wss = new WebSocketServer({ host: '127.0.0.1', port: this.port }, () => {
                 // success - save the info and resolve the deferred
                 LogcatContent._wssport = this.port;
+                LogcatContent._wssstartport = this.startport;
                 LogcatContent._wss = this.wss;
                 this.wss.on('connection', client => {
                     // the client uses the url path to signify which logcat data it wants
@@ -214,66 +225,6 @@ LogcatContent.initWebSocketServer = function () {
         }
     }).tryCreateWSS();
     return LogcatContent._wssdone;
-}
-
-class AndroidContentProvider /*extends TextDocumentContentProvider*/ {
-
-    constructor() {
-        this._logs = {};    // hashmap<url, LogcatContent>
-        this._onDidChange = new EventEmitter();
-    }
-
-    dispose() {
-        this._onDidChange.dispose();
-    }
-
-    /**
-     * An event to signal a resource has changed.
-     */
-    get onDidChange() {
-        return this._onDidChange.event;
-    }
-
-    /**
-     * Provide textual content for a given uri.
-     *
-     * The editor will use the returned string-content to create a readonly
-     * [document](TextDocument). Resources allocated should be released when
-     * the corresponding document has been [closed](#workspace.onDidCloseTextDocument).
-     *
-     * @param uri An uri which scheme matches the scheme this provider was [registered](#workspace.registerTextDocumentContentProvider) for.
-     * @param token A cancellation token.
-     * @return A string or a thenable that resolves to such.
-     */
-    provideTextDocumentContent(uri/*: Uri*/, token/*: CancellationToken*/)/*: string | Thenable<string>;*/ {
-        var doc = this._logs[uri];
-        if (doc) return this._logs[uri].content;
-        switch (uri.authority) {
-            // android-dev-ext://logcat/read?<deviceid>
-            case 'logcat': return this.provideLogcatDocumentContent(uri);
-        }
-        throw new Error('Document Uri not recognised');
-    }
-
-    provideLogcatDocumentContent(uri) {
-        var doc = this._logs[uri] = new LogcatContent(this, uri);
-        return doc.content;
-    }
-}
-
-// the statics
-AndroidContentProvider.SCHEME = 'android-dev-ext';
-AndroidContentProvider.register = (ctx, workspace) => {
-    var provider = new AndroidContentProvider();
-    var registration = workspace.registerTextDocumentContentProvider(AndroidContentProvider.SCHEME, provider);
-    ctx.subscriptions.push(registration);
-    ctx.subscriptions.push(provider);
-}
-AndroidContentProvider.getReadLogcatUri = (deviceId) => {
-    var uri = Uri.parse(`${AndroidContentProvider.SCHEME}://logcat/logcat-${deviceId}.txt`);
-    return uri.with({
-        query: deviceId
-    });
 }
 
 function openLogcatWindow(vscode) {
@@ -314,5 +265,5 @@ function openLogcatWindow(vscode) {
     });
 }
 
-exports.AndroidContentProvider = AndroidContentProvider;
+exports.LogcatContent = LogcatContent;
 exports.openLogcatWindow = openLogcatWindow;

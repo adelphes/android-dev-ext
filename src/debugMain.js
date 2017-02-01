@@ -312,7 +312,7 @@ class AndroidDebugSession extends DebugSession {
                     .then(err => {
                         // if adb is not running, see if we can start it ourselves using ANDROID_HOME (and a sensible port number)
                         var adbport = ws_proxy.adbport;
-                        if (err && process.env.ANDROID_HOME && typeof adbport === 'number' && adbport > 0 && adbport < 65536) {
+                        if (err && args.autoStartADB!==false && process.env.ANDROID_HOME && typeof adbport === 'number' && adbport > 0 && adbport < 65536) {
                             var adbpath = path.join(process.env.ANDROID_HOME, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');
                             var adbargs = ['-P',''+adbport,'start-server'];
                             try {
@@ -396,7 +396,7 @@ class AndroidDebugSession extends DebugSession {
                 this.LOG('Launch failed: '+(e.message||e.msg||'No additional information is available'));
                 // more info for adb connect errors
                 if (/^ADB server is not running/.test(e.msg)) {
-                    this.LOG('Make sure the Android SDK tools are installed and run:');
+                    this.LOG('Make sure the Android SDK Platform Tools are installed and run:');
                     this.LOG('      adb start-server');
                     this.LOG('If you are running ADB on a non-default port, also make sure the adbPort value in your launch.json is correct.');
                 }
