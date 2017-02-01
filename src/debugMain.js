@@ -1,7 +1,7 @@
 'use strict'
 const {
 	DebugSession,
-	InitializedEvent, ExitedEvent, TerminatedEvent, StoppedEvent, BreakpointEvent, OutputEvent, Event,
+	ContinuedEvent, InitializedEvent, ExitedEvent, TerminatedEvent, StoppedEvent, BreakpointEvent, OutputEvent, Event,
 	Thread, StackFrame, Scope, Source, Handles, Breakpoint } = require('vscode-debugadapter');
 const DebugProtocol = { //require('vscode-debugprotocol');
     /** Arguments for 'launch' request. */
@@ -58,13 +58,6 @@ function is_subpath_of(fpn, subpath) {
     if (!subpath || !fpn) return false;
     subpath = ensure_path_end_slash(''+subpath);
     return fpn.slice(0,subpath.length) === subpath;
-}
-
-function get_thread_id(tid, format) {
-    switch(format) {
-        case 'string': return ('000000000000000' + tid.toString(16)).slice(-16);
-        case 'int': return parseInt(tid, 16);
-    }
 }
 
 function decode_char(c) {
@@ -127,6 +120,10 @@ class AndroidDebugSession extends DebugSession {
         this._frameBaseId  =  0x00010000; // high, so we don't clash with thread id's
         this._nextObjVarRef = 0x10000000; // high, so we don't clash with thread or frame id's
         this._sourceRefs = { all:[null] };  // hashmap + array of (non-zero) source references
+        this._threadStates = null;          // current state of threads at last stopped event
+        this._pausedThreads = {};       // hashmap of threadIds that vscode has been told are paused
+        this._nextThreadId = 0;         // vscode doesn't like thread id reuse (the Android runtime is OK with it)
+        this._threadIDmap = [];         //  list of objects used to map vscode thread id's to java thread infos
 
         // flag to distinguish unexpected disconnection events (initiated from the device) vs user-terminated requests
         this._isDisconnecting = false;
@@ -177,6 +174,91 @@ class AndroidDebugSession extends DebugSession {
             response.success = false;
             this.sendResponse(response);
         }
+    }
+
+    get_vscode_thread_id(threadid) {
+        return this._threadIDmap.find(x => x.threadid === threadid).vscodeid;
+    }
+
+    get_java_thread_id(vscodeid) {
+        return this._threadIDmap.find(x => x.vscodeid === vscodeid).threadid;
+    }
+
+    reportStoppedEvent(reason, threadid) {
+        this.getThreadStates({reason, threadid})
+            .then((threadStates, o) => {
+
+                this._pausedThreads[o.threadid] = { threadid:o.threadid, reported:false };
+                var def = this.dbgr.suspendthread(o.threadid);
+
+                // Even though we request all threads to suspend on bp, step and exception events and JDWP 
+                // reports all threads suspended, in reality, we can't get the call stacks because JDWP flunks
+                // an error that the other worker threads are still running.
+                // So... we only choose to report the currently-stopped thread, the thread named 'main' and
+                // any others named 'Thread-nnn' which are in the suspended state
+                // It's bad, but better than nothing.
+                var others = threadStates.filter(t => t.threadid !== o.threadid && /^(main|Thread-\d+)$/.test(t.name) && t.status.thread === 'running' && t.status.suspend==='suspended');
+                others.forEach(t => {
+                    if (this._pausedThreads[t.threadid])
+                        return; // we've already told vscode that this thread is currently paused
+
+                    this._pausedThreads[t.threadid] = { threadid:t.threadid, reported:false };
+                    def = def.then(function() {
+                        return this.dbgr.suspendthread(this.pausedThread.threadid);
+                    }.bind({dbgr:this.dbgr, pausedThread:this._pausedThreads[t.threadid]}));
+                });
+
+                return def.then(function(){ return this }.bind(o));
+            })
+            .then(o => {
+                // notify vscode of any newly suspended threads
+                // - use the stopped thread id as the reason
+                var other_reason = 'Thread:'+parseInt(o.threadid,16);
+                for (var threadid in this._pausedThreads) {
+                    if (threadid === o.threadid)
+                        continue;   // leave the stopped event thread until last
+                    if (this._pausedThreads[threadid].reported)
+                        continue;   // vscode already knows this thread is paused
+
+                    this._pausedThreads[threadid].reported = true;
+                    this.sendEvent(new StoppedEvent(other_reason, this.get_vscode_thread_id(threadid)));
+                }
+
+                // lastly, tell vscode about the thread that caused the stop
+                this._pausedThreads[o.threadid].reported = true;
+                this.sendEvent(new StoppedEvent(o.reason, this.get_vscode_thread_id(o.threadid)));
+            });
+    }
+
+    getThreadStates(extra) {
+        if (this._threadStates)
+            return $.Deferred().resolveWith(this,[this._threadStates, extra]);
+
+        return this.dbgr.allthreads(extra)
+            .then((thread_ids, extra) => this.dbgr.threadinfos(thread_ids, extra))
+            .then((threadinfos, extra) => {
+                // during startup, VSCode can request the threads while we are resuming
+                // - to make sure we don't use stale info, only cache it if we are not running
+                if (!this._running)
+                    this._threadStates = threadinfos;
+
+                // because vscode doesn't allow threadid reuse (and the android runtime does), we need to manually
+                // map them.
+                var new_mappings = [];
+                threadinfos.forEach(ti => {
+                    var existing_mapping = this._threadIDmap.find(x => x.threadid === ti.threadid && x.name === ti.name);
+                    if (existing_mapping) {
+                        // we have a mapping that already matches the Java thread id and name - use it
+                        ti.vscodeid = existing_mapping.vscodeid;
+                        new_mappings.push(existing_mapping);
+                    } else {
+                        // if there's no current mapping, create one
+                        ti.vscodeid = ++this._nextThreadId;
+                        new_mappings.push({threadid:ti.threadid, name:ti.name, vscodeid:ti.vscodeid});
+                    }
+                });
+                this._threadIDmap = new_mappings;
+            })
     }
 
 	launchRequest(response/*: DebugProtocol.LaunchResponse*/, args/*: LaunchRequestArguments*/) {
@@ -500,16 +582,7 @@ class AndroidDebugSession extends DebugSession {
         if (!this._running) return;
         D('Breakpoint hit: ' + JSON.stringify(e.stoppedlocation));
         this._running = false;
-        this.sendEvent(new StoppedEvent("breakpoint", get_thread_id(e.stoppedlocation.threadid,'int')));
-    }
-
-    markAllThreadsStopped(reason, exclude) {
-        this.dbgr.allthreads(reason)
-            .then(threads => {
-                if (Array.isArray(exclude))
-                    threads = threads.filter(t => !exclude.includes(t));
-                threads.forEach(tid => this.sendEvent(new StoppedEvent(reason, get_thread_id(tid,'int'))));
-            });
+        this.reportStoppedEvent("breakpoint", e.stoppedlocation.threadid);
     }
 
     /**
@@ -643,12 +716,13 @@ class AndroidDebugSession extends DebugSession {
 
 	threadsRequest(response/*: DebugProtocol.ThreadsResponse*/) {
 
-        this.dbgr.allthreads(response)
-            .then((threads, response) => {
-                // convert the (hex) thread strings into real numbers
-                var tids = threads.map(tid => get_thread_id(tid,'int'));
+        this.getThreadStates(response)
+            .then((threadStates,response) => {
                 response.body = {
-                    threads: tids.map(tid => new Thread(tid, `Thread (id:${tid})`))
+                    threads: threadStates.map(t => {
+                        var javaid = parseInt(t.threadid, 16);
+                        return new Thread(t.vscodeid, `Thread (id:${javaid}) ${t.name}`);
+                    })
                 };
                 this.sendResponse(response);
             })
@@ -664,7 +738,7 @@ class AndroidDebugSession extends DebugSession {
 	stackTraceRequest(response/*: DebugProtocol.StackTraceResponse*/, args/*: DebugProtocol.StackTraceArguments*/) {
 
         // debugger threadid's are a padded 64bit hex string
-        var threadid = get_thread_id(args.threadId, 'string');
+        var threadid = this.get_java_thread_id(args.threadId);
         // retrieve the (stack) frames from the debugger
         this.dbgr.getframes(threadid, {response:response, args:args})
             .then((frames, x) => {
@@ -726,6 +800,9 @@ class AndroidDebugSession extends DebugSession {
                     totalFrames: totalFrames,
                 };
                 this.sendResponse(response);
+            })
+            .fail((e,x) => {
+                this.failRequest('No call stack is available', response);
             });
 	}
 
@@ -1000,27 +1077,41 @@ class AndroidDebugSession extends DebugSession {
 
 	continueRequest(response/*: DebugProtocol.ContinueResponse*/, args/*: DebugProtocol.ContinueArguments*/) {
         D('Continue');
+
+        var multiple_threads_stopped = Object.keys(this._pausedThreads).length > 1;
+        // undo the manual suspensions for all the paused threads
+        var unsuspend = $.Deferred().resolve();
+        for (var threadid in this._pausedThreads) {
+            unsuspend = unsuspend.then(function() {
+                return this.dbgr.resumethread(this.pausedThread.threadid);
+            }.bind({dbgr:this.dbgr, pausedThread:this._pausedThreads[threadid]}));
+
+            delete this._pausedThreads[threadid];
+        }
+
         this._variableHandles = {};
         this._last_exception = null;
         this._locals_done = {};
+        this._threadStates = null;
+
         // sometimes, the device is so quick that a breakpoint is hit
         // before we've completed the resume promise chain.
         // so tell the client that we've resumed now and just send a StoppedEvent
         // if it ends up failing
         this._running = true;
-        this.dbgr.resume()
+        unsuspend.then(() => {
+                return this.dbgr.resume()
+            })
             .then(() => {
                 if (args.is_start)
                     this.LOG(`App started`);
             })
-            .fail(() => {
-                if (!response)
-                    this.sendEvent(new StoppedEvent('Continue failed'));
-                this.failRequest('Resume command failed', response);
-                response = null;
-            });
-        response && this.sendResponse(response) && D('Sent continue response');
-        response = null;
+
+        this.sendResponse(response);
+        if (multiple_threads_stopped) {
+            // send an additional event to indicate that all threads are running again
+            this.sendEvent(new ContinuedEvent(args.threadId, true));
+        }
 	}
 
     /**
@@ -1031,7 +1122,7 @@ class AndroidDebugSession extends DebugSession {
         if (!this._running) return;
         D('step hit: ' + JSON.stringify(e.stoppedlocation));
         this._running = false;
-        this.sendEvent(new StoppedEvent("step", get_thread_id(e.stoppedlocation.threadid,'int')));
+        this.reportStoppedEvent("step", e.stoppedlocation.threadid);
     }
 
     /**
@@ -1042,9 +1133,26 @@ class AndroidDebugSession extends DebugSession {
         this._variableHandles = {};
         this._last_exception = null;
         this._locals_done = {};
+        this._threadStates = null;
         this._running = true;
-        this.dbgr.step(which, get_thread_id(args.threadId,'string'));
-        this.sendResponse(response);
+        
+        // when we step, manually resume the (single) thread we are stepping and remove it from the list of paused threads
+        // - any other paused threads should remain suspended during the step
+        var unpause = $.Deferred().resolve();
+        var threadid = this.get_java_thread_id(args.threadId);
+        var pausedThread = this._pausedThreads[threadid];
+        if (pausedThread) {
+            unpause = unpause.then(function() {
+                return this.dbgr.resumethread(this.pausedThread.threadid);
+            }.bind({dbgr:this.dbgr, pausedThread:pausedThread}));
+
+            delete this._pausedThreads[threadid];
+        }
+
+        unpause.then(() => {
+            this.dbgr.step(which, threadid);
+            this.sendResponse(response);
+        });
     }
 
 	stepInRequest(response/*: DebugProtocol.NextResponse*/, args/*: DebugProtocol.StepInArguments*/) {
@@ -1074,7 +1182,7 @@ class AndroidDebugSession extends DebugSession {
             varref: ++this._nextObjVarRef,
         };
         this._variableHandles[this._last_exception.varref] = this._last_exception;
-        this.sendEvent(new StoppedEvent("exception", get_thread_id(e.throwlocation.threadid,'int')));
+        this.reportStoppedEvent("exception", e.throwlocation.threadid);
     }
 
     setVariableRequest(response/*: DebugProtocol.SetVariableResponse*/, args/*: DebugProtocol.SetVariableArguments*/) {
