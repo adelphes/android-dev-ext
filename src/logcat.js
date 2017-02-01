@@ -227,8 +227,30 @@ LogcatContent.initWebSocketServer = function () {
     return LogcatContent._wssdone;
 }
 
+function getADBPort() {
+    var defaultPort = 5037;
+    var adbPort = AndroidContentProvider.getLaunchConfigSetting('adbPort', defaultPort);
+    if (typeof adbPort === 'number' && adbPort === (adbPort|0))
+        return adbPort;
+    return defaultPort;
+}
+
 function openLogcatWindow(vscode) {
-    new ADBClient().list_devices().then(devices => {
+    new ADBClient().test_adb_connection()
+    .then(err => {
+        // if adb is not running, see if we can start it ourselves using ANDROID_HOME (and a sensible port number)
+        var adbport = getADBPort();
+        var autoStartADB = AndroidContentProvider.getLaunchConfigSetting('autoStartADB', true);
+        if (err && autoStartADB!==false && process.env.ANDROID_HOME && typeof adbport === 'number' && adbport > 0 && adbport < 65536) {
+            var adbpath = path.join(process.env.ANDROID_HOME, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');
+            var adbargs = ['-P',''+adbport,'start-server'];
+            try {
+                var stdout = require('child_process').execFileSync(adbpath, adbargs, {cwd:process.env.ANDROID_HOME, encoding:'utf8'});
+            } catch (ex) {} // if we fail, it doesn't matter - the device query will fail and the user will have to work it out themselves
+        }
+    })
+    .then(() => new ADBClient().list_devices())
+    .then(devices => {
         switch(devices.length) {
             case 0: 
                 vscode.window.showInformationMessage('Logcat cannot be displayed. No Android devices are currently connected');
