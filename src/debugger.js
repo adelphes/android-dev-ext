@@ -587,11 +587,26 @@ Debugger.prototype = {
                 // try and load the class - if the runtime hasn't loaded it yet, this will just return an empty classes object
                 return this._loadclzinfo('L'+newbp.qtype+';')
                     .then(classes => {
-                        if (!Object.keys(classes).length)
-                             return this._ensureClassPrepareForPackage(newbp.pkg);
                         var bploc = this._findbplocation(classes, newbp);
-                        if (bploc)
-                            return this._setupbreakpointsevent([bploc]);
+                        if (!bploc) {
+                            // the required location may be inside a nested class (anonymous or named)
+                            // Since Android doesn't support the NestedTypes JDWP call (ffs), all we can do here
+                            // is look for existing (cached) loaded types matching inner type signatures
+                            for (var sig in this.session.classes) {
+                                if (newbp.sigpattern.test(sig))
+                                    classes[sig] = this.session.classes[sig];
+                            }
+                            // try again
+                            bploc = this._findbplocation(classes, newbp);
+                        }
+                        if (!bploc) {
+                            // we couldn't identify a matching location - either the class is not yet loaded or the
+                            // location doesn't correspond to any code. In case it's the former, make sure we are notified
+                            // when classes in this package are loaded
+                            return this._ensureClassPrepareForPackage(newbp.pkg);
+                        }
+                        // we found a matching location - set the breakpoint event
+                        return this._setupbreakpointsevent([bploc]);
                     })
                     .then(() => newbp)
             case 'connecting':
