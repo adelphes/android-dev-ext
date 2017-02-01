@@ -32,7 +32,7 @@ var Deferred = exports.Deferred = function(p, parent) {
             var thendef = this.then(fn);
             this.fail(function() {
                 // we cannot bind thendef to the function because we need the caller's this to resolve the thendef
-                thendef.resolveWith(this, Array.prototype.map.call(arguments,x=>x));
+                return thendef.resolveWith(this, Array.prototype.map.call(arguments,x=>x))._promise;
             });
             return thendef;
         },
@@ -108,6 +108,9 @@ var Deferred = exports.Deferred = function(p, parent) {
 // $.when() is jQuery's version of Promise.all()
 // - this version just scans the array of arguments waiting on any Deferreds in turn before finally resolving the return Deferred
 var when = exports.when = function() {
+    if (arguments.length === 1 && Array.isArray(arguments[0])) {
+        return when.apply(this,...arguments).then(() => [...arguments]);
+    }
     var x = {
         def: $.Deferred(),
         args: Array.prototype.map.call(arguments,x=>x),
