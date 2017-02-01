@@ -639,7 +639,7 @@ class AndroidDebugSession extends DebugSession {
 
         // our debugger requires a relative fpn beginning with / , rooted at the java source base folder
         // - it should look like: /some/package/name/abc.java
-        var relative_fpn = srcfpn.slice(pkginfo.srcroot.match(/^(.*?)[\\/]?$/)[1].length);
+        var relative_fpn = srcfpn.slice(pkginfo.srcroot.match(/^(.*?)[\\/]?$/)[1].length).replace(/\\/g,'/');
 
         // delete any existing breakpoints not in the list
         var src_line_nums = args.breakpoints.map(bp => bp.line);
