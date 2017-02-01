@@ -250,6 +250,12 @@ function _JDWP() {
 		decodeStatus : function(o) {
 			return this.mapflags(this.decodeInt(o), ['verified','prepared','initialized','error']);
 		},
+		decodeThreadStatus : function(o) {
+			return ['zombie','running','sleeping','monitor','wait'][this.decodeInt(o)] || '';
+		},
+		decodeSuspendStatus : function(o) {
+			return this.decodeInt(o) ? 'suspended': '';
+		},
 		decodeTaggedObjectID : function(o) {
 			return this.decodeValue(o);
 		},
@@ -721,6 +727,7 @@ function _JDWP() {
 				}
 			);
 		},
+		// nestedTypes is not implemented on android
 		nestedTypes:function(ci) {
 			return new Command('NestedTypes:'+ci.name, 2, 8,
 				function() {
@@ -733,7 +740,7 @@ function _JDWP() {
 					var arrlen = DataCoder.decodeInt(o);
 					while (--arrlen>=0) {
     					var v = DataCoder.decodeList(o, [{reftype:'reftype'},{typeid:'tref'}]);
-					    res.vars.push(v);
+					    res.push(v);
 					}
 					return res;
 				}
@@ -1163,6 +1170,26 @@ function _JDWP() {
 		resume:function() {
 			return new Command('resume',1, 9, null, null);
 		},
+		suspendthread:function(threadid) {
+			return new Command('suspendthread:'+threadid,11, 2, 
+				function() {
+					var res = [];
+					DataCoder.encodeRef(res, this);
+					return res;
+				}.bind(threadid),
+			 	null
+			);
+		},
+		resumethread:function(threadid) {
+			return new Command('resumethread:'+threadid,11, 3, 
+				function() {
+					var res = [];
+					DataCoder.encodeRef(res, this);
+					return res;
+				}.bind(threadid),
+			 	null
+			);
+		},
 		allthreads:function() {
 			return new Command('allthreads',1, 4, 
 				null, 
@@ -1175,7 +1202,34 @@ function _JDWP() {
 					return res;
 				}
 			);
-		}
+		},
+		threadname:function(threadid) {
+			return new Command('threadname',11,1, 
+				function() {
+					var res=[];
+					DataCoder.encodeRef(res, this);
+					return res;
+				}.bind(threadid),
+				function(o) {
+					return DataCoder.decodeString(o);
+				}
+			);
+		},
+		threadstatus:function(threadid) {
+			return new Command('threadstatus',11,4, 
+				function() {
+					var res=[];
+					DataCoder.encodeRef(res, this);
+					return res;
+				}.bind(threadid),
+				function(o) {
+					return {
+						thread: DataCoder.decodeThreadStatus(o),
+						suspend: DataCoder.decodeSuspendStatus(o),
+					}
+				}
+			);
+		},
 	};
 }
 

@@ -141,6 +141,7 @@ Debugger.prototype = {
             cpfilters: [],
             preparedclasses: [],
             stepids: {},    // hashmap<threadid,stepid>
+            suspendcount: 0,    // refcount of suspend-all-threads
         }
         return this;
     },
@@ -415,6 +416,35 @@ Debugger.prototype = {
             });
     },
 
+    threadinfos: function(thread_ids, extra) {
+        if (!Array.isArray(thread_ids))
+            thread_ids = [thread_ids];
+        var o = {
+            dbgr: this, thread_ids, extra, threadinfos:[], idx:0,
+            next() {
+                var thread_id = this.thread_ids[this.idx];
+                if (typeof(thread_id) === 'undefined')
+                    return $.Deferred().resolveWith(this.dbgr, [this.threadinfos, this.extra]);
+                var info = {
+                    threadid: thread_id,
+                    name:'',
+                    status:null,
+                };
+                return this.dbgr.session.adbclient.jdwp_command({ ths:this.dbgr, extra:info, cmd:this.dbgr.JDWP.Commands.threadname(info.threadid) })
+                    .then((name,info) => {
+                        info.name = name;
+                        return this.dbgr.session.adbclient.jdwp_command({ ths:this.dbgr, extra:info, cmd:this.dbgr.JDWP.Commands.threadstatus(info.threadid) })
+                    })
+                    .then((status, info) => {
+                        info.status = status;
+                        this.threadinfos.push(info);
+                    })
+                    .always(() => (this.idx++,this.next()))
+            }
+        };
+        return this.ensureconnected(o).then(o => o.next());
+    },
+
     suspend: function (extra) {
         return this.ensureconnected(extra)
             .then(function (extra) {
@@ -426,37 +456,67 @@ Debugger.prototype = {
                 });
             })
             .then(function () {
+                this.session.suspendcount++;
                 this._trigger('suspended');
             });
     },
 
-    resume: function (extra) {
+    suspendthread: function (threadid, extra) {
         return this.ensureconnected(extra)
             .then(function (extra) {
-                this._trigger('resuming');
-                this.session.stoppedlocation = null;
                 return this.session.adbclient.jdwp_command({
                     ths: this,
                     extra: extra,
-                    cmd: this.JDWP.Commands.resume(),
+                    cmd: this.JDWP.Commands.suspendthread(threadid),
                 });
             })
+            .then((res,extra) => extra);
+    },
+
+    _resume:function(triggers, extra) {
+        return this.ensureconnected(extra)
+            .then(function (extra) {
+                if (triggers) this._trigger('resuming');
+                const resume_cmd = (decoded,extra) => {
+                    return this.session.adbclient.jdwp_command({
+                        ths: this,
+                        extra: extra,
+                        cmd: this.JDWP.Commands.resume(),
+                    });
+                }
+                // we must resume with the same number of suspends
+                var def = resume_cmd(null, extra);
+                for (var i=1; i < this.session.suspendcount; i++) {
+                    def = def.then(resume_cmd);
+                }
+                this.session.stoppedlocation = null;
+                this.session.suspendcount = 0;
+                return def;
+            })
             .then(function (decoded, extra) {
-                this._trigger('resumed');
+                if (triggers) this._trigger('resumed');
                 return extra;
             });
     },
 
+    resume: function (extra) {
+        return this._resume(true, extra);
+    },
+
     _resumesilent: function () {
-        return this.ensureconnected()
-            .then(function () {
-                this.session.stoppedlocation = null;
+        return this._resume(false);
+    },
+
+    resumethread: function (threadid, extra) {
+        return this.ensureconnected(extra)
+            .then(function (extra) {
                 return this.session.adbclient.jdwp_command({
                     ths: this,
-                    //extra: extra,
-                    cmd: this.JDWP.Commands.resume(),
+                    extra: extra,
+                    cmd: this.JDWP.Commands.resumethread(threadid),
                 });
-            });
+            })
+            .then((res,extra) => extra);
     },
 
     step: function (steptype, threadid) {
@@ -1311,6 +1371,8 @@ Debugger.prototype = {
             },
             fn: function (e) {
                 var x = e.data;
+                // each class prepare contributes a global suspend
+                x.dbgr.session.suspendcount++;
                 x.onprepare.apply(x.dbgr, [e.event]);
             }
         };
@@ -1339,6 +1401,8 @@ Debugger.prototype = {
                 dbgr: this,
             },
             fn: function (e) {
+                // each step hit contributes a global suspend
+                e.data.dbgr.session.suspendcount++;
                 e.data.dbgr._clearLastStepRequest(e.event.threadid, e)
                     .then(function (e) {
                         var x = e.data;
@@ -1392,6 +1456,8 @@ Debugger.prototype = {
                     bp: x.dbgr.breakpoints.enabled[cmlkey].bp,
                 };
                 x.dbgr.session.stoppedlocation = stoppedloc;
+                // each breakpoint hit contributes a global suspend
+                x.dbgr.session.suspendcount++;
                 // if this was a conditional breakpoint, it will have been automatically cleared
                 // - set a new (unconditional) breakpoint in it's place
                 if (bp.conditions.hitcount) {
@@ -1554,6 +1620,8 @@ Debugger.prototype = {
                 dbgr: this,
             },
             fn: function (e) {
+                // each exception hit contributes a global suspend
+                x.dbgr.session.suspendcount++;
                 // if this exception break occurred during a step request, we must manually clear the event
                 // or the (device-side) debugger will crash on next step
                 this._clearLastStepRequest(e.event.threadid, e).then(e => {
