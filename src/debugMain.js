@@ -802,7 +802,7 @@ class AndroidDebugSession extends DebugSession {
                     const srcpath = pkginfo ? path.join(pkginfo.package_path,sourcefile)
                         : this._android_sources_path ? srcInfo.filepath
                         : null;
-                    const src = new Source(sourcefile, srcpath, srcRefId);
+                    const src = new Source(sourcefile, srcpath, srcpath ? 0 : srcRefId);
                     pkginfo && (highest_known_source=i);
                     stack.push(new StackFrame(stack_frame_id, name, src, linenum, 0));
                 }
