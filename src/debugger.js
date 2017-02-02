@@ -1636,7 +1636,7 @@ Debugger.prototype = {
             },
             fn: function (e) {
                 // each exception hit contributes a global suspend
-                x.dbgr.session.suspendcount++;
+                e.data.dbgr.session.suspendcount++;
                 // if this exception break occurred during a step request, we must manually clear the event
                 // or the (device-side) debugger will crash on next step
                 this._clearLastStepRequest(e.event.threadid, e).then(e => {
