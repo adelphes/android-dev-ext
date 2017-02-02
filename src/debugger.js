@@ -142,6 +142,7 @@ Debugger.prototype = {
             preparedclasses: [],
             stepids: {},    // hashmap<threadid,stepid>
             suspendcount: 0,    // refcount of suspend-all-threads
+            threadsuspends: [], // hashmap<threadid, suspend-count>
         }
         return this;
     },
@@ -462,12 +463,13 @@ Debugger.prototype = {
     },
 
     suspendthread: function (threadid, extra) {
-        return this.ensureconnected(extra)
-            .then(function (extra) {
+        return this.ensureconnected({threadid,extra})
+            .then(function (x) {
+                this.session.threadsuspends[x.threadid] = (this.session.threadsuspends[x.threadid]|0) + 1;
                 return this.session.adbclient.jdwp_command({
                     ths: this,
-                    extra: extra,
-                    cmd: this.JDWP.Commands.suspendthread(threadid),
+                    extra: x.extra,
+                    cmd: this.JDWP.Commands.suspendthread(x.threadid),
                 });
             })
             .then((res,extra) => extra);
@@ -508,12 +510,13 @@ Debugger.prototype = {
     },
 
     resumethread: function (threadid, extra) {
-        return this.ensureconnected(extra)
-            .then(function (extra) {
+        return this.ensureconnected({threadid,extra})
+            .then(function (x) {
+                this.session.threadsuspends[x.threadid] = (this.session.threadsuspends[x.threadid]|0) - 1;
                 return this.session.adbclient.jdwp_command({
                     ths: this,
-                    extra: extra,
-                    cmd: this.JDWP.Commands.resumethread(threadid),
+                    extra: x.extra,
+                    cmd: this.JDWP.Commands.resumethread(x.threadid),
                 });
             })
             .then((res,extra) => extra);
@@ -1022,11 +1025,35 @@ Debugger.prototype = {
                 return o.def;
             })
             .then((typeinfo, method, x) => {
+                x.typeinfo = typeinfo;
+                x.method = method;
+                // in order to invoke the method, we must undo any manual suspends of the specified thread
+                // (and then resuspend after)
+                var def = $.Deferred().resolveWith(this,[null,x]);
+                for (var i=0; i < this.session.threadsuspends[x.threadid]|0; i++) {
+                    def = def.then((res,x) => this.session.adbclient.jdwp_command({
+                        ths: this, extra:x, cmd: this.JDWP.Commands.resumethread(x.threadid),
+                    }));
+                }
+                return def;
+            })
+            .then((res,x) => {
                 return this.session.adbclient.jdwp_command({
                     ths: this,
                     extra: x,
-                    cmd: this.JDWP.Commands.InvokeMethod(x.objectid, x.threadid, typeinfo.info.typeid, method.methodid, x.args),
-                });
+                    cmd: this.JDWP.Commands.InvokeMethod(x.objectid, x.threadid, x.typeinfo.info.typeid, x.method.methodid, x.args),
+                })
+            })
+            .then((res, x) => {
+                // save the result and re-suspend the thread
+                x.res = res;
+                var def = $.Deferred().resolveWith(this,[null,x]);
+                for (var i=0; i < this.session.threadsuspends[x.threadid]|0; i++) {
+                    def = def.then((res,x) => this.session.adbclient.jdwp_command({
+                        ths: this, extra:x, cmd: this.JDWP.Commands.suspendthread(x.threadid),
+                    }));
+                }
+                return def.then((res,x) => $.Deferred().resolveWith(this, [x.res, x]));
             })
             .then((res, x) => {
                 if (/^0+$/.test(res.exception))
