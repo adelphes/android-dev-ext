@@ -2,7 +2,7 @@
     "name": "android-dev-ext",
     "displayName": "Android",
     "description": "Android debugging support for VS Code",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "publisher": "adelphes",
     "preview": true,
     "license": "MIT",

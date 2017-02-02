@@ -1,5 +1,10 @@
 # Change Log
 
+### version 0.3.1
+* Bug fixes
+* Fix issue with exception breaks crashing debugger
+* Fix issue with Android sources not displaying in VSCode 1.9
+
 ## version 0.3.0
 * Support for Logcat filtering using regular expressions
 * Improved expression parsing with support for arithmetic, bitwise, logical and relational operators
