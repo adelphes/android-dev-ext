@@ -117,7 +117,7 @@ class LogcatContent {
         // no point in formatting the data if there are no connected clients
         var clients = LogcatContent._wss.clients.filter(client => client._logcatid === this._logcatid);
         if (clients.length) {
-            var lines = '<div class="logblock">' + this._htmllogs.join(os.EOL) + '</div>';
+            var lines = '<div class="logblock">' + this._htmllogs.join('') + '</div>';
             clients.forEach(client => client.send(lines));
         }
         // once we've updated all the clients, discard the info
