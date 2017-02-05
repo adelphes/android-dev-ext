@@ -71,6 +71,11 @@
                                 "description": "Automatically launch 'adb start-server' if not already started. Default: true",
                                 "default": true
                             },
+                            "callStackDisplaySize": {
+                                "type": "integer",
+                                "description": "Number of entries to display in call stack views (for locations outside of the project source). 0 shows the entire call stack. Default: 1",
+                                "default": 1
+                            },
                             "logcatPort": {
                                 "type": "integer",
                                 "description": "Port number to use for the internal logcat websocket link. Changes to this value only apply when the extension is restarted. Default: 7038",

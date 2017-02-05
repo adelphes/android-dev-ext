@@ -54,6 +54,9 @@ class AndroidDebugSession extends DebugSession {
         // path to the the ANDROID_HOME/sources/<api> (only set if it's a valid path)
         this._android_sources_path = '';
 
+        // number of call stack entries to display above the project source
+        this.callStackDisplaySize = 1;
+
         // the set of variables used for evalution outside of any thread/frame context
         this._globals = new AndroidVariables(this, 10000);
 
@@ -64,7 +67,6 @@ class AndroidDebugSession extends DebugSession {
         // so that the frontend can match events with breakpoints.
         this._breakpointId = 1000;
 
-        //this._frameBaseId  =  0x00010000; // high, so we don't clash with thread id's
         this._sourceRefs = { all:[null] };  // hashmap + array of (non-zero) source references
         this._nextVSCodeThreadId = 0;         // vscode doesn't like thread id reuse (the Android runtime is OK with it)
 
@@ -147,9 +149,7 @@ class AndroidDebugSession extends DebugSession {
     reportStoppedEvent(reason, location, last_exception) {
         var thread = this.getThread(location.threadid);
         if (thread.stepTimeout) {
-            var now = process.hrtime(), then = thread.stepTimeout._begun;
             clearTimeout(thread.stepTimeout);
-            console.log('step took: ' + ((now[0]*1e9+now[1]) -(then[0]*1e9+then[1]))/1e9);
             thread.stepTimeout = null;
         }
         if (thread.paused) {
@@ -211,6 +211,8 @@ class AndroidDebugSession extends DebugSession {
         // app_src_root must end in a path-separator for correct validation of sub-paths
         this.app_src_root = ensure_path_end_slash(args.appSrcRoot);
         this.apk_fpn = args.apkFile;
+        if (typeof args.callStackDisplaySize === 'number' && args.callStackDisplaySize >= 0)
+            this.callStackDisplaySize = args.callStackDisplaySize|0;
 
         // configure the ADB port - if it's undefined, it will set the default value.
         // if it's not a valid port number, any connection request should neatly fail.
@@ -767,9 +769,11 @@ class AndroidDebugSession extends DebugSession {
                     pkginfo && (highest_known_source=i);
                     stack.push(new StackFrame(stack_frame_id, name, src, linenum, 0));
                 }
-                // FIX: trim the stack to exclude anything above the known sources - otherwise an error occurs in the editor when the user tries to view it
-                stack = stack.slice(0,highest_known_source+1);
-                totalFrames = stack.length;
+                // trim the stack to exclude calls above the known sources
+                if (this.callStackDisplaySize > 0) {
+                    stack = stack.slice(0,highest_known_source+this.callStackDisplaySize);
+                    totalFrames = stack.length;
+                }
                 // return the frames
                 response.body = {
                     stackFrames: stack,
@@ -913,8 +917,6 @@ class AndroidDebugSession extends DebugSession {
     doStep(which, response, args) {
         D('step '+which);
 
-        // when we step, manually resume the (single) thread we are stepping and remove it from the list of paused threads
-        // - any other paused threads should remain suspended during the step
         var t = this.getThread(args.threadId);
         if (!t) return this.failRequestNoThread('Step', args.threadId, response);
         if (!t.paused) return this.failRequestThreadNotSuspended('Step', args.threadId, response);
@@ -922,7 +924,7 @@ class AndroidDebugSession extends DebugSession {
         t.paused = null;
 
         this.sendResponse(response);
-        // we time the step - if it takes more than 1 second, we switch to any other threads that are waiting
+        // we time the step - if it takes more than 2 seconds, we switch to any other threads that are waiting
         t.stepTimeout = setTimeout(t => {
             console.log('Step timeout on thread:'+t.threadid);
             t.stepTimeout = null;
