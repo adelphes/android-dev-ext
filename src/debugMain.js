@@ -1,15 +1,9 @@
 'use strict'
 const {
 	DebugSession,
-	ContinuedEvent, InitializedEvent, ExitedEvent, TerminatedEvent, StoppedEvent, BreakpointEvent, OutputEvent, Event,
+	ContinuedEvent, InitializedEvent, ExitedEvent, TerminatedEvent, StoppedEvent, BreakpointEvent, ThreadEvent, OutputEvent, Event,
 	Thread, StackFrame, Scope, Source, Handles, Breakpoint } = require('vscode-debugadapter');
-const DebugProtocol = { //require('vscode-debugprotocol');
-    /** Arguments for 'launch' request. */
-    LaunchRequestArguments: class {
-		/** If noDebug is true the launch request should launch the program without enabling debugging. */
-        get noDebug() { return false }
-	}
-}
+
 // node and external modules
 const crypto = require('crypto');
 const dom = require('xmldom').DOMParser;
@@ -17,63 +11,17 @@ const fs = require('fs');
 const Long = require('long');
 const path = require('path');
 const xpath = require('xpath');
+
 // our stuff
 const { ADBClient } = require('./adbclient');
 const { Debugger } = require('./debugger');
 const $ = require('./jq-promise');
 const NumberBaseConverter = require('./nbc');
+const { AndroidThread } = require('./threads');
 const { D, isEmptyObject } = require('./util');
+const { AndroidVariables } = require('./variables');
 const ws_proxy = require('./wsproxy').proxy.Server(6037, 5037);
-
-// some commonly used Java types in debugger-compatible format
-const JTYPES = {
-    byte: {typename:'byte',signature:'B'},
-    short: {typename:'short',signature:'S'},
-    int: {typename:'int',signature:'I'},
-    long: {typename:'long',signature:'J'},
-    float: {typename:'float',signature:'F'},
-    double: {typename:'double',signature:'D'},
-    char: {typename:'char',signature:'C'},
-    boolean: {typename:'boolean',signature:'Z'},
-    null: {typename:'null',signature:'Lnull;'},   // null has no type really, but we need something for literals
-    String: {typename:'String',signature:'Ljava/lang/String;'},
-    Object: {typename:'Object',signature:'Ljava/lang/Object;'},
-    isArray(t) { return t.signature[0]==='[' },
-    isObject(t) { return t.signature[0]==='L' },
-    isReference(t) { return /^[L[]/.test(t.signature) },
-    isPrimitive(t) { return !JTYPES.isReference(t.signature) },
-    isInteger(t) { return /^[BCIJS]$/.test(t.signature) },
-    isNumber(t) { return /^[BCIJSFD]$/.test(t.signature) },
-    isString(t) { return t.signature === this.String.signature },
-    isChar(t) { return t.signature === this.char.signature },
-    isBoolean(t) { return t.signature === this.boolean.signature },
-    fromPrimSig(sig) { return JTYPES['byte,short,int,long,float,double,char,boolean'.split(',')['BSIJFDCZ'.indexOf(sig)]] },
-}
-
-function ensure_path_end_slash(p) {
-    return p + (/[\\/]$/.test(p) ? '' : path.sep);
-}
-
-function is_subpath_of(fpn, subpath) {
-    if (!subpath || !fpn) return false;
-    subpath = ensure_path_end_slash(''+subpath);
-    return fpn.slice(0,subpath.length) === subpath;
-}
-
-function decode_char(c) {
-    switch(true) {
-        case /^\\[^u]$/.test(c):
-            // backslash escape
-            var x = {b:'\b',f:'\f',r:'\r',n:'\n',t:'\t',v:'\v','0':String.fromCharCode(0)}[c[1]];
-            return x || c[1];
-        case /^\\u[0-9a-fA-F]{4}$/.test(c):
-            // unicode escape
-            return String.fromCharCode(parseInt(c.slice(2),16));
-        case c.length===1 : 
-            return c;
-    }
-    throw new Error('Invalid character value');
-}
+const { JTYPES,exmsg_var_name,ensure_path_end_slash,is_subpath_of,decode_char,variableRefToThreadId,createJavaString } = require('./globals');
 
 class AndroidDebugSession extends DebugSession {
 
@@ -97,33 +45,28 @@ class AndroidDebugSession extends DebugSession {
         this.src_packages = {};
         // the device we are debugging
         this._device = null;
-        // expandable primitives
-        this._expandable_prims = false;
-        // true if the app is resumed, false if stopped (exception, breakpoint, etc)
-        this._running = false;
-        // a hashmap<frameId,Deferred> of promises to wait on for the stack variables to evaluate
-        this._locals_done = {};
-        // the fifo queue of evaluations (watches, hover, etc)
-        this._evals_queue = [];
-        // the last (current) exception info
-        this._last_exception = null;
-        this._exmsg_var_name = ':msg';  // the special name given to exception message fields
+
+        // the threads (we know about from the last refreshThreads call)
+        // this is implemented as both a hashmap<threadid,AndroidThread> and an array of AndroidThread objects
+        this._threads = {
+            array:[],
+        }
         // path to the the ANDROID_HOME/sources/<api> (only set if it's a valid path)
         this._android_sources_path = '';
+
+        // the set of variables used for evalution outside of any thread/frame context
+        this._globals = new AndroidVariables(this, 10000);
+
+        // the fifo queue of evaluations (watches, hover, etc)
+        this._evals_queue = [];
 
         // since we want to send breakpoint events, we will assign an id to every event
         // so that the frontend can match events with breakpoints.
         this._breakpointId = 1000;
 
-        // hashmap of variables and frames
-        this._variableHandles = {};
-        this._frameBaseId  =  0x00010000; // high, so we don't clash with thread id's
-        this._nextObjVarRef = 0x10000000; // high, so we don't clash with thread or frame id's
+        //this._frameBaseId  =  0x00010000; // high, so we don't clash with thread id's
         this._sourceRefs = { all:[null] };  // hashmap + array of (non-zero) source references
-        this._threadStates = null;          // current state of threads at last stopped event
-        this._pausedThreads = {};       // hashmap of threadIds that vscode has been told are paused
-        this._nextThreadId = 0;         // vscode doesn't like thread id reuse (the Android runtime is OK with it)
-        this._threadIDmap = [];         //  list of objects used to map vscode thread id's to java thread infos
+        this._nextVSCodeThreadId = 0;         // vscode doesn't like thread id reuse (the Android runtime is OK with it)
 
         // flag to distinguish unexpected disconnection events (initiated from the device) vs user-terminated requests
         this._isDisconnecting = false;
@@ -176,88 +119,89 @@ class AndroidDebugSession extends DebugSession {
         }
     }
 
-    get_vscode_thread_id(threadid) {
-        return this._threadIDmap.find(x => x.threadid === threadid).vscodeid;
+    failRequestNoThread(requestName, threadId, response) {
+        this.failRequest(`${requestName} failed. Thread ${threadId} not found`, response);
     }
 
-    get_java_thread_id(vscodeid) {
-        return this._threadIDmap.find(x => x.vscodeid === vscodeid).threadid;
+    failRequestThreadNotSuspended(requestName, threadId, response) {
+        this.failRequest(`${requestName} failed. Thread ${threadId} is not suspended`, response);
     }
 
-    reportStoppedEvent(reason, threadid) {
-        this.getThreadStates({reason, threadid})
-            .then((threadStates, o) => {
-
-                this._pausedThreads[o.threadid] = { threadid:o.threadid, reported:false };
-                var def = this.dbgr.suspendthread(o.threadid);
-
-                // Even though we request all threads to suspend on bp, step and exception events and JDWP 
-                // reports all threads suspended, in reality, we can't get the call stacks because JDWP flunks
-                // an error that the other worker threads are still running.
-                // So... we only choose to report the currently-stopped thread, the thread named 'main' and
-                // any others named 'Thread-nnn' which are in the suspended state
-                // It's bad, but better than nothing.
-                var others = threadStates.filter(t => t.threadid !== o.threadid && /^(main|Thread-\d+)$/.test(t.name) && t.status.thread === 'running' && t.status.suspend==='suspended');
-                others.forEach(t => {
-                    if (this._pausedThreads[t.threadid])
-                        return; // we've already told vscode that this thread is currently paused
-
-                    this._pausedThreads[t.threadid] = { threadid:t.threadid, reported:false };
-                    def = def.then(function() {
-                        return this.dbgr.suspendthread(this.pausedThread.threadid);
-                    }.bind({dbgr:this.dbgr, pausedThread:this._pausedThreads[t.threadid]}));
-                });
-
-                return def.then(function(){ return this }.bind(o));
-            })
-            .then(o => {
-                // notify vscode of any newly suspended threads
-                // - use the stopped thread id as the reason
-                var other_reason = 'Thread:'+parseInt(o.threadid,16);
-                for (var threadid in this._pausedThreads) {
-                    if (threadid === o.threadid)
-                        continue;   // leave the stopped event thread until last
-                    if (this._pausedThreads[threadid].reported)
-                        continue;   // vscode already knows this thread is paused
-
-                    this._pausedThreads[threadid].reported = true;
-                    this.sendEvent(new StoppedEvent(other_reason, this.get_vscode_thread_id(threadid)));
+    getThread(id) {
+        var t;
+        switch(typeof id) {
+            case 'string': 
+                t = this._threads[id];
+                if (!t) {
+                    t = new AndroidThread(this, id, ++this._nextVSCodeThreadId);
+                    this._threads[id] = this._threads.array[t.vscode_threadid] = t;
                 }
-
-                // lastly, tell vscode about the thread that caused the stop
-                this._pausedThreads[o.threadid].reported = true;
-                this.sendEvent(new StoppedEvent(o.reason, this.get_vscode_thread_id(o.threadid)));
-            });
+                break;
+            case 'number': 
+                t = this._threads.array[id];
+                break;
+        }
+        return t;
     }
 
-    getThreadStates(extra) {
-        if (this._threadStates)
-            return $.Deferred().resolveWith(this,[this._threadStates, extra]);
+    reportStoppedEvent(reason, location, last_exception) {
+        var thread = this.getThread(location.threadid);
+        if (thread.stepTimeout) {
+            var now = process.hrtime(), then = thread.stepTimeout._begun;
+            clearTimeout(thread.stepTimeout);
+            console.log('step took: ' + ((now[0]*1e9+now[1]) -(then[0]*1e9+then[1]))/1e9);
+            thread.stepTimeout = null;
+        }
+        if (thread.paused) {
+            // this thread is already in the paused state - ignore the notification
+            thread.paused.reasons.push(reason);
+            if (last_exception)
+                thread.paused.last_exception = last_exception;
+            return;
+        }
+        thread.paused = {
+            when: Date.now(),   // when
+            reasons: [reason],  // why
+            location: Object.assign({},location),   // where
+            last_exception: last_exception || null,
+            locals_done: {},    // promise to wait on for the stack variables to be evaluated
+            stack_frame_vars: {},   // hashmap<variablesReference,varinfo> for the stack frame locals
+            stoppedEvent:null,  // event we (eventually) send to vscode
+        }
+        this.checkPendingThreadBreaks();
+    }
 
+    refreshThreads(extra) {
         return this.dbgr.allthreads(extra)
             .then((thread_ids, extra) => this.dbgr.threadinfos(thread_ids, extra))
             .then((threadinfos, extra) => {
-                // during startup, VSCode can request the threads while we are resuming
-                // - to make sure we don't use stale info, only cache it if we are not running
-                if (!this._running)
-                    this._threadStates = threadinfos;
 
-                // because vscode doesn't allow threadid reuse (and the android runtime does), we need to manually
-                // map them.
-                var new_mappings = [];
-                threadinfos.forEach(ti => {
-                    var existing_mapping = this._threadIDmap.find(x => x.threadid === ti.threadid && x.name === ti.name);
-                    if (existing_mapping) {
-                        // we have a mapping that already matches the Java thread id and name - use it
-                        ti.vscodeid = existing_mapping.vscodeid;
-                        new_mappings.push(existing_mapping);
-                    } else {
-                        // if there's no current mapping, create one
-                        ti.vscodeid = ++this._nextThreadId;
-                        new_mappings.push({threadid:ti.threadid, name:ti.name, vscodeid:ti.vscodeid});
+                for (var i=0; i < threadinfos.length; i++) {
+                    var ti = threadinfos[i];
+                    var thread = this.getThread(ti.threadid);
+                    if (thread.name === null) {
+                        thread.name = ti.name;
+                    } else if (thread.name !== ti.name) {
+                        // give the thread a new id for VS code
+                        delete this._threads.array[thread.vscode_threadid];
+                        thread.vscode_threadid = ++this._nextVSCodeThreadId;
+                        this._threads.array[thread.vscode_threadid] = thread;
+                        thread.name = ti.name;
                     }
-                });
-                this._threadIDmap = new_mappings;
+                }
+
+                // remove any threads that are no longer in the system
+                this._threads.array.reduceRight((threadinfos,t) => {
+                    if (!t) return threadinfos;
+                    var exists = threadinfos.find(ti => ti.threadid === t.threadid);
+                    if (!exists) {
+                        delete this._threads[t.threadid];
+                        delete this._threads.array[t.vscode_threadid];
+                    }
+                    return threadinfos;
+                },threadinfos);
+
+                return extra;
             })
     }
 
@@ -380,6 +324,7 @@ class AndroidDebugSession extends DebugSession {
                     .on('bphit', this, this.onBreakpointHit)
                     .on('step', this, this.onStep)
                     .on('exception', this, this.onException)
+                    .on('threadchange', this, this.onThreadChange)
                     .on('disconnect', this, this.onDebuggerDisconnect);
                 this.waitForConfigurationDone = $.Deferred();
                 // - tell the client we're initialised and ready for breakpoint info, etc
@@ -387,9 +332,14 @@ class AndroidDebugSession extends DebugSession {
                 return this.waitForConfigurationDone;
             })
             .then(() => {
+                // get the debugger to tell us about any thread creations/terminations
+                return this.dbgr.setThreadNotify();
+            })
+            .then(() => {
                 // config is done - we're all set and ready to go!
                 D('Continuing app start');
-                this.continueRequest(response, {is_start:true});
+                this.sendResponse(response);
+                return this.dbgr.resume();
             })
             .fail(e => {
                 // exceptions use message, adbclient uses msg
@@ -594,10 +544,8 @@ class AndroidDebugSession extends DebugSession {
 
     onBreakpointHit(e) {
         // if we step into a breakpoint, both onBreakpointHit and onStep will be called
-        if (!this._running) return;
         D('Breakpoint hit: ' + JSON.stringify(e.stoppedlocation));
-        this._running = false;
-        this.reportStoppedEvent("breakpoint", e.stoppedlocation.threadid);
+        this.reportStoppedEvent("breakpoint", e.stoppedlocation);
     }
 
     /**
@@ -730,13 +678,24 @@ class AndroidDebugSession extends DebugSession {
     }
 
 	threadsRequest(response/*: DebugProtocol.ThreadsResponse*/) {
+        if (this._threads.array.length) {
+            console.log('threadsRequest: ' + this._threads.array.length);
+            response.body = {
+                threads: this._threads.array.filter(x=>x).map(t => {
+                    var javaid = parseInt(t.threadid, 16);
+                    return new Thread(t.vscode_threadid, `Thread (id:${javaid}) ${t.name||'<unnamed>'}`);
+                })
+            };
+            this.sendResponse(response);
+            return;
+        }
 
-        this.getThreadStates(response)
-            .then((threadStates,response) => {
+        this.refreshThreads(response)
+            .then(response => {
                 response.body = {
-                    threads: threadStates.map(t => {
+                    threads: this._threads.array.filter(x=>x).map(t => {
                         var javaid = parseInt(t.threadid, 16);
-                        return new Thread(t.vscodeid, `Thread (id:${javaid}) ${t.name}`);
+                        return new Thread(t.vscode_threadid, `Thread (id:${javaid}) ${t.name}`);
                     })
                 };
                 this.sendResponse(response);
@@ -753,9 +712,12 @@ class AndroidDebugSession extends DebugSession {
 	stackTraceRequest(response/*: DebugProtocol.StackTraceResponse*/, args/*: DebugProtocol.StackTraceArguments*/) {
 
         // debugger threadid's are a padded 64bit hex string
-        var threadid = this.get_java_thread_id(args.threadId);
+        var thread = this.getThread(args.threadId);
+        if (!thread) return this.failRequestNoThread('Stack trace', args.threadId, response);
+        if (!thread.paused) return this.failRequestThreadNotSuspended('Stack trace', args.threadId, response);
+
         // retrieve the (stack) frames from the debugger
-        this.dbgr.getframes(threadid, {response:response, args:args})
+        this.dbgr.getframes(thread.threadid, {response, args, thread})
             .then((frames, x) => {
                 // first ensure that the line-tables for all the methods are loaded
                 var defs = frames.map(f => this.dbgr._ensuremethodlines(f.method));
@@ -771,8 +733,7 @@ class AndroidDebugSession extends DebugSession {
                 const device_api_level = this.dbgr.session.apilevel || '25';
                 for (var i= startFrame; i < endFrame; i++) {
                     // the stack_frame_id must be unique across all threads
-                    const stack_frame_id = (x.args.threadId * this._frameBaseId) + i;
-                    this._variableHandles[stack_frame_id] = { varref: stack_frame_id, frame: frames[i], threadId:x.args.threadId };
+                    const stack_frame_id = x.thread.addStackFrameVariable(frames[i], i).frameId;
                     const name = `${frames[i].method.owningclass.name}.${frames[i].method.name}`;
                     const pkginfo = this.src_packages.packages[frames[i].method.owningclass.type.package];
                     const srcloc = this.dbgr.line_idx_to_source_location(frames[i].method, frames[i].location.idx);
@@ -822,18 +783,27 @@ class AndroidDebugSession extends DebugSession {
 	}
 
 	scopesRequest(response/*: DebugProtocol.ScopesResponse*/, args/*: DebugProtocol.ScopesArguments*/) {
+        var threadId = variableRefToThreadId(args.frameId);
+        var thread = this.getThread(threadId);
+        if (!thread) return this.failRequestNoThread('Scopes',threadId, response);
+        if (!thread.paused) return this.failRequestThreadNotSuspended('Scopes',threadId, response);
+
         var scopes = [new Scope("Local", args.frameId, false)];
 		response.body = {
 			scopes: scopes
 		};
 
-        if (this._last_exception && !this._last_exception.objvar) {
-            this.dbgr.getExceptionLocal(this._last_exception.exception, {response,scopes})
+        var last_exception = thread.paused.last_exception;
+        if (last_exception && !last_exception.objvar) {
+            // retrieve the exception object
+            this.dbgr.getExceptionLocal(last_exception.exception, {response,scopes,last_exception,thread,args})
                 .then((ex_local,x) => {
-                    this._last_exception.objvar = ex_local;
+                    var {response,scopes,last_exception,thread,args} = x;
+                    last_exception.objvar = ex_local;
+                    thread.allocateExceptionScopeReference(args.frameId);
                     // put the exception first - otherwise it can get lost if there's a lot of locals
-                    x.scopes.unshift(new Scope("Exception: "+ex_local.type.typename, this._last_exception.varref, false));
-            		this.sendResponse(x.response);
+                    scopes.unshift(new Scope("Exception: "+ex_local.type.typename, last_exception.scopeRef, false));
+            		this.sendResponse(response);
                 })
                 .fail(e => { this.sendResponse(response); });
             return;
@@ -866,267 +836,66 @@ class AndroidDebugSession extends DebugSession {
         this.sendResponse(response);
     }
 
-    _ensureLocals(frameId) {
-        // retrieve the varinfo associated with the id
-        var varinfo = this._variableHandles[frameId];
-        if (!varinfo) 
-            return $.Deferred().rejectWith(this, [new Error('Invalid frameId: '+frameId)]);
-        // if we're currently processing it (or we've finished), just return the promise
-        if (this._locals_done[frameId]) return this._locals_done[frameId];
-        // create a new promise
-        var def = this._locals_done[frameId] = $.Deferred();
-        // we should never be running when this is called, but just in case...
-        if (this._running) return def;
-
-        this.dbgr.getlocals(varinfo.frame.threadid, varinfo.frame, {def:def,varinfo:varinfo})
-            .then((locals,x) => {
-                // cache the results and resolve the promise
-                x.varinfo.cached = locals;
-                x.def.resolveWith(this, [x.varinfo]);
-            })
-            .fail(e => {
-                x.def.rejectWith(this, [e]);
-            })
-        return def;
-    }
-
-    /**
-     * Converts locals (or other vars) in debugger format into Variable objects used by VSCode
-     */
-    _local_to_variable(v) {
-        var varref = 0, objvalue, typename = v.type.package ? `${v.type.package}.${v.type.typename}` : v.type.typename;
-        switch(true) {
-            case v.hasnullvalue && JTYPES.isReference(v.type):
-                // null object or array type
-                objvalue = 'null';
-                break;
-            case v.type.signature === JTYPES.Object.signature:
-                // Object doesn't really have anything worth seeing, so just treat it as unexpandable
-                objvalue = v.type.typename;
-                break;
-            case v.type.signature === JTYPES.String.signature:
-                objvalue = JSON.stringify(v.string);
-                if (v.biglen) {
-                    // since this is a big string - make it viewable on expand
-                    varref = ++this._nextObjVarRef;
-                    this._variableHandles[varref] = {varref:varref, bigstring:v};
-                    objvalue = `String (length:${v.biglen})`;
-                }
-                else if (this._expandable_prims) {
-                    // as a courtesy, allow strings to be expanded to see their length
-                    varref = ++this._nextObjVarRef;
-                    this._variableHandles[varref] = {varref:varref, signature:v.type.signature, primitive:true, value:v.string.length};
-                }
-                break;
-            case JTYPES.isArray(v.type):
-                // non-null array type - if it's not zero-length add another variable reference so the user can expand
-                if (v.arraylen) {
-                    varref = ++this._nextObjVarRef;
-                    this._variableHandles[varref] = { varref:varref, arrvar:v, range:[0,v.arraylen] };
-                }
-                objvalue = v.type.typename.replace(/]$/, v.arraylen+']');   // insert len as the final array bound
-                break;
-            case JTYPES.isObject(v.type):
-                // non-null object instance - add another variable reference so the user can expand
-                varref = ++this._nextObjVarRef;
-                this._variableHandles[varref] = {varref:varref, objvar:v};
-                objvalue = v.type.typename;
-                break;
-            case v.type.signature === 'C': 
-                const cmap = {'\b':'b','\f':'f','\r':'r','\n':'n','\t':'t','\v':'v','\'':'\'','\\':'\\'};
-                if (cmap[v.char]) {
-                    objvalue = `'\\${cmap[v.char]}'`;
-                } else if (v.value < 32) {
-                    objvalue = v.value ? `'\\u${('000'+v.value.toString(16)).slice(-4)}'` : "'\\0'";
-                } else objvalue = `'${v.char}'`;
-                break;
-            case v.type.signature === 'J':
-                // because JS cannot handle 64bit ints, we need a bit of extra work
-                var v64hex = v.value.replace(/[^0-9a-fA-F]/g,'');
-                objvalue = NumberBaseConverter.hexToDec(v64hex, true);
-                break;
-            default:
-                // other primitives: int, boolean, etc
-                objvalue = v.value.toString();
-                break;
-        }
-        // as a courtesy, allow integer and character values to be expanded to show the value in alternate bases
-        if (this._expandable_prims && /^[IJBSC]$/.test(v.type.signature)) {
-            varref = ++this._nextObjVarRef;
-            this._variableHandles[varref] = {varref:varref, signature:v.type.signature, primitive:true, value:v.value};
-        }
-        return {
-            name: v.name,
-            type: typename,
-            value: objvalue,
-            variablesReference: varref,
-        }
-    }
-
 	variablesRequest(response/*: DebugProtocol.VariablesResponse*/, args/*: DebugProtocol.VariablesArguments*/) {
+        var threadId = variableRefToThreadId(args.variablesReference);
+        var thread = this.getThread(threadId);
+        if (!thread) return this.failRequestNoThread('Variables',threadId, response);
+        if (!thread.paused) return this.failRequestThreadNotSuspended('Variables',threadId, response);
 
-        const return_mapped_vars = (vars, response) => {
-            response.body = {
-                variables: vars.filter(v => v.valid).map(v => this._local_to_variable(v))
-            };
-            this.sendResponse(response);
-        }
-
-        var varinfo = this._variableHandles[args.variablesReference];
-        if (!varinfo) {
-            return_mapped_vars([], response);
-        }
-        else if (varinfo.cached) {
-            return_mapped_vars(varinfo.cached, response);
-        }
-        else if (varinfo.objvar) {
-            // object fields request
-            this.dbgr.getsupertype(varinfo.objvar, {varinfo:varinfo, response:response})
-                .then((supertype, x) => {
-                    x.supertype = supertype;
-                    return this.dbgr.getfieldvalues(x.varinfo.objvar, x);
-                })
-                .then((fields, x) => {
-                    // add an extra msg field for exceptions
-                    if (!x.varinfo.exception) return;
-                    x.fields = fields;
-                    return this.dbgr.invokeToString(x.varinfo.objvar.value, x.varinfo.threadid, varinfo.objvar.type.signature, x)
-                        .then((call,x) => {
-                            call.name = this._exmsg_var_name;
-                            x.fields.unshift(call);
-                            return $.Deferred().resolveWith(this, [x.fields, x]);
-                        });
-                })
-                .then((fields, x) => {
-                    // ignore supertypes of Object
-                    x.supertype && x.supertype.signature!=='Ljava/lang/Object;' && fields.unshift({
-                        vtype:'super',
-                        name:':super',
-                        hasnullvalue:false,
-                        type: x.supertype,
-                        value: x.varinfo.objvar.value,
-                        valid:true,
-                    });
-                    x.varinfo.cached = fields;
-                    return_mapped_vars(fields, x.response);
-                });
-        }
-        else if (varinfo.arrvar) {
-            // array elements request
-            var range = varinfo.range, count = range[1] - range[0];
-            // should always have a +ve count, but just in case...
-            if (count <= 0) return return_mapped_vars([], response);
-            // add some hysteresis
-            if (count > 110) {
-                // create subranges in the sub-power of 10
-                var subrangelen = Math.max(Math.pow(10, (Math.log10(count)|0)-1),100), variables = [];
-                for (var i=range[0],varref,v; i < range[1]; i+= subrangelen) {
-                    varref = ++this._nextObjVarRef;
-                    v = this._variableHandles[varref] = { varref:varref, arrvar:varinfo.arrvar, range:[i, Math.min(i+subrangelen, range[1])] };
-                    variables.push({name:`[${v.range[0]}..${v.range[1]-1}]`,type:'',value:'',variablesReference:varref});
-                }
+        thread.getVariables(args.variablesReference)
+            .then(vars => {
                 response.body = {
-                    variables: variables
+                    variables: vars,
                 };
                 this.sendResponse(response);
-                return;
-            }
-            // get the elements for the specified range
-            this.dbgr.getarrayvalues(varinfo.arrvar, range[0], count, response)
-                .then((elements, response) => {
-                    varinfo.cached = elements;
-                    return_mapped_vars(elements, response);
-                });
-        }
-        else if (varinfo.bigstring) {
-            this.dbgr.getstringchars(varinfo.bigstring.value, response)
-                .then((s,response) => {
-                    return_mapped_vars([{name:'<value>',hasnullvalue:false,string:s,type:JTYPES.String,valid:true}], response);
-                });
-        }
-        else if (varinfo.primitive) {
-            // convert the primitive value into alternate formats
-            var variables = [], bits = {J:64,I:32,S:16,B:8}[varinfo.signature];
-            const pad = (u,base,len) => ('0000000000000000000000000000000'+u.toString(base)).slice(-len);
-            switch(varinfo.signature) {
-                case 'Ljava/lang/String;':
-                    variables.push({name:'<length>',type:'',value:varinfo.value.toString(),variablesReference:0});
-                    break;
-                case 'C': 
-                    variables.push({name:'<charCode>',type:'',value:varinfo.value.charCodeAt(0).toString(),variablesReference:0});
-                    break;
-                case 'J':
-                    // because JS cannot handle 64bit ints, we need a bit of extra work
-                    var v64hex = varinfo.value.replace(/[^0-9a-fA-F]/g,'');
-                    const s4 = { hi:parseInt(v64hex.slice(0,8),16), lo:parseInt(v64hex.slice(-8),16) };
-                    variables.push(
-                        {name:'<binary>',type:'',value:pad(s4.hi,2,32)+pad(s4.lo,2,32),variablesReference:0}
-                        ,{name:'<decimal>',type:'',value:NumberBaseConverter.hexToDec(v64hex,false),variablesReference:0}
-                        ,{name:'<hex>',type:'',value:pad(s4.hi,16,8)+pad(s4.lo,16,8),variablesReference:0}
-                    );
-                    break;
-                default:// integer/short/byte value
-                    const u = varinfo.value >>> 0;
-                    variables.push(
-                        {name:'<binary>',type:'',value:pad(u,2,bits),variablesReference:0}
-                        ,{name:'<decimal>',type:'',value:u.toString(10),variablesReference:0}
-                        ,{name:'<hex>',type:'',value:pad(u,16,bits/4),variablesReference:0}
-                    );
-                    break;
-            }
-            response.body = {
-                variables: variables
-            };
-            this.sendResponse(response);
-        }
-        else if (varinfo.frame) {
-            // frame locals request
-            this._ensureLocals(args.variablesReference)
-                .then(varinfo => {
-                    return_mapped_vars(varinfo.cached, response);
-                });
-        } else {
-            // something else?
-        }
+            });
 	}
+
+    checkPendingThreadBreaks() {
+        var stepping_thread = this._threads.array.find(t => t && t.stepTimeout);
+        var paused_threads = this._threads.array.filter(t => t && t.paused);
+        var stopped_thread = paused_threads.find(t => t.paused.stoppedEvent);
+        if (!stopped_thread && !stepping_thread && paused_threads.length) {
+            // prioritise any stepped thread (if it's stopped) or whichever other thread stopped first
+            var thread;
+            var paused_step_thread = paused_threads.find(t => t.paused.reasons.includes("step"));
+            if (paused_step_thread) {
+                thread = paused_step_thread;
+            } else {
+                paused_threads.sort((a,b) => a.paused.when - b.paused.when);
+                thread = paused_threads[0];
+            }
+            // if the break was due to a breakpoint and it has since been removed, just resume the thread
+            if (thread.paused.reasons.length === 1 && thread.paused.reasons[0] === 'breakpoint') {
+                var bp = this.dbgr.breakpoints.bysrcloc[thread.paused.location.qtype + ':' + thread.paused.location.linenum];
+                if (!bp) {
+                    this.doContinue(thread);
+                    return;
+                }
+            }
+            var event = new StoppedEvent(thread.paused.reasons[0], thread.vscode_threadid);
+            thread.paused.stoppedEvent = event;
+            this.sendEvent(event);
+        }
+    }
+
+	doContinue(thread) {
+        thread.paused = null;
+
+        this.checkPendingThreadBreaks();
+        this.dbgr.resumethread(thread.threadid);
+        console.log('');
+    }
 
 	continueRequest(response/*: DebugProtocol.ContinueResponse*/, args/*: DebugProtocol.ContinueArguments*/) {
         D('Continue');
 
-        var multiple_threads_stopped = Object.keys(this._pausedThreads).length > 1;
-        // undo the manual suspensions for all the paused threads
-        var unsuspend = $.Deferred().resolve();
-        for (var threadid in this._pausedThreads) {
-            unsuspend = unsuspend.then(function() {
-                return this.dbgr.resumethread(this.pausedThread.threadid);
-            }.bind({dbgr:this.dbgr, pausedThread:this._pausedThreads[threadid]}));
-
-            delete this._pausedThreads[threadid];
-        }
-
-        this._variableHandles = {};
-        this._last_exception = null;
-        this._locals_done = {};
-        this._threadStates = null;
-
-        // sometimes, the device is so quick that a breakpoint is hit
-        // before we've completed the resume promise chain.
-        // so tell the client that we've resumed now and just send a StoppedEvent
-        // if it ends up failing
-        this._running = true;
-        unsuspend.then(() => {
-                return this.dbgr.resume()
-            })
-            .then(() => {
-                if (args.is_start)
-                    this.LOG(`App started`);
-            })
+        var t = this.getThread(args.threadId);
+        if (!t) return this.failRequestNoThread('Continue', args.threadId, response);
+        if (!t.paused) return this.failRequestThreadNotSuspended('Continue', args.threadId, response);
 
         this.sendResponse(response);
-        if (multiple_threads_stopped) {
-            // send an additional event to indicate that all threads are running again
-            this.sendEvent(new ContinuedEvent(args.threadId, true));
-        }
+        this.doContinue(t);
 	}
 
     /**
@@ -1134,10 +903,8 @@ class AndroidDebugSession extends DebugSession {
      */
     onStep(e) {
         // if we step into a breakpoint, both onBreakpointHit and onStep will be called
-        if (!this._running) return;
         D('step hit: ' + JSON.stringify(e.stoppedlocation));
-        this._running = false;
-        this.reportStoppedEvent("step", e.stoppedlocation.threadid);
+        this.reportStoppedEvent("step", e.stoppedlocation);
     }
 
     /**
@@ -1145,29 +912,25 @@ class AndroidDebugSession extends DebugSession {
      */
     doStep(which, response, args) {
         D('step '+which);
-        this._variableHandles = {};
-        this._last_exception = null;
-        this._locals_done = {};
-        this._threadStates = null;
-        this._running = true;
-        
+
         // when we step, manually resume the (single) thread we are stepping and remove it from the list of paused threads
         // - any other paused threads should remain suspended during the step
-        var unpause = $.Deferred().resolve();
-        var threadid = this.get_java_thread_id(args.threadId);
-        var pausedThread = this._pausedThreads[threadid];
-        if (pausedThread) {
-            unpause = unpause.then(function() {
-                return this.dbgr.resumethread(this.pausedThread.threadid);
-            }.bind({dbgr:this.dbgr, pausedThread:pausedThread}));
+        var t = this.getThread(args.threadId);
+        if (!t) return this.failRequestNoThread('Step', args.threadId, response);
+        if (!t.paused) return this.failRequestThreadNotSuspended('Step', args.threadId, response);
 
-            delete this._pausedThreads[threadid];
-        }
+        t.paused = null;
 
-        unpause.then(() => {
-            this.dbgr.step(which, threadid);
-            this.sendResponse(response);
-        });
+        this.sendResponse(response);
+        // we time the step - if it takes more than 1 second, we switch to any other threads that are waiting
+        t.stepTimeout = setTimeout(t => {
+            console.log('Step timeout on thread:'+t.threadid);
+            t.stepTimeout = null;
+            this.checkPendingThreadBreaks();
+        }, 2000, t);
+        t.stepTimeout._begun = process.hrtime();
+        this.dbgr.step(which, t.threadid);
+        console.log('');
     }
 
 	stepInRequest(response/*: DebugProtocol.NextResponse*/, args/*: DebugProtocol.StepInArguments*/) {
@@ -1186,196 +949,69 @@ class AndroidDebugSession extends DebugSession {
      * Called by the debugger if an exception event is triggered
      */
     onException(e) {
-        // it's possible for the debugger to send multiple exception notifications, depending on the package filters
-        // , so just ignore them if we've already stopped
-        if (!this._running) return;
+        // it's possible for the debugger to send multiple exception notifications for the same thread, depending on the package filters
         D('exception hit: ' + JSON.stringify(e.throwlocation));
-        this._running = false;
-        this._last_exception = {
+        var last_exception = {
             exception: e.event.exception,
             threadid: e.throwlocation.threadid,
-            varref: ++this._nextObjVarRef,
+            scopeRef: null,   // allocated during scopesRequest
         };
-        this._variableHandles[this._last_exception.varref] = this._last_exception;
-        this.reportStoppedEvent("exception", e.throwlocation.threadid);
+        this.reportStoppedEvent("exception", e.throwlocation, last_exception);
+    }
+
+    /**
+     * Called by the debugger if a thread start/end event is triggered
+     */
+    onThreadChange(e) {
+        D(`thread ${e.state}: ${e.threadid}(${parseInt(e.threadid,16)})`);
+        switch(e.state) {
+            case 'start':
+                this.dbgr.threadinfos([e.threadid])
+                    .then((threadinfos) => {
+                        var ti = threadinfos[0], t = this.getThread(ti.threadid), event = new ThreadEvent();
+                        t.name = ti.name;
+                        event.body = { reason:'started', threadId: t.vscode_threadid };
+                        this.sendEvent(event);
+                    })
+                    .always(() => this.dbgr.resumethread(e.threadid));
+                return;
+            case 'end':
+                var t = this._threads[e.threadid];
+                if (t) {
+                    t.stepTimeout && clearTimeout(t.stepTimeout) && (t.stepTimeout = null);
+                    delete this._threads[e.threadid];
+                    delete this._threads.array[t.vscode_threadid];
+                    var event = new ThreadEvent();
+                    event.body = { reason:'exited', threadId: t.vscode_threadid };
+                    this.sendEvent(event);
+                    this.checkPendingThreadBreaks();    // in case we were stepping this thread
+                }
+                break;
+        }
+        this.dbgr.resumethread(e.threadid);
     }
 
     setVariableRequest(response/*: DebugProtocol.SetVariableResponse*/, args/*: DebugProtocol.SetVariableArguments*/) {
-        const failSetVariableRequest = (response, reason) => {
-            response.success = false;
-            response.message = reason;
-            this.sendResponse(response);
-        }
 
-        var v = this._variableHandles[args.variablesReference];
-        if (!v || !v.cached) {
-            failSetVariableRequest(response, `Variable '${args.name}' not found`);
-            return;
-        }
+        var threadId = variableRefToThreadId(args.variablesReference);
+        var t = this.getThread(threadId);
+        if (!t) return this.failRequestNoThread('Set variable', threadId, response);
+        if (!t.paused) return this.failRequestThreadNotSuspended('Set variable', threadId, response);
 
-        var destvar = v.cached.find(v => v.name===args.name);
-        if (!destvar || !/^(field|local|arrelem)$/.test(destvar.vtype)) {
-            failSetVariableRequest(response, `The value is read-only and cannot be updated.`);
-            return;
-        }
-
-        // be nice and remove any superfluous whitespace
-        var value = args.value.trim();
-
-        if (!args || !args.value) {
-            // just ignore blank requests
-            var vsvar = this._local_to_variable(destvar);
-            response.body = {
-                value: vsvar.value,
-                type: vsvar.type,
-                variablesReference: vsvar.variablesReference,
-            };
-            this.sendResponse(response);
-            return;
-        }
-
-        // non-string reference types can only set to null
-        if (/^L/.test(destvar.type.signature) && destvar.type.signature !== JTYPES.String.signature) {
-            if (value !== 'null') {
-                failSetVariableRequest(response, 'Object references can only be set to null');
-                return;
-            }
-        }
-
-        // convert the new value into a debugger-compatible object
-        var m, num, data, datadef;
-        switch(true) {
-            case value === 'null':
-                data = {valuetype:'oref',value:null}; // null object reference
-                break;
-            case /^(true|false)$/.test(value):
-                data = {valuetype:'boolean',value:value!=='false'}; // boolean literal
-                break;
-            case !!(m=value.match(/^[+-]?0x([0-9a-f]+)$/i)):
-                // hex integer- convert to decimal and fall through
-                if (m[1].length < 52/4)
-                    value = parseInt(value, 16).toString(10);
-                else
-                    value = NumberBaseConverter.hexToDec(value);
-                m=value.match(/^[+-]?[0-9]+([eE][+]?[0-9]+)?$/);
-                // fall-through
-            case !!(m=value.match(/^[+-]?[0-9]+([eE][+]?[0-9]+)?$/)):
-                // decimal integer
-                num = parseFloat(value, 10);    // parseInt() can't handle exponents
-                switch(true) {
-                    case (num >= -128 && num <= 127): data = {valuetype:'byte',value:num}; break;
-                    case (num >= -32768 && num <= 32767): data = {valuetype:'short',value:num}; break;
-                    case (num >= -2147483648 && num <= 2147483647): data = {valuetype:'int',value:num}; break;
-                    case /inf/i.test(num): failSetVariableRequest(response,`Value '${args.value}' exceeds the maximum number range.`); return;
-                    case /^[FD]$/.test(destvar.type.signature): data = {valuetype:'float',value:num}; break;
-                    default:
-                        // long (or larger) - need to use the arbitrary precision class
-                        data = {valuetype:'long',value:NumberBaseConverter.decToHex(value, 16)};
-                        switch(true){
-                            case data.value.length > 16: 
-                            case num > 0 && data.value.length===16 && /[^0-7]/.test(data.value[0]):
-                                // number exceeds signed 63 bit - make it a float
-                                data = {valuetype:'float',value:num}; 
-                                break;
-                        }
-                }
-                break;            
-            case !!(m=value.match(/^(Float|Double)\s*\.\s*(POSITIVE_INFINITY|NEGATIVE_INFINITY|NaN)$/)):
-                // Java special float constants
-                data = {valuetype:m[1].toLowerCase(),value:{POSITIVE_INFINITY:Infinity,NEGATIVE_INFINITY:-Infinity,NaN:NaN}[m[2]]};
-                break;
-            case !!(m=value.match(/^([+-])?infinity$/i)):// allow js infinity
-                data = {valuetype:'float',value:m[1]!=='-'?Infinity:-Infinity};
-                break;
-            case !!(m=value.match(/^nan$/i)): // allow js nan
-                data = {valuetype:'float',value:NaN};
-                break;
-            case !!(m=value.match(/^[+-]?[0-9]+[eE][-][0-9]+([dDfF])?$/)):
-            case !!(m=value.match(/^[+-]?[0-9]*\.[0-9]+(?:[eE][+-]?[0-9]+)?([dDfF])?$/)):
-                // decimal float
-                num = parseFloat(value);
-                data = {valuetype:/^[dD]$/.test(m[1]) ? 'double': 'float',value:num}; 
-                break;
-            case !!(m=value.match(/^'(?:\\u([0-9a-fA-F]{4})|\\([bfrntv0'])|(.))'$/)):
-                // character literal
-                var cvalue = m[1] ? String.fromCharCode(parseInt(m[1],16)) : 
-                    m[2] ? {b:'\b',f:'\f',r:'\r',n:'\n',t:'\t',v:'\v',0:'\0',"'":"'"}[m[2]]
-                    : m[3]
-                data = {valuetype:'char',value:cvalue};
-                break;
-            case !!(m=value.match(/^"[^"\\\n]*(\\.[^"\\\n]*)*"$/)):
-                // string literal - we need to get the runtime to create a new string first
-                datadef = this.createJavaString(value).then(stringlit => ({valuetype:'oref', value:stringlit.value}));
-                break;
-            default:
-                // invalid literal
-                failSetVariableRequest(response, `'${args.value}' is not a valid literal value.`);
-                return;
-        }
-
-        if (!datadef) {
-            // as a nicety, if the destination is a string, stringify any primitive value
-            if (data.valuetype !== 'oref' && destvar.type.signature === JTYPES.String.signature) {
-                datadef = this.createJavaString(data.value.toString(), {israw:true})
-                    .then(stringlit => ({valuetype:'oref', value:stringlit.value}));
-            } else if (destvar.type.signature.length===1) {
-                // if the destination is a primitive, we need to range-check it here
-                // Neither our debugger nor the JDWP endpoint validates primitives, so we end up with
-                // weirdness if we allow primitives to be set with out-of-range values
-                var validmap = {
-                    B:'byte,char',   // char may not fit - we special-case this later
-                    S:'byte,short,char',
-                    I:'byte,short,int,char',
-                    J:'byte,short,int,long,char',
-                    F:'byte,short,int,long,char,float',
-                    D:'byte,short,int,long,char,double,float',
-                    C:'byte,short,char',Z:'boolean',
-                    isCharInRangeForByte: c => c.charCodeAt(0) < 256,
+        t.setVariableValue(args)
+            .then(function(response,vsvar) {
+                response.body = {
+                    value: vsvar.value,
+                    type: vsvar.type,
+                    variablesReference: vsvar.variablesReference,
                 };
-                var is_in_range = (validmap[destvar.type.signature]||'').indexOf(data.valuetype) >= 0;
-                if (destvar.type.signature === 'B' && data.valuetype === 'char')
-                    is_in_range = validmap.isCharInRangeForByte(data.value);
-                if (!is_in_range) {
-                    failSetVariableRequest(response, `Value '${args.value}' is not compatible with variable type: ${destvar.type.typename}`);
-                    return;
-                }
-                // check complete - make sure the type matches the destination and use a resolved deferred with the value
-                if (destvar.type.signature!=='C' && data.valuetype === 'char') 
-                    data.value = data.value.charCodeAt(0);  // convert char to it's int value
-                if (destvar.type.signature==='J' && typeof data.value === 'number') 
-                    data.value = NumberBaseConverter.decToHex(''+data.value,16);  // convert ints to hex-string longs
-                data.valuetype = destvar.type.typename;
-
-                datadef = $.Deferred().resolveWith(this,[data]);
-            }
-        }
-
-        datadef.then(data => {
-            // setxxxvalue sets the new value and then returns a new local for the variable
-            switch(destvar.vtype) {
-                case 'field': return this.dbgr.setfieldvalue(destvar, data);
-                case 'local': return this.dbgr.setlocalvalue(destvar, data);
-                case 'arrelem': 
-                    var idx = parseInt(args.name, 10), count=1;
-                    if (idx < 0 || idx >= destvar.data.arrobj.arraylen) throw new Error('Array index out of bounds');
-                    return this.dbgr.setarrayvalues(destvar.data.arrobj, idx, count, data);
-                default: throw new Error('Unsupported variable type');
-            }
-        })
-        .then(newlocalvar => {
-            if (destvar.vtype === 'arrelem') newlocalvar = newlocalvar[0];
-            Object.assign(destvar, newlocalvar);
-            var vsvar = this._local_to_variable(destvar);
-            response.body = {
-                value: vsvar.value,
-                type: vsvar.type,
-                variablesReference: vsvar.variablesReference,
-            };
-            this.sendResponse(response);
-        })
-        .fail(e => {
-            failSetVariableRequest(response, 'Variable update failed. '+(e.message||''));
-        });
+                this.sendResponse(response);
+            }.bind(this,response))
+            .fail(function(response,e) {
+                response.success = false;
+                response.message = e.message;
+                this.sendResponse(response);
+            }.bind(this,response));
 	}
 
     /**
@@ -1391,13 +1027,6 @@ class AndroidDebugSession extends DebugSession {
         // and even more annoyingly, Android (or JDWP) seems to get confused on the first request when we're retrieving multiple values, fields, etc
         // so we have to queue them or we end up with strange results
 
-        if (this._running) {
-            response.success = false;
-            response.message = '(running)';
-            this.sendResponse(response);
-            return;
-        }
-
         // look for a matching entry in the list (other than at index:0)
         var previdx = this._evals_queue.findIndex(e => e.args.expression === args.expression);
         if (previdx > 0) {
@@ -1408,9 +1037,22 @@ class AndroidDebugSession extends DebugSession {
             this.sendResponse(prev.response);
         }
         // if there's no frameId, we are being asked to evaluate the value in the 'global' context
-        var getlocals = args.frameId ? this._ensureLocals(args.frameId) : $.Deferred().resolve([]);
+        var getvars;
+        if (args.frameId) {
+            var threadId = variableRefToThreadId(args.frameId);
+            var thread = this.getThread(threadId);
+            if (!thread) return this.failRequestNoThread('Evaluate',threadId, response);
+            if (!thread.paused) return this.failRequestThreadNotSuspended('Evaluate',threadId, response);
+            getvars = thread._ensureLocals(args.frameId).then(frameId => {
+                var locals = thread.paused.stack_frame_vars[frameId].locals;
+                return $.Deferred().resolve(thread, locals.variableHandles[frameId].cached, locals);
+            })
+        } else {
+            // global context - no locals
+            getvars = $.Deferred().resolve(null, [], this._globals);
+        }
 
-        this._evals_queue.push({response,args,getlocals});
+        this._evals_queue.push({response,args,getvars,thread});
 
         // if we're currently processing, just wait
         if (this._evals_queue.length > 1) {
@@ -1425,20 +1067,11 @@ class AndroidDebugSession extends DebugSession {
         if (!this._evals_queue.length) {
             return;
         }
-        if (this._running) {
-            while (this._evals_queue.length) {
-                var {response} = this._evals_queue.shift();
-                response.success = false;
-                response.message = '(running)';
-                this.sendResponse(response);
-            }
-            return;
-        }
-        var {response, args, getlocals} = this._evals_queue[0];
+        var {response, args, getvars, thread} = this._evals_queue[0];
 
         // wait for any locals in the given context to be retrieved
-        getlocals.then(locals => {
-                return this.evaluate(args.expression, locals && locals.cached);
+        getvars.then((thread, locals, vars) => {
+                return this.evaluate(args.expression, thread, locals, vars);
             })
             .then((value,variablesReference) => {
                 response.body = { result:value, variablesReference:variablesReference|0 };
@@ -1454,28 +1087,28 @@ class AndroidDebugSession extends DebugSession {
             })
     }
 
-    createJavaString(s, opts) {
-        const raw = (opts && opts.israw) ? s : s.slice(1,-1).replace(/\\u[0-9a-fA-F]{4}|\\./,decode_char);
-        // return a deferred, which resolves to a local variable named 'literal'
-        return this.dbgr.createstring(raw);
-    }
-
     /*
         Asynchronously evaluate an expression
     */
-    evaluate(expression, locals) {
+    evaluate(expression, thread, locals, vars) {
         D('evaluate: ' + expression);
 
         const reject_evaluation = (msg) => $.Deferred().rejectWith(this, [new Error(msg)]);
         const resolve_evaluation = (value, variablesReference) => $.Deferred().resolveWith(this, [value, variablesReference]);
 
+        if (thread && !thread.paused)
+            return reject_evaluation('not available');
+
         // special case for evaluating exception messages
         // - this is called if the user tries to evaluate ':msg' from the locals
-        if (expression===this._exmsg_var_name && this._last_exception && this._last_exception.cached) {
-            var msglocal = this._last_exception.cached.find(v => v.name===this._exmsg_var_name);
-            if (msglocal) {
-                return resolve_evaluation(this._local_to_variable(msglocal).value);
+        if (expression===exmsg_var_name) {
+            if (thread && thread.paused.last_exception && thread.paused.last_exception.cached) {
+                var msglocal = thread.paused.last_exception.cached.find(v => v.name === exmsg_var_name);
+                if (msglocal) {
+                    return resolve_evaluation(vars._local_to_variable(msglocal).value);
+                }
             }
+            return reject_evaluation('not available');
         }
 
         const parse_array_or_fncall = function(e) {
@@ -1783,7 +1416,7 @@ class AndroidDebugSession extends DebugSession {
                             return { vtype:'literal',name:'',hasnullvalue:false,type:JTYPES.boolean,value:a,valid:true };
                         }
                         else if (expr.operator === '+' && JTYPES.isString(lhs_local.type)) {
-                            return stringify(rhs_local).then(rhs_str => this.createJavaString(lhs_local.string + rhs_str,{israw:true}));
+                            return stringify(rhs_local).then(rhs_str => createJavaString(this.dbgr, lhs_local.string + rhs_str,{israw:true}));
                         }
                         return invalid_operator();
                     });
@@ -1812,7 +1445,7 @@ class AndroidDebugSession extends DebugSession {
                     break;
                 case 'string':
                     // we must get the runtime to create string instances
-                    q = this.createJavaString(expr.root_term);
+                    q = createJavaString(this.dbgr, expr.root_term);
                     local = {valid:true};   // make sure we don't fail the evaluation
                     break;
             }
@@ -1918,7 +1551,7 @@ class AndroidDebugSession extends DebugSession {
             // the expression is well-formed - start the (asynchronous) evaluation
             return evaluate_expression(parsed_expression)
                 .then(local => {
-                    var v = this._local_to_variable(local);
+                    var v = vars._local_to_variable(local);
                     return resolve_evaluation(v.value, v.variablesReference);
                 });
         }

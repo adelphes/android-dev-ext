@@ -371,6 +371,12 @@ function _JDWP() {
             	        event.exception = this.decodeTaggedObjectID(o);
             	        event.catchlocation = this.decodeLocation(o);	// 0 = uncaught
             	        break;
+        	        case 6: // thread start
+        	        case 7: // thread end
+            	        event.reqid = this.decodeInt(o);
+            	        event.threadid = this.decodeORef(o);
+						event.state = event.kind.value === 6 ? 'start' : 'end';
+						break;
         	        case 8: // classprepare
             	        event.reqid = this.decodeInt(o);
             	        event.threadid = this.decodeORef(o);
@@ -1048,7 +1054,7 @@ function _JDWP() {
 		    }];
 			// kind(1=singlestep)
 			// suspendpolicy(0=none,1=event-thread,2=all)
-			return this.SetEventRequest("step",1,2,mods,
+			return this.SetEventRequest("step",1,1,mods,
 			    function(m1, i, res) {
 					res.push(m1.modkind);
 					DataCoder.encodeRef(res, m1.threadid);
@@ -1084,7 +1090,7 @@ function _JDWP() {
 			}
 			// kind(2=breakpoint)
 			// suspendpolicy(0=none,1=event-thread,2=all)
-			return this.SetEventRequest("breakpoint",2,2,mods,
+			return this.SetEventRequest("breakpoint",2,1,mods,
 			    function(m, i, res) {
 					m.encode(res,i);
 			    },
@@ -1098,6 +1104,26 @@ function _JDWP() {
 		ClearBreakpoint:function(requestid) {
 			// kind(2=breakpoint)
 			return this.ClearEvent("breakpoint",2,requestid);
+		},
+		ThreadStartNotify:function(onevent) {
+			// a wrapper around SetEventRequest
+			var mods = [];
+			// kind(6=threadstart)
+			// suspendpolicy(0=none,1=event-thread,2=all)
+			return this.SetEventRequest("threadstart",6,1,mods,
+			    function() {},
+			    onevent
+			);
+		},
+		ThreadEndNotify:function(onevent) {
+			// a wrapper around SetEventRequest
+			var mods = [];
+			// kind(7=threadend)
+			// suspendpolicy(0=none,1=event-thread,2=all)
+			return this.SetEventRequest("threadend",7,1,mods,
+			    function() {},
+			    onevent
+			);
 		},
 		OnClassPrepare:function(pattern, onevent) {
 			// a wrapper around SetEventRequest
@@ -1133,7 +1159,7 @@ function _JDWP() {
 			});
 			// kind(4=exception)
 			// suspendpolicy(0=none,1=event-thread,2=all)
-			return this.SetEventRequest("exception",4,2,mods,
+			return this.SetEventRequest("exception",4,1,mods,
 			    function(m, i, res) {
 					res.push(m.modkind);
 					switch(m.modkind) {

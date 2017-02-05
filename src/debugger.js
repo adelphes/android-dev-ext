@@ -141,8 +141,8 @@ Debugger.prototype = {
             cpfilters: [],
             preparedclasses: [],
             stepids: {},    // hashmap<threadid,stepid>
-            suspendcount: 0,    // refcount of suspend-all-threads
             threadsuspends: [], // hashmap<threadid, suspend-count>
+            invokes: {},        // hashmap<threadid, deferred>
         }
         return this;
     },
@@ -457,7 +457,6 @@ Debugger.prototype = {
                 });
             })
             .then(function () {
-                this.session.suspendcount++;
                 this._trigger('suspended');
             });
     },
@@ -479,21 +478,12 @@ Debugger.prototype = {
         return this.ensureconnected(extra)
             .then(function (extra) {
                 if (triggers) this._trigger('resuming');
-                const resume_cmd = (decoded,extra) => {
-                    return this.session.adbclient.jdwp_command({
-                        ths: this,
-                        extra: extra,
-                        cmd: this.JDWP.Commands.resume(),
-                    });
-                }
-                // we must resume with the same number of suspends
-                var def = resume_cmd(null, extra);
-                for (var i=1; i < this.session.suspendcount; i++) {
-                    def = def.then(resume_cmd);
-                }
                 this.session.stoppedlocation = null;
-                this.session.suspendcount = 0;
-                return def;
+                return this.session.adbclient.jdwp_command({
+                    ths: this,
+                    extra: extra,
+                    cmd: this.JDWP.Commands.resume(),
+                });
             })
             .then(function (decoded, extra) {
                 if (triggers) this._trigger('resumed');
@@ -522,15 +512,15 @@ Debugger.prototype = {
             .then((res,extra) => extra);
     },
 
-    step: function (steptype, threadid) {
-        var x = { steptype: steptype, threadid: threadid };
+    step: function (steptype, threadid, extra) {
+        var x = { steptype, threadid, extra };
         return this.ensureconnected(x)
             .then(function (x) {
                 this._trigger('stepping');
-                return this._setupstepevent(x.steptype, x.threadid);
+                return this._setupstepevent(x.steptype, x.threadid, x);
             })
-            .then(function () {
-                return this._resumesilent();
+            .then(x => {
+                return this.resumethread(x.threadid, x.extra);
             });
     },
 
@@ -980,9 +970,20 @@ Debugger.prototype = {
     },
 
     invokeMethod: function (objectid, threadid, type_signature, method_name, method_sig, args, extra) {
-        var x = { objectid, threadid, type_signature, method_name, method_sig, args, extra };
-        x.return_type_signature = method_sig.match(/\)(.*)/)[1];
-        return this.gettypedebuginfo(x.return_type_signature)
+        var x = { 
+            objectid, threadid, type_signature, method_name, method_sig, args, extra,
+            return_type_signature: method_sig.match(/\)(.*)/)[1],
+            def: $.Deferred()
+        };
+        // we must wait until any previous invokes on the same thread have completed
+        var invokes = this.session.invokes[threadid] = (this.session.invokes[threadid] || []);
+        if (invokes.push(x) === 1) 
+            this._doInvokeMethod(x);
+        return x.def;
+    },
+
+    _doInvokeMethod: function (x) {
+        this.gettypedebuginfo(x.return_type_signature)
             .then(dbgtypes => {
                 x.return_type = dbgtypes[x.return_type_signature].type;
                 return this.gettypedebuginfo(x.type_signature);
@@ -1027,17 +1028,6 @@ Debugger.prototype = {
             .then((typeinfo, method, x) => {
                 x.typeinfo = typeinfo;
                 x.method = method;
-                // in order to invoke the method, we must undo any manual suspends of the specified thread
-                // (and then resuspend after)
-                var def = $.Deferred().resolveWith(this,[null,x]);
-                for (var i=0; i < this.session.threadsuspends[x.threadid]|0; i++) {
-                    def = def.then((res,x) => this.session.adbclient.jdwp_command({
-                        ths: this, extra:x, cmd: this.JDWP.Commands.resumethread(x.threadid),
-                    }));
-                }
-                return def;
-            })
-            .then((res,x) => {
                 return this.session.adbclient.jdwp_command({
                     ths: this,
                     extra: x,
@@ -1045,22 +1035,19 @@ Debugger.prototype = {
                 })
             })
             .then((res, x) => {
-                // save the result and re-suspend the thread
-                x.res = res;
-                var def = $.Deferred().resolveWith(this,[null,x]);
-                for (var i=0; i < this.session.threadsuspends[x.threadid]|0; i++) {
-                    def = def.then((res,x) => this.session.adbclient.jdwp_command({
-                        ths: this, extra:x, cmd: this.JDWP.Commands.suspendthread(x.threadid),
-                    }));
-                }
-                return def.then((res,x) => $.Deferred().resolveWith(this, [x.res, x]));
-            })
-            .then((res, x) => {
+                // res = {return_value, exception}
                 if (/^0+$/.test(res.exception))
                     return this._mapvalues('return', [{ name:'{return}', type:x.return_type }], [res.return_value], {}, x);
                 // todo - handle reutrn exceptions
             })
-            .then((res, x) => $.Deferred().resolveWith(this, [res[0], x.extra]));  // res = {return_value, exception}
+            .then((res, x) => {
+                x.def.resolveWith(this, [res[0], x.extra]);
+            })
+            .always(function(invokes) {
+                invokes.shift();
+                if (invokes.length)
+                    this._doInvokeMethod(invokes[0]);
+            }.bind(this,this.session.invokes[x.threadid]));
     },
 
     invokeToString(objectid, threadid, type_signature, extra) {
@@ -1413,8 +1400,6 @@ Debugger.prototype = {
             },
             fn: function (e) {
                 var x = e.data;
-                // each class prepare contributes a global suspend
-                x.dbgr.session.suspendcount++;
                 x.onprepare.apply(x.dbgr, [e.event]);
             }
         };
@@ -1437,14 +1422,12 @@ Debugger.prototype = {
         return clearStepCommand;
     },
 
-    _setupstepevent: function (steptype, threadid) {
+    _setupstepevent: function (steptype, threadid, extra) {
         var onevent = {
             data: {
                 dbgr: this,
             },
             fn: function (e) {
-                // each step hit contributes a global suspend
-                e.data.dbgr.session.suspendcount++;
                 e.data.dbgr._clearLastStepRequest(e.event.threadid, e)
                     .then(function (e) {
                         var x = e.data;
@@ -1468,10 +1451,12 @@ Debugger.prototype = {
         };
         var cmd = this.session.adbclient.jdwp_command({
             cmd: this.JDWP.Commands.SetSingleStep(steptype, threadid, onevent),
-        }).then(res => {
+            extra: extra,
+        }).then((res,extra) => {
             // save the step id so we can manually clear it if an exception break occurs
             if (this.session && res && res.id) 
                 this.session.stepids[threadid] = res.id;
+            return extra;
         });
 
         return cmd.promise();
@@ -1498,8 +1483,6 @@ Debugger.prototype = {
                     bp: x.dbgr.breakpoints.enabled[cmlkey].bp,
                 };
                 x.dbgr.session.stoppedlocation = stoppedloc;
-                // each breakpoint hit contributes a global suspend
-                x.dbgr.session.suspendcount++;
                 // if this was a conditional breakpoint, it will have been automatically cleared
                 // - set a new (unconditional) breakpoint in it's place
                 if (bp.conditions.hitcount) {
@@ -1662,8 +1645,6 @@ Debugger.prototype = {
                 dbgr: this,
             },
             fn: function (e) {
-                // each exception hit contributes a global suspend
-                e.data.dbgr.session.suspendcount++;
                 // if this exception break occurred during a step request, we must manually clear the event
                 // or the (device-side) debugger will crash on next step
                 this._clearLastStepRequest(e.event.threadid, e).then(e => {
@@ -1729,6 +1710,30 @@ Debugger.prototype = {
         };
         o.next();
         return o.def;
+    },
+
+    setThreadNotify: function(extra) {
+        var onevent = {
+            data: {
+                dbgr: this,
+            },
+            fn: function (e) {
+                // the thread notifiers don't give any location information
+                //this.session.stoppedlocation = ...
+                this._trigger('threadchange', {state:e.event.state, threadid:e.event.threadid});
+            }.bind(this)
+        };
+
+        return this.ensureconnected(extra)
+            .then((extra) => this.session.adbclient.jdwp_command({
+                cmd: this.JDWP.Commands.ThreadStartNotify(onevent),
+                extra:extra,
+            }))
+            .then((res,extra) => this.session.adbclient.jdwp_command({
+                cmd: this.JDWP.Commands.ThreadEndNotify(onevent),
+                extra:extra,
+            }))
+            .then((res, extra) => extra);
     },
 
     _loadclzinfo: function (signature) {
