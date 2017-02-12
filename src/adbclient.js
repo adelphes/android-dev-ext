@@ -403,9 +403,9 @@ ADBClient.prototype = {
                         this.logcatinfo = {
                             deferred: x.deferred,
                             buffer: '',
-                            onlog: o.onlog||$.noop,
+                            onlog: o.onlog||(()=>{}),
                             onlogdata: o.data,
-                            onclose: o.onclose||$.noop,
+                            onclose: o.onclose||(()=>{}),
                             fd: this.fd,
                             waitfn:_waitfornextlogcat,
                         }
