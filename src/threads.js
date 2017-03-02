@@ -39,6 +39,8 @@ class AndroidThread {
     }
 
     allocateExceptionScopeReference(frameId) {
+        if (!this.paused) return;
+        if (!this.paused.last_exception) return;
         this.paused.last_exception.frameId = frameId;
         this.paused.last_exception.scopeRef = frameId + 1;
     }

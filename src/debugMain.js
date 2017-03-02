@@ -800,11 +800,11 @@ class AndroidDebugSession extends DebugSession {
         var last_exception = thread.paused.last_exception;
         if (last_exception && !last_exception.objvar) {
             // retrieve the exception object
-            this.dbgr.getExceptionLocal(last_exception.exception, {response,scopes,last_exception,thread,args})
+            thread.allocateExceptionScopeReference(args.frameId);
+            this.dbgr.getExceptionLocal(last_exception.exception, {response,scopes,last_exception})
                 .then((ex_local,x) => {
-                    var {response,scopes,last_exception,thread,args} = x;
+                    var {response,scopes,last_exception} = x;
                     last_exception.objvar = ex_local;
-                    thread.allocateExceptionScopeReference(args.frameId);
                     // put the exception first - otherwise it can get lost if there's a lot of locals
                     scopes.unshift(new Scope("Exception: "+ex_local.type.typename, last_exception.scopeRef, false));
             		this.sendResponse(response);
@@ -956,6 +956,7 @@ class AndroidDebugSession extends DebugSession {
         var last_exception = {
             exception: e.event.exception,
             threadid: e.throwlocation.threadid,
+            frameId: null,   // allocated during scopesRequest
             scopeRef: null,   // allocated during scopesRequest
         };
         this.reportStoppedEvent("exception", e.throwlocation, last_exception);
