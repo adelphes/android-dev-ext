@@ -1,5 +1,9 @@
 # Change Log
 
+### version 0.4.1
+* One day I will learn to update the changelog **before** I hit publish
+* Updated changelog
+
 ### version 0.4.0
 * Debugger performance improvements
 * Fixed exception details not being displayed in locals
