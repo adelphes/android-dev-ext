@@ -1,5 +1,10 @@
 # Change Log
 
+### version 0.4.0
+* Debugger performance improvements
+* Fixed exception details not being displayed in locals
+* Fixed some logcat display issues
+
 ### version 0.3.1
 * Bug fixes
 * Fix issue with exception breaks crashing debugger
