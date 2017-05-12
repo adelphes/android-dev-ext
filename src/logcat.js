@@ -1,6 +1,4 @@
 'use strict'
-// vscode stuff
-const { EventEmitter, Uri } = require('vscode');
 // node and external modules
 const fs = require('fs');
 const os = require('os');
@@ -38,7 +36,7 @@ class LogcatContent {
                         onlog: this.onLogcatContent.bind(this),
                         onclose: this.onLogcatDisconnect.bind(this),
                     });
-                }).then(x => {
+                }).then(() => {
                     this._state = 'connected';
                     this._initwait = null;
                     resolve(this.content);
@@ -55,20 +53,20 @@ class LogcatContent {
             return this.htmlBootstrap({connected:true, status:'',oldlogs:''});
         // if we're in the disconnected state, and this.content is called, it means the user has requested
         // this logcat again - check if the device has reconnected
-        return this._initwait = new Promise((resolve, reject) => {
+        return this._initwait = new Promise((resolve/*, reject*/) => {
             // clear the logs first - if we successfully reconnect, we will be retrieving the entire logcat again
             this._prevlogs = {_logs: this._logs, _htmllogs: this._htmllogs, _oldhtmllogs: this._oldhtmllogs };
             this._logs = []; this._htmllogs = []; this._oldhtmllogs = [];
             this._adbclient.logcat({
                 onlog: this.onLogcatContent.bind(this),
                 onclose: this.onLogcatDisconnect.bind(this),
-            }).then(x => {
+            }).then(() => {
                 // we successfully reconnected
                 this._state = 'connected';
                 this._prevlogs = null;
                 this._initwait = null;
                 resolve(this.content);
-            }).fail(e => {
+            }).fail((/*e*/) => {
                 // reconnection failed - put the logs back and return the cached info
                 this._logs = this._prevlogs._logs;
                 this._htmllogs = this._prevlogs._htmllogs;
@@ -161,7 +159,7 @@ class LogcatContent {
             this.renotify();
         }
     }
-    onLogcatDisconnect(e) {
+    onLogcatDisconnect(/*e*/) {
         if (this._state === 'disconnected') return;
         this._state = 'disconnected';
         this.sendDisconnectMsg();
@@ -215,7 +213,7 @@ LogcatContent.initWebSocketServer = function () {
                 this.wss = null;
                 LogcatContent._wssdone.resolveWith(LogcatContent, []);
             });
-            this.wss.on('error', err => {
+            this.wss.on('error', (/*err*/) => {
                 if (!LogcatContent._wss) {
                     // listen failed -try the next port
                     this.retries++ , this.port++;
@@ -245,7 +243,7 @@ function openLogcatWindow(vscode) {
             var adbpath = path.join(process.env.ANDROID_HOME, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');
             var adbargs = ['-P',''+adbport,'start-server'];
             try {
-                var stdout = require('child_process').execFileSync(adbpath, adbargs, {cwd:process.env.ANDROID_HOME, encoding:'utf8'});
+                /*var stdout = */require('child_process').execFileSync(adbpath, adbargs, {cwd:process.env.ANDROID_HOME, encoding:'utf8'});
             } catch (ex) {} // if we fail, it doesn't matter - the device query will fail and the user will have to work it out themselves
         }
     })
@@ -282,7 +280,7 @@ function openLogcatWindow(vscode) {
             return vscode.commands.executeCommand("vscode.previewHtml",uri,vscode.ViewColumn.Two);
         });
     })
-    .fail(e => {
+    .fail((/*e*/) => {
         vscode.window.showInformationMessage('Logcat cannot be displayed. Querying the connected devices list failed. Is ADB running?');
     });
 }

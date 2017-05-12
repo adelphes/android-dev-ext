@@ -1,8 +1,8 @@
 'use strict'
 const {
 	DebugSession,
-	ContinuedEvent, InitializedEvent, ExitedEvent, TerminatedEvent, StoppedEvent, BreakpointEvent, ThreadEvent, OutputEvent, Event,
-	Thread, StackFrame, Scope, Source, Handles, Breakpoint } = require('vscode-debugadapter');
+	InitializedEvent, TerminatedEvent, StoppedEvent, BreakpointEvent, ThreadEvent, OutputEvent,
+	Thread, StackFrame, Scope, Source, Breakpoint } = require('vscode-debugadapter');
 
 // node and external modules
 const crypto = require('crypto');
@@ -16,7 +16,6 @@ const xpath = require('xpath');
 const { ADBClient } = require('./adbclient');
 const { Debugger } = require('./debugger');
 const $ = require('./jq-promise');
-const NumberBaseConverter = require('./nbc');
 const { AndroidThread } = require('./threads');
 const { D, isEmptyObject } = require('./util');
 const { AndroidVariables } = require('./variables');
@@ -82,7 +81,7 @@ class AndroidDebugSession extends DebugSession {
 	 * The 'initialize' request is the first request called by the frontend
 	 * to interrogate the features the debug adapter provides.
 	 */
-	initializeRequest(response/*: DebugProtocol.InitializeResponse*/, args/*: DebugProtocol.InitializeRequestArguments*/) {
+	initializeRequest(response/*: DebugProtocol.InitializeResponse, args: DebugProtocol.InitializeRequestArguments*/) {
 
 		// This debug adapter implements the configurationDoneRequest.
 		response.body.supportsConfigurationDoneRequest = true;
@@ -503,7 +502,7 @@ class AndroidDebugSession extends DebugSession {
             })
     }
 
-    configurationDoneRequest(response, args) {
+    configurationDoneRequest(response/*, args*/) {
         this.waitForConfigurationDone.resolve();
         this.sendResponse(response);
     }
@@ -518,7 +517,7 @@ class AndroidDebugSession extends DebugSession {
         }
     }
 
-    disconnectRequest(response, args) {
+    disconnectRequest(response/*, args*/) {
         D('disconnectRequest');
         this._isDisconnecting = true;
         // if we're connected, ask ADB to terminate the app
@@ -633,7 +632,7 @@ class AndroidDebugSession extends DebugSession {
                     javabp.vsbp.order = idx;
                     javabp_arr.push(javabp);
                 }).
-                then(javabp => _setup_breakpoints(o, ++idx, javabp_arr));
+                then((/*javabp*/) => _setup_breakpoints(o, ++idx, javabp_arr));
         };
 
         if (!this._set_breakpoints_queue) {
@@ -702,7 +701,7 @@ class AndroidDebugSession extends DebugSession {
                 };
                 this.sendResponse(response);
             })
-            .fail(e => {
+            .fail(() => {
                 response.success = false;
                 this.sendResponse(response);
             });
@@ -732,7 +731,6 @@ class AndroidDebugSession extends DebugSession {
                 const endFrame = Math.min(startFrame + maxLevels, frames.length);
                 var stack = [], totalFrames = frames.length, highest_known_source=0;
                 const android_src_path = this._android_sources_path || '{Android SDK}';
-                const device_api_level = this.dbgr.session.apilevel || '25';
                 for (var i= startFrame; i < endFrame; i++) {
                     // the stack_frame_id must be unique across all threads
                     const stack_frame_id = x.thread.addStackFrameVariable(frames[i], i).frameId;
@@ -781,7 +779,7 @@ class AndroidDebugSession extends DebugSession {
                 };
                 this.sendResponse(response);
             })
-            .fail((e,x) => {
+            .fail(() => {
                 this.failRequest('No call stack is available', response);
             });
 	}
@@ -809,13 +807,13 @@ class AndroidDebugSession extends DebugSession {
                     scopes.unshift(new Scope("Exception: "+ex_local.type.typename, last_exception.scopeRef, false));
             		this.sendResponse(response);
                 })
-                .fail(e => { this.sendResponse(response); });
+                .fail((/*e*/) => { this.sendResponse(response); });
             return;
         }
 		this.sendResponse(response);
 	}
 
-    sourceRequest(response/*: DebugProtocol.SourceResponse*/, args/*: DebugProtocol.SourceArguments*/) {
+    sourceRequest(response/*: DebugProtocol.SourceResponse, args: DebugProtocol.SourceArguments*/) {
         var content = 
 `/*
   The source for this class is unavailable.
@@ -1070,7 +1068,7 @@ class AndroidDebugSession extends DebugSession {
         if (!this._evals_queue.length) {
             return;
         }
-        var {response, args, getvars, thread} = this._evals_queue[0];
+        var {response, args, getvars} = this._evals_queue[0];
 
         // wait for any locals in the given context to be retrieved
         getvars.then((thread, locals, vars) => {
@@ -1231,9 +1229,11 @@ class AndroidDebugSession extends DebugSession {
                 // current or higher precendence
                 if (binary_operator[0]==='?') {
                     res = { condition:res, operator:binary_operator[0], ternary_true:null, ternary_false:null };
-                    res.ternary_true = parse_expression(o);
-                    symbol(e,':');
-                    res.ternary_false = parse_expression(o);
+                    res.ternary_true = parse_expression(e);
+                    if (e.expr[0] === ':') {
+                        e.expr = e.expr.slice(1).trim();
+                        res.ternary_false = parse_expression(e);
+                    }
                 } else {
                     res = {  lhs:res, operator:binary_operator[0], rhs:parse_expression(e) };
                 }
@@ -1481,7 +1481,7 @@ class AndroidDebugSession extends DebugSession {
                 }.bind(this,arr_local))
                 .then(els => els[0])
         }
-        const evaluate_methodcall = (m, obj_local) => {
+        const evaluate_methodcall = (/*m, obj_local*/) => {
             return reject_evaluation('Error: method calls are not supported');
         }
         const evaluate_member = (m, obj_local) => {

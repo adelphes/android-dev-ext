@@ -1,12 +1,6 @@
-const crypto = require('crypto');
 
 var nofn=function(){};
 var D=exports.D=console.log.bind(console);
-var E=exports.E=console.error.bind(console);
-var W=exports.W=console.warn.bind(console);
-var DD=nofn,cl=D,printf=D;
-var print_jdwp_data = nofn;// _print_jdwp_data;
-var print_packet = nofn;//_print_packet;
 
 Array.first = function(arr, fn, defaultvalue) {
 	var idx = Array.indexOfFirst(arr, fn);
@@ -21,7 +15,7 @@ Array.indexOfFirst = function(arr, fn) {
 	return -1;
 }
 
-var isEmptyObject = exports.isEmptyObject = function(o) {
+exports.isEmptyObject = function(o) {
 	return typeof(o)==='object' && !Object.keys(o).length;
 }
 
@@ -31,13 +25,13 @@ var leftpad = exports.leftpad = function(char, len, s) {
 	return s;
 }
 
-var intToHex = exports.intToHex = function(i, minlen) {
+exports.intToHex = function(i, minlen) {
 	var s = i.toString(16);
 	if (minlen) s = leftpad('0', minlen, s);
 	return s;
 }
 
-var intFromHex = exports.intFromHex = function(s, maxlen, defaultvalue) {
+exports.intFromHex = function(s, maxlen, defaultvalue) {
 	s = s.slice(0, maxlen);
 	if (!/^[0-9a-fA-F]+$/.test(s)) return defaultvalue;
 	return parseInt(s, 16);
@@ -54,12 +48,6 @@ var index_of_file_fdn = function(n) {
 	return -1;
 }
 
-var get_file_fd_from_fdn = function(n) {
-	var idx = index_of_file_fdn(n);
-	if (idx < 0) return null;
-	return fdcache[idx];
-}
-
 var remove_fd_from_cache = function(fd) {
 	if (!fd) return;
 	var idx = index_of_file_fdn(fd.n);
@@ -69,7 +57,7 @@ var remove_fd_from_cache = function(fd) {
 // add an offset so we don't conflict with tcp socketIds
 var min_fd_num = 100000;
 var _new_fd_count = 0;
-var new_fd = this.new_fd = function(name, raw) {
+this.new_fd = function(name, raw) {
 	var rwpipe = raw ? new Uint8Array(0) : [];
 	var fd = {
 		name: name,
@@ -259,22 +247,6 @@ var new_fd = this.new_fd = function(name, raw) {
 	return fd;
 }
 
-var intToCharString = function(n) {
-	return String.fromCharCode(
-		(n>>0)&255,
-		(n>>8)&255,
-		(n>>16)&255,
-		(n>>24)&255
-	);
-}
-
-var stringToUint8Array = function(s) {
-	var x = new Uint8Array(s.length);
-	for (var i=0; i < s.length; i++)
-		x[i] = s.charCodeAt(i);
-	return x;
-}
-
 var uint8ArrayToString = function(a) {
 	var s = new Array(a.byteLength);
 	for (var i=0; i < a.byteLength; i++)
@@ -355,160 +327,11 @@ var iterate_repeat = function(arr, count, o, j) {
 			}
 			iterate_repeat(arr, count, o, (j||0)+1);
 		},
-		error:function(err) {
+		error:function(/*err*/) {
 			o.error && o.error();
 			o.complete && o.complete();
 		}
 	});
-}
-
-/**
- * Convert from an ArrayBuffer to a string.
- * @param {ArrayBuffer} buffer The array buffer to convert.
- * @return {string} The textual representation of the array.
- */
-var arrayBufferToString = exports.arrayBufferToString = function(buffer) {
-  var array = new Uint8Array(buffer);
-  var str = '';
-  for (var i = 0; i < array.length; ++i) {
-    str += String.fromCharCode(array[i]);
-  }
-  return str;
-};
-
-/**
- * Convert from an UTF-8 array to UTF-8 string.
- * @param {array} UTF-8 array
- * @return {string} UTF-8 string
- */
-var ary2utf8 = (function() {
-
-  var patterns = [
-    {pattern: '0xxxxxxx', bytes: 1},
-    {pattern: '110xxxxx', bytes: 2},
-    {pattern: '1110xxxx', bytes: 3},
-    {pattern: '11110xxx', bytes: 4},
-    {pattern: '111110xx', bytes: 5},
-    {pattern: '1111110x', bytes: 6}
-  ];
-  patterns.forEach(function(item) {
-    item.header = item.pattern.replace(/[^10]/g, '');
-    item.pattern01 = item.pattern.replace(/[^10]/g, '0');
-    item.pattern01 = parseInt(item.pattern01, 2);
-    item.mask_length = item.header.length;
-    item.data_length = 8 - item.header.length;
-    var mask = '';
-    for (var i = 0, len = item.mask_length; i < len; i++) {
-      mask += '1';
-    }
-    for (var i = 0, len = item.data_length; i < len; i++) {
-      mask += '0';
-    }
-    item.mask = mask;
-    item.mask = parseInt(item.mask, 2);
-  });
-
-  return function(ary) {
-    var codes = [];
-    var cur = 0;
-    while(cur < ary.length) {
-      var first = ary[cur];
-      var pattern = null;
-      for (var i = 0, len = patterns.length; i < len; i++) {
-        if ((first & patterns[i].mask) == patterns[i].pattern01) {
-          pattern = patterns[i];
-          break;
-        }
-      }
-      if (pattern == null) {
-        throw 'utf-8 decode error';
-      }
-      var rest = ary.slice(cur + 1, cur + pattern.bytes);
-      cur += pattern.bytes;
-      var code = '';
-      code += ('00000000' + (first & (255 ^ pattern.mask)).toString(2)).slice(-pattern.data_length);
-      for (var i = 0, len = rest.length; i < len; i++) {
-        code += ('00000000' + (rest[i] & parseInt('111111', 2)).toString(2)).slice(-6);
-      }
-      codes.push(parseInt(code, 2));
-    }
-    return String.fromCharCode.apply(null, codes);
-  };
-
-})();
-
-/**
- * Convert from an UTF-8 string to UTF-8 array.
- * @param {string} UTF-8 string
- * @return {array} UTF-8 array
- */
-var utf82ary = (function() {
-
-  var patterns = [
-    {pattern: '0xxxxxxx', bytes: 1},
-    {pattern: '110xxxxx', bytes: 2},
-    {pattern: '1110xxxx', bytes: 3},
-    {pattern: '11110xxx', bytes: 4},
-    {pattern: '111110xx', bytes: 5},
-    {pattern: '1111110x', bytes: 6}
-  ];
-  patterns.forEach(function(item) {
-    item.header = item.pattern.replace(/[^10]/g, '');
-    item.mask_length = item.header.length;
-    item.data_length = 8 - item.header.length;
-    item.max_bit_length = (item.bytes - 1) * 6 + item.data_length;
-  });
-
-  var code2utf8array = function(code) {
-    var pattern = null;
-    var code01 = code.toString(2);
-    for (var i = 0, len = patterns.length; i < len; i++) {
-      if (code01.length <= patterns[i].max_bit_length) {
-        pattern = patterns[i];
-        break;
-      }
-    }
-    if (pattern == null) {
-      throw 'utf-8 encode error';
-    }
-    var ary = [];
-    for (var i = 0, len = pattern.bytes - 1; i < len; i++) {
-      ary.unshift(parseInt('10' + ('000000' + code01.slice(-6)).slice(-6), 2));
-      code01 = code01.slice(0, -6);
-    }
-    ary.unshift(parseInt(pattern.header + ('00000000' + code01).slice(-pattern.data_length), 2));
-    return ary;
-  };
-
-  return function(str) {
-    var codes = [];
-    for (var i = 0, len = str.length; i < len; i++) {
-      var code = str.charCodeAt(i);
-      Array.prototype.push.apply(codes, code2utf8array(code));
-    }
-    return codes;
-  };
-
-})();
-
-/**
- * Convert a string to an ArrayBuffer.
- * @param {string} string The string to convert.
- * @return {ArrayBuffer} An array buffer whose bytes correspond to the string.
- */
-var stringToArrayBuffer = exports.stringToArrayBuffer = function(string) {
-  var buffer = new ArrayBuffer(string.length);
-  var bufferView = new Uint8Array(buffer);
-  for (var i = 0; i < string.length; i++) {
-    bufferView[i] = string.charCodeAt(i);
-  }
-  return buffer;
-};
-
-var str2ab = exports.str2ab = stringToArrayBuffer;
-var ab2str = exports.ab2str = arrayBufferToString;
-var str2u8arr = exports.str2u8arr = function(s) {
-	return new Uint8Array(str2ab(s));
 }
 
 exports.getutf8bytes = function(str) {
