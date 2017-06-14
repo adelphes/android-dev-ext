@@ -8,6 +8,7 @@ const {
 const crypto = require('crypto');
 const dom = require('xmldom').DOMParser;
 const fs = require('fs');
+const os = require('os');
 const Long = require('long');
 const path = require('path');
 const xpath = require('xpath');
@@ -103,7 +104,8 @@ class AndroidDebugSession extends DebugSession {
 
     LOG(msg) {
         D(msg);
-        this.sendEvent(new OutputEvent(msg));
+        // VSCode no longer auto-newlines output
+        this.sendEvent(new OutputEvent(msg + os.EOL));
     }
 
     WARN(msg) {
