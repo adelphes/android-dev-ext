@@ -158,7 +158,7 @@ class AndroidVariables {
      */
     _local_to_variable(v) {
         if (Array.isArray(v)) return v.filter(v => v.valid).map(v => this._local_to_variable(v));
-        var varref = 0, objvalue, typename = v.type.package ? `${v.type.package}.${v.type.typename}` : v.type.typename;
+        var varref = 0, objvalue, formats = {}, typename = v.type.package ? `${v.type.package}.${v.type.typename}` : v.type.typename;
         switch(true) {
             case v.hasnullvalue && JTYPES.isReference(v.type):
                 // null object or array type
@@ -207,10 +207,27 @@ class AndroidVariables {
             case v.type.signature === 'J':
                 // because JS cannot handle 64bit ints, we need a bit of extra work
                 var v64hex = v.value.replace(/[^0-9a-fA-F]/g,'');
-                objvalue = NumberBaseConverter.hexToDec(v64hex, true);
+                objvalue = formats.dec = NumberBaseConverter.hexToDec(v64hex, true);
+                formats.hex = '0x' + v64hex.replace(/^0+/, '0');
+                formats.oct = formats.bin = '';
+                // 24 bit chunks...
+                for (var s=v64hex,uint; s; s = s.slice(0,-6)) {
+                    uint = parseInt(s.slice(-6), 16) >>> 0; // 6*4 = 24 bits
+                    formats.oct = uint.toString(8) + formats.oct;
+                    formats.bin = uint.toString(2) + formats.bin;
+                }
+                formats.oct = '0c' + formats.oct.replace(/^0+/, '0');
+                formats.bin = '0b' + formats.bin.replace(/^0+/, '0');
+                break;
+            case /^[BIS]$/.test(v.type.signature):
+                objvalue = formats.dec = v.value.toString();
+                var uint = (v.value >>> 0);
+                formats.hex = '0x' + uint.toString(16);
+                formats.oct = '0c' + uint.toString(8);
+                formats.bin = '0b' + uint.toString(2);
                 break;
             default:
-                // other primitives: int, boolean, etc
+                // other primitives: boolean, etc
                 objvalue = v.value.toString();
                 break;
         }
