@@ -110,12 +110,20 @@ class AndroidDebugSession extends DebugSession {
 
     WARN(msg) {
         D(msg = 'Warning: '+msg);
-        this.sendEvent(new OutputEvent(msg));
+        this.sendEvent(new OutputEvent(msg + os.EOL));
     }
 
     failRequest(msg, response) {
         // yeah, it can happen sometimes...
-        this.WARN(msg);
+        msg && this.WARN(msg);
+        if (response) {
+            response.success = false;
+            this.sendResponse(response);
+        }
+    }
+
+    cancelRequest(msg, response) {
+        D(msg); // just log it in debug - don't output it to the client
         if (response) {
             response.success = false;
             this.sendResponse(response);
@@ -128,6 +136,11 @@ class AndroidDebugSession extends DebugSession {
 
     failRequestThreadNotSuspended(requestName, threadId, response) {
         this.failRequest(`${requestName} failed. Thread ${threadId} is not suspended`, response);
+    }
+
+    cancelRequestThreadNotSuspended(requestName, threadId, response) {
+        // now that vscode can resume threads before the locals,callstack,etc are retrieved, we only need to cancel the request
+        this.cancelRequest(`${requestName} cancelled. Thread ${threadId} is not suspended`, response);
     }
 
     getThread(id) {
@@ -682,7 +695,7 @@ class AndroidDebugSession extends DebugSession {
 
 	threadsRequest(response/*: DebugProtocol.ThreadsResponse*/) {
         if (this._threads.array.length) {
-            console.log('threadsRequest: ' + this._threads.array.length);
+            D('threadsRequest: ' + this._threads.array.length);
             response.body = {
                 threads: this._threads.array.filter(x=>x).map(t => {
                     var javaid = parseInt(t.threadid, 16);
@@ -717,7 +730,7 @@ class AndroidDebugSession extends DebugSession {
         // debugger threadid's are a padded 64bit hex string
         var thread = this.getThread(args.threadId);
         if (!thread) return this.failRequestNoThread('Stack trace', args.threadId, response);
-        if (!thread.paused) return this.failRequestThreadNotSuspended('Stack trace', args.threadId, response);
+        if (!thread.paused) return this.cancelRequestThreadNotSuspended('Stack trace', args.threadId, response);
 
         // retrieve the (stack) frames from the debugger
         this.dbgr.getframes(thread.threadid, {response, args, thread})
@@ -733,7 +746,7 @@ class AndroidDebugSession extends DebugSession {
                 const endFrame = Math.min(startFrame + maxLevels, frames.length);
                 var stack = [], totalFrames = frames.length, highest_known_source=0;
                 const android_src_path = this._android_sources_path || '{Android SDK}';
-                for (var i= startFrame; i < endFrame; i++) {
+                for (var i = startFrame; (i < endFrame) && x.thread.paused; i++) {
                     // the stack_frame_id must be unique across all threads
                     const stack_frame_id = x.thread.addStackFrameVariable(frames[i], i).frameId;
                     const name = `${frames[i].method.owningclass.name}.${frames[i].method.name}`;
@@ -790,7 +803,7 @@ class AndroidDebugSession extends DebugSession {
         var threadId = variableRefToThreadId(args.frameId);
         var thread = this.getThread(threadId);
         if (!thread) return this.failRequestNoThread('Scopes',threadId, response);
-        if (!thread.paused) return this.failRequestThreadNotSuspended('Scopes',threadId, response);
+        if (!thread.paused) return this.cancelRequestThreadNotSuspended('Scopes', threadId, response);
 
         var scopes = [new Scope("Local", args.frameId, false)];
 		response.body = {
@@ -844,7 +857,7 @@ class AndroidDebugSession extends DebugSession {
         var threadId = variableRefToThreadId(args.variablesReference);
         var thread = this.getThread(threadId);
         if (!thread) return this.failRequestNoThread('Variables',threadId, response);
-        if (!thread.paused) return this.failRequestThreadNotSuspended('Variables',threadId, response);
+        if (!thread.paused) return this.cancelRequestThreadNotSuspended('Variables',threadId, response);
 
         thread.getVariables(args.variablesReference)
             .then(vars => {
@@ -926,7 +939,7 @@ class AndroidDebugSession extends DebugSession {
         this.sendResponse(response);
         // we time the step - if it takes more than 2 seconds, we switch to any other threads that are waiting
         t.stepTimeout = setTimeout(t => {
-            console.log('Step timeout on thread:'+t.threadid);
+            D('Step timeout on thread:'+t.threadid);
             t.stepTimeout = null;
             this.checkPendingThreadBreaks();
         }, 2000, t);
