@@ -22,7 +22,7 @@ const { D, isEmptyObject } = require('./util');
 const { AndroidVariables } = require('./variables');
 const { evaluate } = require('./expressions');
 const ws_proxy = require('./wsproxy').proxy.Server(6037, 5037);
-const { ensure_path_end_slash,is_subpath_of,variableRefToThreadId } = require('./globals');
+const { exmsg_var_name, signatureToFullyQualifiedType, ensure_path_end_slash,is_subpath_of,variableRefToThreadId } = require('./globals');
 
 class AndroidDebugSession extends DebugSession {
 
@@ -99,6 +99,9 @@ class AndroidDebugSession extends DebugSession {
 
         // we support hit-count conditional breakpoints
         response.body.supportsHitConditionalBreakpoints = true;
+
+        // we support the new ExceptionInfoRequest
+        response.body.supportsExceptionInfoRequest = true;
 
 		this.sendResponse(response);
 	}
@@ -781,7 +784,10 @@ class AndroidDebugSession extends DebugSession {
                         : null;
                     const src = new Source(sourcefile, srcpath, srcpath ? 0 : srcRefId);
                     pkginfo && (highest_known_source=i);
-                    stack.push(new StackFrame(stack_frame_id, name, src, linenum, 0));
+                    // we don't support column number when reporting source locations (because JDWP only supports line-granularity)
+                    // but in order to get the Exception UI to show, we must have a non-zero column
+                    const colnum = (!i && x.thread.paused.last_exception && x.thread.paused.reasons[0]==='exception') ? 1 : 0;
+                    stack.push(new StackFrame(stack_frame_id, name, src, linenum, colnum));
                 }
                 // trim the stack to exclude calls above the known sources
                 if (this.callStackDisplaySize > 0) {
@@ -815,13 +821,22 @@ class AndroidDebugSession extends DebugSession {
         if (last_exception && !last_exception.objvar) {
             // retrieve the exception object
             thread.allocateExceptionScopeReference(args.frameId);
-            this.dbgr.getExceptionLocal(last_exception.exception, {response,scopes,last_exception})
+            this.dbgr.getExceptionLocal(last_exception.exception, {thread,response,scopes,last_exception})
                 .then((ex_local,x) => {
+                    x.last_exception.objvar = ex_local;
+                    return $.when(x, x.thread.getVariables(x.last_exception.scopeRef));
+                })
+                .then((x, vars) => {
                     var {response,scopes,last_exception} = x;
-                    last_exception.objvar = ex_local;
                     // put the exception first - otherwise it can get lost if there's a lot of locals
-                    scopes.unshift(new Scope("Exception: "+ex_local.type.typename, last_exception.scopeRef, false));
-            		this.sendResponse(response);
+                    scopes.unshift(new Scope("Exception: " + last_exception.objvar.type.typename, last_exception.scopeRef, false));
+                    this.sendResponse(response);
+                    // notify the exceptionInfo who may be waiting on us
+                    if (last_exception.waitForExObject) {
+                        var def = last_exception.waitForExObject;
+                        last_exception.waitForExObject = null;
+                        def.resolveWith(this, []);
+                    }
                 })
                 .fail((/*e*/) => { this.sendResponse(response); });
             return;
@@ -891,7 +906,7 @@ class AndroidDebugSession extends DebugSession {
                     return;
                 }
             }
-            var event = new StoppedEvent(thread.paused.reasons[0], thread.vscode_threadid);
+            var event = new StoppedEvent(thread.paused.reasons[0], thread.vscode_threadid, thread.paused.last_exception && "Exception thrown");
             thread.paused.stoppedEvent = event;
             this.sendEvent(event);
         }
@@ -1104,6 +1119,52 @@ class AndroidDebugSession extends DebugSession {
             })
     }
 
+    exceptionInfoRequest(response /*DebugProtocol.ExceptionInfoResponse*/, args /**/) {
+        var thread = this.getThread(args.threadId);
+        if (!thread) return this.failRequestNoThread('Exception info', args.threadId, response);
+        if (!thread.paused) return this.cancelRequestThreadNotSuspended('Exception info', args.threadId, response);
+        if (!thread.paused.last_exception) return this.failRequest('No exception available', response);
+
+        if (!thread.paused.last_exception.objvar) {
+            // we must wait for the exception object to be retreived as a local (along with the message field)
+            if (!thread.paused.last_exception.waitForExObject) {
+                thread.paused.last_exception.waitForExObject = $.Deferred().then(() => {
+                    // redo the request
+                    this.exceptionInfoRequest(response, args);
+                });
+            }
+            return;
+        }
+        var exobj = thread.paused.last_exception.objvar;
+        var exmsg = thread.paused.last_exception.cached.find(v => v.name === exmsg_var_name);
+        exmsg = (exmsg && exmsg.string) || '';
+        
+        response.body = {
+            /** ID of the exception that was thrown. */
+            exceptionId: exobj.type.typename,
+            /** Descriptive text for the exception provided by the debug adapter. */
+            description: exmsg,
+            /** Mode that caused the exception notification to be raised. */
+            //'never' | 'always' | 'unhandled' | 'userUnhandled';
+            breakMode: 'always',
+            /** Detailed information about the exception. */
+            details: {
+                /** Message contained in the exception. */
+                message: exmsg,
+                /** Short type name of the exception object. */
+                typeName: exobj.type.typename,
+                /** Fully-qualified type name of the exception object. */
+                fullTypeName: signatureToFullyQualifiedType(exobj.type.signature),
+                /** Optional expression that can be evaluated in the current scope to obtain the exception object. */
+                //evaluateName: "evaluateName",
+                /** Stack trace at the time the exception was thrown. */
+                //stackTrace: "stackTrace",
+                /** Details of the exception contained by this exception, if any. */
+                //innerException: [],
+            }
+        }
+        this.sendResponse(response);
+    }
 }
 
 

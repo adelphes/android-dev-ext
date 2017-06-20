@@ -27,6 +27,22 @@ const JTYPES = {
     fromPrimSig(sig) { return JTYPES['byte,short,int,long,float,double,char,boolean'.split(',')['BSIJFDCZ'.indexOf(sig)]] },
 }
 
+function signatureToFullyQualifiedType(sig) {
+    var arr = sig.match(/^\[+/) || '';
+    if (arr) {
+        arr = '[]'.repeat(arr[0].length);
+        sig = sig.slice(0, arr.length/2);
+    }
+    var m = sig.match(/^((L([^<;]+).)|T([^;]+).|.)/);
+    if (!m) return '';
+    if (m[3]) {
+        return m[3].replace(/[/$]/g,'.') + arr;
+    } else if (m[4]) {
+        return m[4].replace(/[/$]/g, '.') + arr;
+    }
+    return JTYPES.fromPrimSig(sig[0]) + arr;
+}
+
 // the special name given to exception message fields
 const exmsg_var_name = ':msg';  
 
@@ -67,5 +83,5 @@ function variableRefToThreadId(variablesReference) {
 
 
 Object.assign(exports, {
-    JTYPES,exmsg_var_name,ensure_path_end_slash,is_subpath_of,decode_char,variableRefToThreadId,createJavaString
+    JTYPES, exmsg_var_name, ensure_path_end_slash, is_subpath_of, decode_char, variableRefToThreadId, createJavaString, signatureToFullyQualifiedType
 });
