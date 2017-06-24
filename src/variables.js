@@ -79,6 +79,8 @@ class AndroidVariables {
                         value: x.varinfo.objvar.value,
                         valid:true,
                     });
+                    // create the fully qualified names to use for evaluation
+                    fields.forEach(f => f.fqname = `${x.varinfo.objvar.fqname || x.varinfo.objvar.name}.${f.name}`);
                     x.varinfo.cached = fields;
                     return this._local_to_variable(fields);
                 });
@@ -100,9 +102,10 @@ class AndroidVariables {
                 return $.Deferred().resolve(variables);
             }
             // get the elements for the specified range
-            return this.dbgr.getarrayvalues(varinfo.arrvar, range[0], count)
-                .then((elements) => {
-                    varinfo.cached = elements;
+            return this.dbgr.getarrayvalues(varinfo.arrvar, range[0], count, {varinfo})
+                .then((elements, x) => {
+                    elements.forEach(el => el.fqname = `${x.varinfo.arrvar.name}[${el.name}]`);
+                    x.varinfo.cached = elements;
                     return this._local_to_variable(elements);
                 });
         }
@@ -158,7 +161,7 @@ class AndroidVariables {
      */
     _local_to_variable(v) {
         if (Array.isArray(v)) return v.filter(v => v.valid).map(v => this._local_to_variable(v));
-        var varref = 0, objvalue, formats = {}, typename = v.type.package ? `${v.type.package}.${v.type.typename}` : v.type.typename;
+        var varref = 0, objvalue, evaluateName = v.fqname || v.name, formats = {}, typename = v.type.package ? `${v.type.package}.${v.type.typename}` : v.type.typename;
         switch(true) {
             case v.hasnullvalue && JTYPES.isReference(v.type):
                 // null object or array type
@@ -240,6 +243,7 @@ class AndroidVariables {
             name: v.name,
             type: typename,
             value: objvalue,
+            evaluateName,
             variablesReference: varref,
         }
     }
