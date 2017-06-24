@@ -1054,6 +1054,50 @@ Debugger.prototype = {
         return this.invokeMethod(objectid, threadid, type_signature || 'Ljava/lang/Object;', 'toString', '()Ljava/lang/String;', [], extra);
     },
 
+    findNamedMethods(type_signature, name, method_signature) {
+        var x = { type_signature, name, method_signature }
+        const ismatch = function(x, y) {
+            if (!x || (x === y)) return true;
+            return (x instanceof RegExp) && x.test(y);
+        }
+        return this.gettypedebuginfo(x.type_signature)
+            .then(dbgtype => this._ensuremethods(dbgtype[x.type_signature]))
+            .then(typeinfo => ({
+                // resolving the methods only resolves the non-inherited methods
+                // if we can't find a matching method, we need to search the super types
+                dbgr: this,
+                def: $.Deferred(),
+                matches:[],
+                find_methods(typeinfo) {
+                    for (var mid in typeinfo.methods) {
+                        var m = typeinfo.methods[mid];
+                        // does the name match
+                        if (!ismatch(x.name, m.name)) continue;
+                        // does the signature match
+                        if (!ismatch(x.method_signature, m.genericsig || m.sig)) continue;
+                        // add it to the results
+                        this.matches.push(m);
+                    }
+                    // search the supertype
+                    if (typeinfo.type.signature === 'Ljava/lang/Object;') {
+                        this.def.resolveWith(this.dbgr, [this.matches]);
+                        return this;
+                    }
+                    this.dbgr._ensuresuper(typeinfo)
+                        .then(typeinfo => {
+                            return this.dbgr.gettypedebuginfo(typeinfo.super.signature, typeinfo.super.signature)
+                        })
+                        .then((dbgtype, sig) => {
+                            return this.dbgr._ensuremethods(dbgtype[sig])
+                        })
+                        .then(typeinfo => {
+                            this.find_methods(typeinfo)
+                        });
+                    return this;
+                }
+            }).find_methods(typeinfo).def)
+    },
+
     getstringchars: function (stringref, extra) {
         return this.session.adbclient.jdwp_command({
             ths: this,
@@ -1269,8 +1313,10 @@ Debugger.prototype = {
             return $.Deferred().resolveWith(this, [typeinfo]);
         }
         if (typeinfo.info.reftype.string !== 'class' || typeinfo.type.signature[0] !== 'L' || typeinfo.type.signature === 'Ljava/lang/Object;') {
-            typeinfo.super = null;
-            return $.Deferred().resolveWith(this, [typeinfo]);
+            if (typeinfo.info.reftype.string !== 'array') {
+                typeinfo.super = null;
+                return $.Deferred().resolveWith(this, [typeinfo]);
+            }
         }
 
         typeinfo.super = $.Deferred();

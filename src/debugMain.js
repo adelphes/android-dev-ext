@@ -9,7 +9,6 @@ const crypto = require('crypto');
 const dom = require('xmldom').DOMParser;
 const fs = require('fs');
 const os = require('os');
-const Long = require('long');
 const path = require('path');
 const xpath = require('xpath');
 
@@ -1103,7 +1102,7 @@ class AndroidDebugSession extends DebugSession {
 
         // wait for any locals in the given context to be retrieved
         getvars.then((thread, locals, vars) => {
-                return evaluate(args.expression, thread, locals, vars);
+                return evaluate(args.expression, thread, locals, vars, this.dbgr);
             })
             .then((value,variablesReference) => {
                 response.body = { result:value, variablesReference:variablesReference|0 };
@@ -1138,7 +1137,7 @@ class AndroidDebugSession extends DebugSession {
         var exobj = thread.paused.last_exception.objvar;
         var exmsg = thread.paused.last_exception.cached.find(v => v.name === exmsg_var_name);
         exmsg = (exmsg && exmsg.string) || '';
-        
+
         response.body = {
             /** ID of the exception that was thrown. */
             exceptionId: exobj.type.typename,

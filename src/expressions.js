@@ -1,4 +1,5 @@
 'use strict'
+const Long = require('long');
 const $ = require('./jq-promise');
 const { D } = require('./util');
 const { JTYPES, exmsg_var_name, decode_char, createJavaString } = require('./globals');
@@ -6,7 +7,7 @@ const { JTYPES, exmsg_var_name, decode_char, createJavaString } = require('./glo
 /*
     Asynchronously evaluate an expression
 */
-exports.evaluate = function(expression, thread, locals, vars) {
+exports.evaluate = function(expression, thread, locals, vars, dbgr) {
     D('evaluate: ' + expression);
 
     const reject_evaluation = (msg) => $.Deferred().rejectWith(this, [new Error(msg)]);
@@ -202,7 +203,7 @@ exports.evaluate = function(expression, thread, locals, vars) {
         else if (local.hasnullvalue) s = '(null)';
         if (typeof s === 'string')
             return $.Deferred().resolveWith(this, [s]);
-        return this.dbgr.invokeToString(local.value, local.info.frame.threadid, local.type.signature)
+        return dbgr.invokeToString(local.value, local.info.frame.threadid, local.type.signature)
             .then(s => s.string);
     }
     const evaluate_expression = (expr) => {
@@ -334,7 +335,7 @@ exports.evaluate = function(expression, thread, locals, vars) {
                             return { vtype: 'literal', name: '', hasnullvalue: false, type: JTYPES.boolean, value: a, valid: true };
                         }
                         else if (expr.operator === '+' && JTYPES.isString(lhs_local.type)) {
-                            return stringify(rhs_local).then(rhs_str => createJavaString(this.dbgr, lhs_local.string + rhs_str, { israw: true }));
+                            return stringify(rhs_local).then(rhs_str => createJavaString(dbgr, lhs_local.string + rhs_str, { israw: true }));
                         }
                         return invalid_operator();
                     });
@@ -363,7 +364,7 @@ exports.evaluate = function(expression, thread, locals, vars) {
                 break;
             case 'string':
                 // we must get the runtime to create string instances
-                q = createJavaString(this.dbgr, expr.root_term);
+                q = createJavaString(dbgr, expr.root_term);
                 local = { valid: true };   // make sure we don't fail the evaluation
                 break;
         }
@@ -392,12 +393,67 @@ exports.evaluate = function(expression, thread, locals, vars) {
                 if (!JTYPES.isInteger(idx_local.type)) return reject_evaluation('TypeError: array index is not an integer value');
                 var idx = numberify(idx_local);
                 if (idx < 0 || idx >= arr_local.arraylen) return reject_evaluation(`BoundsError: array index (${idx}) out of bounds. Array length = ${arr_local.arraylen}`);
-                return this.dbgr.getarrayvalues(arr_local, idx, 1)
+                return dbgr.getarrayvalues(arr_local, idx, 1)
             }.bind(this, arr_local))
             .then(els => els[0])
     }
-    const evaluate_methodcall = (/*m, obj_local*/) => {
-        return reject_evaluation('Error: method calls are not supported');
+    const evaluate_methodcall = (m, obj_local) => {
+        // until we can figure out why method invokes with parameters crash the debugger, disallow parameterised calls
+        if (m.array_or_fncall.call.length)
+            return reject_evaluation('Error: method calls with parameter values are not supported');
+            
+        // find any methods matching the member name with any parameters in the signature
+        return dbgr.findNamedMethods(obj_local.type.signature, m.member, /^/)
+            .then(methods => {
+                if (!methods[0])
+                    return reject_evaluation(`Error: method '${m.member}()' not found`);
+                // evaluate any parameters (and wait for the results)
+                return $.when({methods},...m.array_or_fncall.call.map(evaluate_expression));
+            })
+            .then((x,...paramValues) => {
+                // filter the method based upon the types of parameters - note that null types and integer literals can match multiple types
+                paramValues = paramValues = paramValues.map(p => p[0]);
+                var matchers = paramValues.map(p => {
+                    switch(true) {
+                        case p.type.signature === 'I':
+                            // match bytes/shorts/ints/longs/floats/doubles within range
+                            if (p.value >= -128 && p.value <= 127) return /^[BSIJFD]$/
+                            if (p.value >= -32768 && p.value <= 32767) return /^[SIJFD]$/
+                            return /^[IJFD]$/;
+                        case p.type.signature === 'F':
+                            return /^[FD]$/;
+                        case p.type.signature === 'Lnull;':
+                            return /^[LT\[]/;   // any reference type
+                        default:
+                            // anything else must be an exact signature match (for now - in reality we should allow subclassed type)
+                            return new RegExp(`^${p.type.signature.replace(/[$]/g,x=>'\\'+x)}$`);
+                    }
+                });
+                var methods = x.methods.filter(m => {
+                    // extract a list of parameter types
+                    var paramtypere = /\[*([BSIJFDCZ]|([LT][^;]+;))/g;
+                    for (var x, ptypes=[]; x = paramtypere.exec(m.sig); ) {
+                        ptypes.push(x[0]);
+                    }
+                    // the last paramter type is the return value
+                    ptypes.pop();
+                    // check if they match
+                    if (ptypes.length !== paramValues.length)
+                        return;
+                    return matchers.filter(m => {
+                        return !m.test(ptypes.shift())
+                    }).length === 0;
+                });
+                if (!methods[0])
+                    return reject_evaluation(`Error: incompatible parameters for method '${m.member}'`);
+                // convert the parameters to exact debugger-compatible values
+                paramValues = paramValues.map(p => {
+                    if (p.type.signature.length === 1)
+                        return { type: p.type.typename, value: p.value};
+                    return { type: 'oref', value: p.value };
+                })
+                return dbgr.invokeMethod(obj_local.value, thread.threadid, obj_local.type.signature, m.member, methods[0].genericsig || methods[0].sig, paramValues, {});
+            });
     }
     const evaluate_member = (m, obj_local) => {
         if (!JTYPES.isReference(obj_local.type)) return reject_evaluation('TypeError: value is not a reference type');
@@ -408,15 +464,15 @@ exports.evaluate = function(expression, thread, locals, vars) {
         }
         // length is a 'fake' field of arrays, so special-case it
         else if (JTYPES.isArray(obj_local.type) && m.member === 'length') {
-            chain = evaluate_number(obj_local.arraylen);
+            chain = $.Deferred().resolve(evaluate_number(obj_local.arraylen));
         }
         // we also special-case :super (for object instances)
         else if (JTYPES.isObject(obj_local.type) && m.member === ':super') {
-            chain = this.dbgr.getsuperinstance(obj_local);
+            chain = dbgr.getsuperinstance(obj_local);
         }
         // anything else must be a real field
         else {
-            chain = this.dbgr.getFieldValue(obj_local, m.member, true)
+            chain = dbgr.getFieldValue(obj_local, m.member, true)
         }
 
         return chain.then(local => {
