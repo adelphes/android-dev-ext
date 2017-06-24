@@ -1124,7 +1124,7 @@ class AndroidDebugSession extends DebugSession {
         if (!thread.paused) return this.cancelRequestThreadNotSuspended('Exception info', args.threadId, response);
         if (!thread.paused.last_exception) return this.failRequest('No exception available', response);
 
-        if (!thread.paused.last_exception.objvar) {
+        if (!thread.paused.last_exception.objvar || !thread.paused.last_exception.cached) {
             // we must wait for the exception object to be retreived as a local (along with the message field)
             if (!thread.paused.last_exception.waitForExObject) {
                 thread.paused.last_exception.waitForExObject = $.Deferred().then(() => {
