@@ -104,7 +104,7 @@ class AndroidVariables {
             // get the elements for the specified range
             return this.dbgr.getarrayvalues(varinfo.arrvar, range[0], count, {varinfo})
                 .then((elements, x) => {
-                    elements.forEach(el => el.fqname = `${x.varinfo.arrvar.name}[${el.name}]`);
+                    elements.forEach(el => el.fqname = `${x.varinfo.arrvar.fqname || x.varinfo.arrvar.name}[${el.name}]`);
                     x.varinfo.cached = elements;
                     return this._local_to_variable(elements);
                 });
@@ -191,7 +191,7 @@ class AndroidVariables {
                     varref = this._getObjectIdReference(v.type, v.value);
                     this.variableHandles[varref] = { varref:varref, arrvar:v, range:[0,v.arraylen] };
                 }
-                objvalue = v.type.typename.replace(/]$/, v.arraylen+']');   // insert len as the final array bound
+                objvalue = v.type.typename.replace(/]/, v.arraylen+']');   // insert len as the first array bound
                 break;
             case JTYPES.isObject(v.type):
                 // non-null object instance - add another variable reference so the user can expand

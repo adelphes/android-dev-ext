@@ -537,12 +537,12 @@ function _JDWP() {
 			}
 			m = signature.match(/^(\[+)(.+)$/);
 			if (m) {
-				var elementtype = this.signaturetotype(m[2]);
+				var elementtype = this.signaturetotype(m[1].slice(0,-1) + m[2]);
 				return {
 					signature:signature,
 					arraydims:m[1].length,
 					elementtype: elementtype,
-					typename:elementtype.typename+m[1].replace(/\[/g,'[]'),
+					typename:elementtype.typename+'[]',
 				}
 			}
 			var primitivetypes = {
