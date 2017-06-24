@@ -3,6 +3,7 @@
 const vscode = require('vscode');
 const { AndroidContentProvider } = require('./src/contentprovider');
 const { openLogcatWindow } = require('./src/logcat');
+const state = require('./src/state');
 
 function getADBPort() {
     var defaultPort = 5037;
@@ -38,6 +39,7 @@ function activate(context) {
     var spliceparams = [context.subscriptions.length,0].concat(disposables);
     Array.prototype.splice.apply(context.subscriptions,spliceparams);
 }
+
 exports.activate = activate;
 
 // this method is called when your extension is deactivated
