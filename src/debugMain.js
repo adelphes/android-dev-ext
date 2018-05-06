@@ -479,7 +479,7 @@ class AndroidDebugSession extends DebugSession {
                         package: pkgname,
                         package_path: fpn,
                         srcroot: path.join(app_root,src_folder),
-                        public_classes: subfiles.filter(sf => /^[a-zA-Z_$][a-zA-Z0-9_$]*\.java$/.test(sf)).map(sf => sf.match(/^(.*)\.java$/)[1])
+                        public_classes: subfiles.filter(sf => /^[a-zA-Z_$][a-zA-Z0-9_$]*\.(?:java|kt)$/.test(sf)).map(sf => sf.match(/^(.*)\.(?:java|kt)$/)[1])
                     }
                 }
                 // add the subfiles to the list to process
@@ -594,7 +594,7 @@ class AndroidDebugSession extends DebugSession {
             // create a fake pkginfo to use to construct the bp
             pkginfo = { srcroot:this._android_sources_path }
         }
-        if (!pkginfo || !/\.java$/i.test(srcfpn)) {
+        if (!pkginfo || !/\.(java|kt)$/i.test(srcfpn)) {
             // source file is not a java file or is outside of the known source packages
             // just send back a list of unverified breakpoints
             response.body = {
