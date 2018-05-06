@@ -1,5 +1,10 @@
 # Change Log
 
+### version 0.5.0
+* Debugger support for Kotlin source files
+* Exception UI
+* Fixed some console display issues
+
 ### version 0.4.1
 * One day I will learn to update the changelog **before** I hit publish
 * Updated changelog
