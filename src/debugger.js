@@ -525,7 +525,7 @@ Debugger.prototype = {
     },
 
     _splitsrcfpn: function (srcfpn) {
-        var m = srcfpn.match(/^\/([^/]+(?:\/[^/]+)*)?\/([^./]+)\.java$/);
+        var m = srcfpn.match(/^\/([^/]+(?:\/[^/]+)*)?\/([^./]+)\.(java|kt)$/);
         return {
             pkg: m[1].replace(/\/+/g, '.'),
             type: m[2],
