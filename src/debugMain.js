@@ -536,6 +536,7 @@ class AndroidDebugSession extends DebugSession {
     }
 
     configurationDoneRequest(response/*, args*/) {
+        D('configurationDoneRequest');
         this.waitForConfigurationDone.resolve();
         this.sendResponse(response);
     }
@@ -566,13 +567,14 @@ class AndroidDebugSession extends DebugSession {
     }
 
     onBreakpointStateChange(e) {
+        D('onBreakpointStateChange');
         e.breakpoints.forEach(javabp => {
             // if there's no associated vsbp we're deleting it, so just ignore the update
             if (!javabp.vsbp) return;
             var verified = !!javabp.state.match(/set|enabled/);
             javabp.vsbp.verified = verified;
             javabp.vsbp.message = null;
-            this.sendEvent(new BreakpointEvent('updated', javabp.vsbp));
+            this.sendEvent(new BreakpointEvent('changed', javabp.vsbp));
         });
     }
 
@@ -597,6 +599,14 @@ class AndroidDebugSession extends DebugSession {
             return bp;
         }
 
+        const sendBPResponse = (response, breakpoints) => {
+            D('setBreakPointsRequest response ' + JSON.stringify(breakpoints.map(bp => bp.verified)));
+            response.body = {
+                breakpoints,
+            };
+    		this.sendResponse(response);
+        }
+
         // the file must lie inside one of the source packages we found (and it must be have a .java extension)
         var srcfolder = path.dirname(srcfpn);
         var pkginfo;
@@ -612,10 +622,7 @@ class AndroidDebugSession extends DebugSession {
         if (!pkginfo || !/\.(java|kt)$/i.test(srcfpn)) {
             // source file is not a java file or is outside of the known source packages
             // just send back a list of unverified breakpoints
-            response.body = {
-                breakpoints: args.breakpoints.map(bp => unverified_breakpoint(bp, 'The breakpoint location is not valid'))
-            };
-    		this.sendResponse(response);
+            sendBPResponse(response, args.breakpoints.map(bp => unverified_breakpoint(bp, 'The breakpoint location is not valid')));
             return;
         }
 
@@ -682,10 +689,7 @@ class AndroidDebugSession extends DebugSession {
                     this._setup_breakpoints(this._queue[0]).then(javabp_arr => {
                         // send back the VS Breakpoint instances
                         var response = this._queue[0].response;
-                        response.body = {
-                            breakpoints: javabp_arr.map(javabp => javabp.vsbp)
-                        };
-                        this._dbgr.sendResponse(response);
+                        sendBPResponse(response, javabp_arr.map(javabp => javabp.vsbp));
                         // .. and do the next one
                         this._queue.shift();
                         this._next();
