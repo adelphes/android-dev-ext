@@ -62,7 +62,7 @@
                             "apkFile": {
                                 "type": "string",
                                 "description": "Fully qualified path to the built APK (Android Application Package)",
-                                "default": "${workspaceRoot}/app/build/outputs/apk/app-debug.apk"
+                                "default": "${workspaceRoot}/app/build/outputs/apk/debug/app-debug.apk"
                             },
                             "adbPort": {
                                 "type": "integer",
@@ -108,7 +108,7 @@
                         "name": "Android Debug",
                         "request": "launch",
                         "appSrcRoot": "${workspaceRoot}/app/src/main",
-                        "apkFile": "${workspaceRoot}/app/build/outputs/apk/app-debug.apk",
+                        "apkFile": "${workspaceRoot}/app/build/outputs/apk/debug/app-debug.apk",
                         "adbPort": 5037
                     }
                 ],
@@ -121,7 +121,7 @@
                             "request": "launch",
                             "name": "${2:Launch App}",
                             "appSrcRoot": "^\"\\${workspaceRoot}/app/src/main\"",
-                            "apkFile": "^\"\\${workspaceRoot}/app/build/outputs/apk/app-debug.apk\"",
+                            "apkFile": "^\"\\${workspaceRoot}/app/build/outputs/apk/debug/app-debug.apk\"",
                             "adbPort": 5037
                         }
                     }
