@@ -17,7 +17,7 @@ const { ADBClient } = require('./adbclient');
 const { Debugger } = require('./debugger');
 const $ = require('./jq-promise');
 const { AndroidThread } = require('./threads');
-const { D, isEmptyObject } = require('./util');
+const { D, onMessagePrint, isEmptyObject } = require('./util');
 const { AndroidVariables } = require('./variables');
 const { evaluate } = require('./expressions');
 const ws_proxy = require('./wsproxy').proxy.Server(6037, 5037);
@@ -73,6 +73,9 @@ class AndroidDebugSession extends DebugSession {
         // flag to distinguish unexpected disconnection events (initiated from the device) vs user-terminated requests
         this._isDisconnecting = false;
 
+        // trace flag for printing diagnostic messages to the client Output Window
+        this.trace = false;
+
 		// this debugger uses one-based lines and columns
 		this.setDebuggerLinesStartAt1(true);
 		this.setDebuggerColumnsStartAt1(true);
@@ -106,14 +109,19 @@ class AndroidDebugSession extends DebugSession {
 	}
 
     LOG(msg) {
-        D(msg);
+        if (!this.trace) {
+            D(msg);
+        }
         // VSCode no longer auto-newlines output
         this.sendEvent(new OutputEvent(msg + os.EOL));
     }
 
     WARN(msg) {
         D(msg = 'Warning: '+msg);
-        this.sendEvent(new OutputEvent(msg + os.EOL));
+        // the message will already be sent if trace is enabled
+        if (!this.trace) {
+            this.sendEvent(new OutputEvent(msg + os.EOL));
+        }
     }
 
     failRequest(msg, response) {
@@ -223,6 +231,10 @@ class AndroidDebugSession extends DebugSession {
     }
 
 	launchRequest(response/*: DebugProtocol.LaunchResponse*/, args/*: LaunchRequestArguments*/) {
+        if (args && args.trace) {
+            this.trace = args.trace;
+            onMessagePrint(this.LOG.bind(this));
+        }
 
         try { D('Launching: ' + JSON.stringify(args)); } catch(ex) {}
         // app_src_root must end in a path-separator for correct validation of sub-paths
@@ -359,6 +371,9 @@ class AndroidDebugSession extends DebugSession {
                 D('Continuing app start');
                 this.sendResponse(response);
                 return this.dbgr.resume();
+            })
+            .then(() => {
+                this.LOG('Application started');
             })
             .fail(e => {
                 // exceptions use message, adbclient uses msg

@@ -1,5 +1,5 @@
 const $ = require('./jq-promise');
-const { atob,btoa,D,getutf8bytes,fromutf8bytes,intToHex } = require('./util');
+const { btoa,D,E,getutf8bytes,fromutf8bytes,intToHex } = require('./util');
 /*
     JDWP - The Java Debug Wire Protocol
 */
@@ -96,8 +96,8 @@ function _JDWP() {
             return;
 		}
 		
-		if (this.errorcode != 0) {
-		    console.error("Command failed: error " + this.errorcode, this);
+		if (this.errorcode !== 0) {
+		    E(`JDWP command failed '${this.command.name}'. Error ${this.errorcode}`, this);
         }
 		
 		if (!this.errorcode && this.command && this.command.replydecodefn) {
