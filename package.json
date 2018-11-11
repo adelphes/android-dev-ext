@@ -93,6 +93,11 @@
                                 "type": "string",
                                 "description": "Target Device ID (as indicated by 'adb devices'). Use this to specify which device is used for deployment when multiple devices are connected.",
                                 "default": ""
+                            },
+                            "trace": {
+                                "type": "boolean",
+                                "description": "Set to true to output debugging logs for diagnostics",
+                                "default": "false"
                             }
                         }
                     }
