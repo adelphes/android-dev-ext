@@ -1,12 +1,17 @@
 const crypto = require('crypto');
 
 var nofn = function () { };
-var D = exports.D = console.log.bind(console);
-var E = exports.E = console.error.bind(console);
-var W = exports.W = console.warn.bind(console);
+const messagePrintCallbacks = new Set();
+var D = exports.D = (...args) => (console.log(...args), messagePrintCallbacks.forEach(cb => cb(...args)))
+var E = exports.E = (...args) => (console.error(...args), messagePrintCallbacks.forEach(cb => cb(...args)))
+var W = exports.W = (...args) => (console.warn(...args), messagePrintCallbacks.forEach(cb => cb(...args)))
 var DD = nofn, cl = D, printf = D;
 var print_jdwp_data = nofn;// _print_jdwp_data;
 var print_packet = nofn;//_print_packet;
+
+exports.onMessagePrint = function(cb) {
+    messagePrintCallbacks.add(cb);
+}
 
 Array.first = function (arr, fn, defaultvalue) {
 	var idx = Array.indexOfFirst(arr, fn);
