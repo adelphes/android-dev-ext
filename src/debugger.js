@@ -1425,6 +1425,15 @@ Debugger.prototype = {
             cmd: this.JDWP.Commands.lineTable(methodinfo.owningclass, methodinfo),
         })
             .then(function (linetable, methodinfo) {
+                // if the request failed, just return a blank table
+                if (linetable.errorcode) {
+                    linetable = {
+                        errorcode: linetable.errorcode,
+                        start: '00000000000000000000000000000000',
+                        end: '00000000000000000000000000000000',
+                        lines:[],
+                    }
+                }
                 // the linetable does not correlate code indexes with line numbers
                 // - location searching relies on the table being ordered by code indexes
                 linetable.lines.sort(function (a, b) {

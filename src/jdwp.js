@@ -109,7 +109,10 @@ function _JDWP() {
 			return;
 		}
 
-		this.decoded = {empty:true};
+		this.decoded = {
+            empty: true,
+            errorcode: this.errorcode,
+        };
 	}
 
 	this.decodereply = function(ths,s) {
