@@ -1,5 +1,12 @@
 # Change Log
 
+### version 0.6.0
+* Fix issue with breakpoints not enabling correctly
+* Fix issue with JDWP failure on breakpoint hit
+* Added support for diagnostic logs using trace configuration option
+* Updated default apkFile path to match current releases of Android Studio
+* Updated package dependencies
+
 ### version 0.5.0
 * Debugger support for Kotlin source files
 * Exception UI
