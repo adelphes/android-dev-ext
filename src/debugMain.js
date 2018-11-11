@@ -574,7 +574,7 @@ class AndroidDebugSession extends DebugSession {
             var verified = !!javabp.state.match(/set|enabled/);
             javabp.vsbp.verified = verified;
             javabp.vsbp.message = null;
-            this.sendEvent(new BreakpointEvent('updated', javabp.vsbp));
+            this.sendEvent(new BreakpointEvent('changed', javabp.vsbp));
         });
     }
 
