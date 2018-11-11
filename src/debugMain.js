@@ -372,6 +372,9 @@ class AndroidDebugSession extends DebugSession {
                 this.sendResponse(response);
                 return this.dbgr.resume();
             })
+            .then(() => {
+                this.LOG('Application started');
+            })
             .fail(e => {
                 // exceptions use message, adbclient uses msg
                 this.LOG('Launch failed: '+(e.message||e.msg||'No additional information is available'));

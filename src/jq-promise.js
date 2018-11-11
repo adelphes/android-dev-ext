@@ -40,7 +40,7 @@ var Deferred = exports.Deferred = function(p, parent) {
             var faildef = $.Deferred(null, this);
             var p = this._promise.catch(function(a) {
                 if (a.stack) {
-                    console.error(a.stack);
+                    util.E(a.stack);
                     a = [a];
                 }
                 if (this.def._context === null && this.def._parent)
