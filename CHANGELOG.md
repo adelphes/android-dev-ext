@@ -1,5 +1,8 @@
 # Change Log
 
+### version 0.6.1
+* Regenerate package-lock.json to remove event-stream vulnerability - https://github.com/dominictarr/event-stream/issues/116
+
 ### version 0.6.0
 * Fix issue with breakpoints not enabling correctly
 * Fix issue with JDWP failure on breakpoint hit
