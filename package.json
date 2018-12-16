@@ -138,16 +138,17 @@
         "vscode-debugprotocol": "^1.32.0",
         "vscode-debugadapter": "^1.32.0",
         "long": "^4.0.0",
+        "uuid": "^3.3.2",
         "ws": "^1.1.1",
         "xmldom": "^0.1.27",
         "xpath": "^0.0.27"
     },
     "devDependencies": {
-        "typescript": "^3.1.6",
-        "vscode": "^1.1.21",
-        "mocha": "^5.2.0",
-        "eslint": "^5.9.0",
+        "@types/mocha": "^5.2.5",
         "@types/node": "^10.12.5",
-        "@types/mocha": "^5.2.5"
+        "eslint": "^5.9.0",
+        "mocha": "^5.2.0",
+        "typescript": "^3.1.6",
+        "vscode": "^1.1.26"
     }
 }
