@@ -1,5 +1,8 @@
 # Change Log
 
+### version 0.6.2
+* Fix broken logcat command due to missing dependency
+
 ### version 0.6.1
 * Regenerate package-lock.json to remove event-stream vulnerability - https://github.com/dominictarr/event-stream/issues/116
 
