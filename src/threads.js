@@ -1,7 +1,6 @@
 'use strict'
 
 const { AndroidVariables } = require('./variables');
-const $ = require('./jq-promise');
 
 /*
     Class used to manage a single thread reported by JDWP
@@ -47,31 +46,31 @@ class AndroidThread {
 
     getVariables(variablesReference) {
         if (!this.paused)
-            return $.Deferred().rejectWith(this, [this.threadNotSuspendedError()]);
+            return Promise.reject(this.threadNotSuspendedError());
 
         // is this reference a stack frame
-        var stack_frame_var = this.paused.stack_frame_vars[variablesReference];
+        const stack_frame_var = this.paused.stack_frame_vars[variablesReference];
         if (stack_frame_var) {
             // frame locals request
-            return this._ensureLocals(stack_frame_var).then(varref => this.paused.stack_frame_vars[varref].locals.getVariables(varref));
+            return this._ensureLocals(stack_frame_var)
+                .then(varref => this.paused.stack_frame_vars[varref].locals.getVariables(varref));
         }
 
         // is this refrence an exception scope
         if (this.paused.last_exception && variablesReference === this.paused.last_exception.scopeRef) {
-            var stack_frame_var = this.paused.stack_frame_vars[this.paused.last_exception.frameId];
-            return this._ensureLocals(stack_frame_var).then(varref => this.paused.stack_frame_vars[varref].locals.getVariables(this.paused.last_exception.scopeRef));
+            const stack_frame_var = this.paused.stack_frame_vars[this.paused.last_exception.frameId];
+            return this._ensureLocals(stack_frame_var)
+                .then(varref => this.paused.stack_frame_vars[varref].locals.getVariables(this.paused.last_exception.scopeRef));
         }
 
         // work out which stack frame this reference is for
-        var frameId = Math.trunc(variablesReference/1e6) * 1e6;
-        var stack_frame_var = this.paused.stack_frame_vars[frameId];
-
-        return stack_frame_var.locals.getVariables(variablesReference);
+        const frameId = Math.trunc(variablesReference/1e6) * 1e6;
+        return this.paused.stack_frame_vars[frameId].locals.getVariables(variablesReference);
     }
 
     _ensureLocals(varinfo) {
         if (!this.paused)
-            return $.Deferred().rejectWith(this, [this.threadNotSuspendedError()]);
+            throw this.threadNotSuspendedError();
 
         // evaluate can call this using frameId as the argument
         if (typeof varinfo === 'number')
@@ -82,44 +81,40 @@ class AndroidThread {
             return this.paused.locals_done[varinfo.frameId];
 
         // create a new promise
-        var def = this.paused.locals_done[varinfo.frameId] = $.Deferred();
+        return this.paused.locals_done[varinfo.frameId] = new Promise((resolve, reject) => {
 
-        this.dbgr.getlocals(this.threadid, varinfo.frame, {def:def,varinfo:varinfo})
-            .then((locals,x) => {
-                // make sure we are still paused...
-                if (!this.paused)
-                    throw this.threadNotSuspendedError();
+            this.dbgr.getlocals(this.threadid, varinfo.frame)
+                .then(locals => {
+                    // make sure we are still paused...
+                    if (!this.paused)
+                        throw this.threadNotSuspendedError();
 
-                // sort the locals by name, except for 'this' which always goes first
-                locals.sort((a,b) => {
-                    if (a.name === b.name) return 0;
-                    if (a.name === 'this') return -1;
-                    if (b.name === 'this') return +1;
-                    return a.name.localeCompare(b.name);
-                })
-                
-                // create a new local variable with the results and resolve the promise
-                var varinfo = x.varinfo;
-                varinfo.cached = locals;
-                x.varinfo.locals = new AndroidVariables(this.session, x.varinfo.frameId + 2); // 0 = stack frame, 1 = exception, 2... others
-                x.varinfo.locals.setVariable(varinfo.frameId, varinfo);
+                    // sort the locals by name, except for 'this' which always goes first
+                    locals.sort((a,b) => {
+                        if (a.name === b.name) return 0;
+                        if (a.name === 'this') return -1;
+                        if (b.name === 'this') return +1;
+                        return a.name.localeCompare(b.name);
+                    })
+                    
+                    // create a new local variable with the results and resolve the promise
+                    varinfo.cached = locals;
+                    varinfo.locals = new AndroidVariables(this.session, varinfo.frameId + 2); // 0 = stack frame, 1 = exception, 2... others
+                    varinfo.locals.setVariable(varinfo.frameId, varinfo);
 
-                var last_exception = this.paused.last_exception;
-                if (last_exception) {
-                    x.varinfo.locals.setVariable(last_exception.scopeRef, last_exception);
-                }
+                    const last_exception = this.paused.last_exception;
+                    if (last_exception) {
+                        varinfo.locals.setVariable(last_exception.scopeRef, last_exception);
+                    }
 
-                x.def.resolveWith(this, [varinfo.frameId]);
-            })
-            .fail(e => {
-                x.def.rejectWith(this, [e]);
-            })
-        return def;
+                    resolve(varinfo.frameId);
+                }, reject);
+            });
     }
 
     setVariableValue(args) {
-        var frameId = Math.trunc(args.variablesReference/1e6) * 1e6;
-        var stack_frame_var = this.paused.stack_frame_vars[frameId];
+        const frameId = Math.trunc(args.variablesReference/1e6) * 1e6;
+        const stack_frame_var = this.paused.stack_frame_vars[frameId];
         return this._ensureLocals(stack_frame_var).then(varref => {
             return this.paused.stack_frame_vars[varref].locals.setVariableValue(args);
         });

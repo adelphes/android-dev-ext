@@ -1,6 +1,5 @@
 'use strict'
 const Long = require('long');
-const $ = require('./jq-promise');
 const { D } = require('./util');
 const { JTYPES, exmsg_var_name, decode_char, createJavaString } = require('./globals');
 
@@ -10,8 +9,8 @@ const { JTYPES, exmsg_var_name, decode_char, createJavaString } = require('./glo
 exports.evaluate = function(expression, thread, locals, vars, dbgr) {
     D('evaluate: ' + expression);
 
-    const reject_evaluation = (msg) => $.Deferred().rejectWith(this, [new Error(msg)]);
-    const resolve_evaluation = (value, variablesReference) => $.Deferred().resolveWith(this, [value, variablesReference]);
+    const reject_evaluation = (msg) => Promise.reject(new Error(msg));
+    const resolve_evaluation = (value, variablesReference) => Promise.resolve({value, variablesReference});
 
     if (thread && !thread.paused)
         return reject_evaluation('not available');
@@ -202,12 +201,12 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
         else if (JTYPES.isPrimitive(local.type)) s = '' + local.value;
         else if (local.hasnullvalue) s = '(null)';
         if (typeof s === 'string')
-            return $.Deferred().resolveWith(this, [s]);
+            return Promise.resolve(s);
         return dbgr.invokeToString(local.value, local.info.frame.threadid, local.type.signature)
             .then(s => s.string);
     }
     const evaluate_expression = (expr) => {
-        var q = $.Deferred(), local;
+        let new_string_eval_root, local;
         if (expr.operator) {
             const invalid_operator = (unary) => reject_evaluation(`Invalid ${unary ? 'type' : 'types'} for operator '${expr.operator}'`),
                 divide_by_zero = () => reject_evaluation('ArithmeticException: divide by zero');
@@ -364,12 +363,13 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
                 break;
             case 'string':
                 // we must get the runtime to create string instances
-                q = createJavaString(dbgr, expr.root_term);
+                new_string_eval_root = createJavaString(dbgr, expr.root_term);
                 local = { valid: true };   // make sure we don't fail the evaluation
                 break;
         }
         if (!local || !local.valid) return reject_evaluation('not available');
         // we've got the root term variable - work out the rest
+        let q = new_string_eval_root || Promise.resolve(local);
         q = expr.array_or_fncall.arr.reduce((q, index_expr) => {
             return q.then(function (index_expr, local) { return evaluate_array_element.call(this, index_expr, local) }.bind(this, index_expr));
         }, q);
@@ -379,10 +379,7 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
         if (expr.typecast) {
             q = q.then(function (type, local) { return evaluate_cast.call(this, type, local) }.bind(this, expr.typecast))
         }
-        // if it's a string literal, we are already waiting for the runtime to create the string
-        // - otherwise, start the evalaution...
-        if (expr.root_term_type !== 'string')
-            q.resolveWith(this, [local]);
+
         return q;
     }
     const evaluate_array_element = (index_expr, arr_local) => {
@@ -408,52 +405,51 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
                 if (!methods[0])
                     return reject_evaluation(`Error: method '${m.member}()' not found`);
                 // evaluate any parameters (and wait for the results)
-                return $.when({methods},...m.array_or_fncall.call.map(evaluate_expression));
-            })
-            .then((x,...paramValues) => {
-                // filter the method based upon the types of parameters - note that null types and integer literals can match multiple types
-                paramValues = paramValues = paramValues.map(p => p[0]);
-                var matchers = paramValues.map(p => {
-                    switch(true) {
-                        case p.type.signature === 'I':
-                            // match bytes/shorts/ints/longs/floats/doubles within range
-                            if (p.value >= -128 && p.value <= 127) return /^[BSIJFD]$/
-                            if (p.value >= -32768 && p.value <= 32767) return /^[SIJFD]$/
-                            return /^[IJFD]$/;
-                        case p.type.signature === 'F':
-                            return /^[FD]$/;
-                        case p.type.signature === 'Lnull;':
-                            return /^[LT\[]/;   // any reference type
-                        default:
-                            // anything else must be an exact signature match (for now - in reality we should allow subclassed type)
-                            return new RegExp(`^${p.type.signature.replace(/[$]/g,x=>'\\'+x)}$`);
-                    }
-                });
-                var methods = x.methods.filter(m => {
-                    // extract a list of parameter types
-                    var paramtypere = /\[*([BSIJFDCZ]|([LT][^;]+;))/g;
-                    for (var x, ptypes=[]; x = paramtypere.exec(m.sig); ) {
-                        ptypes.push(x[0]);
-                    }
-                    // the last paramter type is the return value
-                    ptypes.pop();
-                    // check if they match
-                    if (ptypes.length !== paramValues.length)
-                        return;
-                    return matchers.filter(m => {
-                        return !m.test(ptypes.shift())
-                    }).length === 0;
-                });
-                if (!methods[0])
-                    return reject_evaluation(`Error: incompatible parameters for method '${m.member}'`);
-                // convert the parameters to exact debugger-compatible values
-                paramValues = paramValues.map(p => {
-                    if (p.type.signature.length === 1)
-                        return { type: p.type.typename, value: p.value};
-                    return { type: 'oref', value: p.value };
-                })
-                return dbgr.invokeMethod(obj_local.value, thread.threadid, obj_local.type.signature, m.member, methods[0].genericsig || methods[0].sig, paramValues, {});
-            });
+                return Promise.all(m.array_or_fncall.call.map(evaluate_expression))
+                    .then(paramValues => {
+                        // filter the method based upon the types of parameters - note that null types and integer literals can match multiple types
+                        const matchers = paramValues.map(p => {
+                            switch(true) {
+                                case p.type.signature === 'I':
+                                    // match bytes/shorts/ints/longs/floats/doubles within range
+                                    if (p.value >= -128 && p.value <= 127) return /^[BSIJFD]$/
+                                    if (p.value >= -32768 && p.value <= 32767) return /^[SIJFD]$/
+                                    return /^[IJFD]$/;
+                                case p.type.signature === 'F':
+                                    return /^[FD]$/;
+                                case p.type.signature === 'Lnull;':
+                                    return /^[LT\[]/;   // any reference type
+                                default:
+                                    // anything else must be an exact signature match (for now - in reality we should allow subclassed type)
+                                    return new RegExp(`^${p.type.signature.replace(/[$]/g,x=>'\\'+x)}$`);
+                            }
+                        });
+                        const matching_methods = methods.filter(m => {
+                            // extract a list of parameter types
+                            var paramtypere = /\[*([BSIJFDCZ]|([LT][^;]+;))/g;
+                            for (var x, ptypes=[]; x = paramtypere.exec(m.sig); ) {
+                                ptypes.push(x[0]);
+                            }
+                            // the last paramter type is the return value
+                            ptypes.pop();
+                            // check if they match
+                            if (ptypes.length !== paramValues.length)
+                                return;
+                            return matchers.filter(m => {
+                                return !m.test(ptypes.shift())
+                            }).length === 0;
+                        });
+                        if (!matching_methods[0])
+                            return reject_evaluation(`Error: incompatible parameters for method '${m.member}'`);
+                        // convert the parameters to exact debugger-compatible values
+                        paramValues = paramValues.map(p => {
+                            if (p.type.signature.length === 1)
+                                return { type: p.type.typename, value: p.value};
+                            return { type: 'oref', value: p.value };
+                        })
+                        return dbgr.invokeMethod(obj_local.value, thread.threadid, obj_local.type.signature, m.member, matching_methods[0].genericsig || matching_methods[0].sig, paramValues);
+                    });
+        });
     }
     const evaluate_member = (m, obj_local) => {
         if (!JTYPES.isReference(obj_local.type)) return reject_evaluation('TypeError: value is not a reference type');
@@ -464,7 +460,7 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
         }
         // length is a 'fake' field of arrays, so special-case it
         else if (JTYPES.isArray(obj_local.type) && m.member === 'length') {
-            chain = $.Deferred().resolve(evaluate_number(obj_local.arraylen));
+            chain = Promise.resolve(evaluate_number(obj_local.arraylen));
         }
         // we also special-case :super (for object instances)
         else if (JTYPES.isObject(obj_local.type) && m.member === ':super') {
@@ -477,12 +473,14 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
 
         return chain.then(local => {
             if (m.array_or_fncall.arr.length) {
-                var q = $.Deferred();
-                m.array_or_fncall.arr.reduce((q, index_expr) => {
-                    return q.then(function (index_expr, local) { return evaluate_array_element(index_expr, local) }.bind(this, index_expr));
-                }, q);
-                return q.resolveWith(this, [local]);
+                const arr_start = Promise.resolve(local);
+                return m.array_or_fncall.arr.reduce((p, index_expr) => {
+                    return p.then(local => {
+                        return evaluate_array_element(index_expr, local);
+                    })
+                }, arr_start);
             }
+            return local;
         });
     }
     const evaluate_cast = (type, local) => {

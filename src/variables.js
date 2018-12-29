@@ -2,7 +2,6 @@
 
 const { JTYPES, exmsg_var_name, createJavaString } = require('./globals');
 const NumberBaseConverter = require('./nbc');
-const $ = require('./jq-promise');
 
 /*
     Class used to manage stack frame locals and other evaluated expressions
@@ -44,52 +43,52 @@ class AndroidVariables {
     }
 
     getVariables(variablesReference) {
-        var varinfo = this.variableHandles[variablesReference];
+        const varinfo = this.variableHandles[variablesReference];
         if (!varinfo) {
-            return $.Deferred().resolve([]);
+            return Promise.resolve([]);
         }
         else if (varinfo.cached) {
-            return $.Deferred().resolve(this._local_to_variable(varinfo.cached));
+            return Promise.resolve(this._local_to_variable(varinfo.cached));
         }
         else if (varinfo.objvar) {
             // object fields request
-            return this.dbgr.getsupertype(varinfo.objvar, {varinfo})
-                .then((supertype, x) => {
-                    x.supertype = supertype;
-                    return this.dbgr.getfieldvalues(x.varinfo.objvar, x);
-                })
-                .then((fields, x) => {
-                    // add an extra msg field for exceptions
-                    if (!x.varinfo.exception) return;
-                    x.fields = fields;
-                    return this.dbgr.invokeToString(x.varinfo.objvar.value, x.varinfo.threadid, varinfo.objvar.type.signature, x)
-                        .then((call,x) => {
-                            call.name = exmsg_var_name;
-                            x.fields.unshift(call);
-                            return $.Deferred().resolveWith(this, [x.fields, x]);
-                        });
-                })
-                .then((fields, x) => {
-                    // ignore supertypes of Object
-                    x.supertype && x.supertype.signature!=='Ljava/lang/Object;' && fields.unshift({
-                        vtype:'super',
-                        name:':super',
-                        hasnullvalue:false,
-                        type: x.supertype,
-                        value: x.varinfo.objvar.value,
-                        valid:true,
-                    });
-                    // create the fully qualified names to use for evaluation
-                    fields.forEach(f => f.fqname = `${x.varinfo.objvar.fqname || x.varinfo.objvar.name}.${f.name}`);
-                    x.varinfo.cached = fields;
-                    return this._local_to_variable(fields);
-                });
+            return this.dbgr.getsupertype(varinfo.objvar)
+                .then(supertype => 
+                    this.dbgr.getfieldvalues(varinfo.objvar)
+                        .then(fields => {
+                            // add an extra msg field for exceptions
+                            if (!varinfo.exception) {
+                                return fields;
+                            }
+                            return this.dbgr.invokeToString(varinfo.objvar.value, varinfo.threadid, varinfo.objvar.type.signature)
+                                .then(call => {
+                                    call.name = exmsg_var_name;
+                                    fields.unshift(call);
+                                    return fields;
+                                });
+                        })
+                        .then(fields => {
+                            // ignore supertypes of Object
+                            supertype && supertype.signature !== 'Ljava/lang/Object;' && fields.unshift({
+                                vtype: 'super',
+                                name: ':super',
+                                hasnullvalue: false,
+                                type: supertype,
+                                value: varinfo.objvar.value,
+                                valid: true,
+                            });
+                            // create the fully qualified names to use for evaluation
+                            fields.forEach(f => f.fqname = `${varinfo.objvar.fqname || varinfo.objvar.name}.${f.name}`);
+                            varinfo.cached = fields;
+                            return this._local_to_variable(fields);
+                        })
+                );
         }
         else if (varinfo.arrvar) {
             // array elements request
             var range = varinfo.range, count = range[1] - range[0];
             // should always have a +ve count, but just in case...
-            if (count <= 0) return $.Deferred().resolve([]);
+            if (count <= 0) return Promise.resolve(null);
             // add some hysteresis
             if (count > 110) {
                 // create subranges in the sub-power of 10
@@ -99,20 +98,26 @@ class AndroidVariables {
                     v = this.variableHandles[varref] = { varref:varref, arrvar:varinfo.arrvar, range:[i, Math.min(i+subrangelen, range[1])] };
                     variables.push({name:`[${v.range[0]}..${v.range[1]-1}]`,type:'',value:'',variablesReference:varref});
                 }
-                return $.Deferred().resolve(variables);
+                return Promise.resolve(variables);
             }
             // get the elements for the specified range
-            return this.dbgr.getarrayvalues(varinfo.arrvar, range[0], count, {varinfo})
-                .then((elements, x) => {
-                    elements.forEach(el => el.fqname = `${x.varinfo.arrvar.fqname || x.varinfo.arrvar.name}[${el.name}]`);
-                    x.varinfo.cached = elements;
+            return this.dbgr.getarrayvalues(varinfo.arrvar, range[0], count)
+                .then(elements => {
+                    elements.forEach(el => el.fqname = `${varinfo.arrvar.fqname || varinfo.arrvar.name}[${el.name}]`);
+                    varinfo.cached = elements;
                     return this._local_to_variable(elements);
                 });
         }
         else if (varinfo.bigstring) {
             return this.dbgr.getstringchars(varinfo.bigstring.value)
                 .then((s) => {
-                    return this._local_to_variable([{name:'<value>',hasnullvalue:false,string:s,type:JTYPES.String,valid:true}]);
+                    return this._local_to_variable([{
+                        name:'<value>',
+                        hasnullvalue:false,
+                        string:s,
+                        type:JTYPES.String,
+                        valid:true,
+                    }]);
                 });
         }
         else if (varinfo.primitive) {
@@ -145,14 +150,14 @@ class AndroidVariables {
                     );
                     break;
             }
-            return $.Deferred().resolve(variables);
+            return Promise.resolve(variables);
         }
         else if (varinfo.frame) {
             // frame locals request - this should be handled by AndroidDebugThread instance
-            return $.Deferred().resolve([]);
+            return Promise.resolve([]);
         } else {
             // something else?
-            return $.Deferred().resolve([]);
+            return Promise.resolve([]);
         }
     }
 
@@ -249,7 +254,7 @@ class AndroidVariables {
     }
 
     setVariableValue(args) {
-        const failSetVariableRequest = reason => $.Deferred().reject(new Error(reason));
+        const failSetVariableRequest = reason => Promise.reject(new Error(reason));
 
         var v = this.variableHandles[args.variablesReference];
         if (!v || !v.cached) {
@@ -266,8 +271,8 @@ class AndroidVariables {
 
         if (!value) {
             // just ignore blank requests
-            var vsvar = this._local_to_variable(destvar);
-            return $.Deferred().resolve(vsvar);
+            const vsvar = this._local_to_variable(destvar);
+            return Promise.resolve(vsvar);
         }
 
         // non-string reference types can only set to null
@@ -278,7 +283,7 @@ class AndroidVariables {
         }
 
         // convert the new value into a debugger-compatible object
-        var m, num, data, datadef;
+        var m, num, data, rootvar;
         switch(true) {
             case value === 'null':
                 data = {valuetype:'oref',value:null}; // null object reference
@@ -340,17 +345,17 @@ class AndroidVariables {
                 break;
             case !!(m=value.match(/^"[^"\\\n]*(\\.[^"\\\n]*)*"$/)):
                 // string literal - we need to get the runtime to create a new string first
-                datadef = createJavaString(this.dbgr, value).then(stringlit => ({valuetype:'oref', value:stringlit.value}));
+                rootvar = createJavaString(this.dbgr, value).then(stringlit => ({valuetype:'oref', value:stringlit.value}));
                 break;
             default:
                 // invalid literal
                 return failSetVariableRequest(`'${value}' is not a valid Java literal.`);
         }
 
-        if (!datadef) {
+        if (!rootvar) {
             // as a nicety, if the destination is a string, stringify any primitive value
             if (data.valuetype !== 'oref' && destvar.type.signature === JTYPES.String.signature) {
-                datadef = createJavaString(this.dbgr, data.value.toString(), {israw:true})
+                rootvar = createJavaString(this.dbgr, data.value.toString(), {israw:true})
                     .then(stringlit => ({valuetype:'oref', value:stringlit.value}));
             } else if (destvar.type.signature.length===1) {
                 // if the destination is a primitive, we need to range-check it here
@@ -372,18 +377,18 @@ class AndroidVariables {
                 if (!is_in_range) {
                     return failSetVariableRequest(`'${value}' is not compatible with variable type: ${destvar.type.typename}`);
                 }
-                // check complete - make sure the type matches the destination and use a resolved deferred with the value
+                // check complete - make sure the type matches the destination and use a resolved promise with the value
                 if (destvar.type.signature!=='C' && data.valuetype === 'char') 
                     data.value = data.value.charCodeAt(0);  // convert char to it's int value
                 if (destvar.type.signature==='J' && typeof data.value === 'number') 
                     data.value = NumberBaseConverter.decToHex(''+data.value,16);  // convert ints to hex-string longs
                 data.valuetype = destvar.type.typename;
 
-                datadef = $.Deferred().resolveWith(this,[data]);
+                rootvar = Promise.resolve(data);
             }
         }
 
-        return datadef.then(data => {
+        return rootvar.then(data => {
             // setxxxvalue sets the new value and then returns a new local for the variable
             switch(destvar.vtype) {
                 case 'field': return this.dbgr.setfieldvalue(destvar, data);
@@ -401,7 +406,7 @@ class AndroidVariables {
             var vsvar = this._local_to_variable(destvar);
             return vsvar;
         })
-        .fail(e => {
+        .catch(e => {
             return failSetVariableRequest(`Variable update failed. ${e.message||''}`);
         });
     }

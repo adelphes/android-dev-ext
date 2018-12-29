@@ -48,7 +48,7 @@ const exmsg_var_name = ':msg';
 
 function createJavaString(dbgr, s, opts) {
     const raw = (opts && opts.israw) ? s : s.slice(1,-1).replace(/\\u[0-9a-fA-F]{4}|\\./,decode_char);
-    // return a deferred, which resolves to a local variable named 'literal'
+    // return a promise, which resolves to a local variable named 'literal'
     return dbgr.createstring(raw);
 }
 

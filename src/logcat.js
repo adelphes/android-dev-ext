@@ -7,7 +7,6 @@ const WebSocketServer = require('ws').Server;
 // our stuff
 const { ADBClient } = require('./adbclient');
 const { AndroidContentProvider } = require('./contentprovider');
-const $ = require('./jq-promise');
 const { D } = require('./util');
 
 /*
@@ -23,26 +22,24 @@ class LogcatContent {
         this._prevlogs = null;
         this._notifying = 0;
         this._refreshRate = 200;    // ms
-        this._state = '';
+        this._state = 'connecting';
         this._htmltemplate = '';
-        this._adbclient = new ADBClient(deviceid);
-        this._initwait = new Promise((resolve, reject) => {
-            this._state = 'connecting';
-            LogcatContent.initWebSocketServer()
-                .then(() => {
-                    return this._adbclient.logcat({
-                        onlog: this.onLogcatContent.bind(this),
-                        onclose: this.onLogcatDisconnect.bind(this),
-                    });
-                }).then(() => {
-                    this._state = 'connected';
-                    this._initwait = null;
-                    resolve(this.content);
-                }).fail(e => {
-                    this._state = 'connect_failed';
-                    reject(e);
-                })
-        });
+        this._adbclient = new ADBClient(uri.query);
+        this._initwait = LogcatContent.initWebSocketServer()
+            .then(() => {
+                return this._adbclient.logcat({
+                    onlog: this.onLogcatContent.bind(this),
+                    onclose: this.onLogcatDisconnect.bind(this),
+                });
+            }).then(() => {
+                this._state = 'connected';
+                this._initwait = null;
+                return this.content;
+            }).catch(e => {
+                this._state = 'connect_failed';
+                throw e;
+            });
+
         LogcatContent.byLogcatID[this._logcatid] = this;
     }
     get content() {
@@ -64,14 +61,14 @@ class LogcatContent {
                 this._prevlogs = null;
                 this._initwait = null;
                 resolve(this.content);
-            }).fail((/*e*/) => {
+            }).catch((/*e*/) => {
                 // reconnection failed - put the logs back and return the cached info
                 this._logs = this._prevlogs._logs;
                 this._htmllogs = this._prevlogs._htmllogs;
                 this._oldhtmllogs = this._prevlogs._oldhtmllogs;
                 this._prevlogs = null;
                 this._initwait = null;
-                var cached_content = this.htmlBootstrap({connected:false, status:'Device disconnected',oldlogs: this._oldhtmllogs.join(os.EOL)});
+                const cached_content = this.htmlBootstrap({connected:false, status:'Device disconnected',oldlogs: this._oldhtmllogs.join(os.EOL)});
                 resolve(cached_content);
             })
         });
@@ -107,7 +104,7 @@ class LogcatContent {
                     this._logs = []; this._htmllogs = []; this._oldhtmllogs = [];
                     this.sendClientMessage(':logcat_cleared');
                 })
-                .fail(e => {
+                .catch(e => {
                     D('Clear logcat command failed: ' + e.message);
                 })
         }
@@ -183,51 +180,52 @@ LogcatContent.initWebSocketServer = function () {
     if (typeof wssport !== 'number' || wssport <= 0 || wssport >= 65536 || wssport !== (wssport|0))
         wssport = default_wssport;
 
-    LogcatContent._wssdone = $.Deferred();
-    ({
-        wss: null,
-        startport: wssport,
-        port: wssport,
-        retries: 0,
-        tryCreateWSS() {
-            const wsopts = {
-                host: '127.0.0.1',
-                port: this.port,
-                clientTracking: true,
-            };
-            this.wss = new WebSocketServer(wsopts, () => {
-                // success - save the info and resolve the deferred
-                LogcatContent._wssport = this.port;
-                LogcatContent._wssstartport = this.startport;
-                LogcatContent._wss = this.wss;
-                this.wss.on('connection', (client, req) => {
-                    // the client uses the url path to signify which logcat data it wants
-                    client._logcatid = req.url.match(/^\/?(.*)$/)[1];
-                    var lc = LogcatContent.byLogcatID[client._logcatid];
-                    if (lc) lc.onClientConnect(client);
-                    else client.close();
-                    client.on('message', function(message) {
-                        var lc = LogcatContent.byLogcatID[this._logcatid];
-                        if (lc) lc.onClientMessage(this, message);
-                    }.bind(client));
-                    /*client.on('close', e => {
-                        console.log('client close');
-                    });*/
-                    // try and make sure we don't delay writes
-                    client._socket && typeof(client._socket.setNoDelay)==='function' && client._socket.setNoDelay(true);
+    LogcatContent._wssdone = new Promise(resolve => {
+        ({
+            wss: null,
+            startport: wssport,
+            port: wssport,
+            retries: 0,
+            tryCreateWSS() {
+                const wsopts = {
+                    host: '127.0.0.1',
+                    port: this.port,
+                    clientTracking: true,
+                };
+                this.wss = new WebSocketServer(wsopts, () => {
+                    // success - save the info and resolve the promise
+                    LogcatContent._wssport = this.port;
+                    LogcatContent._wssstartport = this.startport;
+                    LogcatContent._wss = this.wss;
+                    this.wss.on('connection', (client, req) => {
+                        // the client uses the url path to signify which logcat data it wants
+                        client._logcatid = req.url.match(/^\/?(.*)$/)[1];
+                        var lc = LogcatContent.byLogcatID[client._logcatid];
+                        if (lc) lc.onClientConnect(client);
+                        else client.close();
+                        client.on('message', function(message) {
+                            var lc = LogcatContent.byLogcatID[this._logcatid];
+                            if (lc) lc.onClientMessage(this, message);
+                        }.bind(client));
+                        /*client.on('close', e => {
+                            console.log('client close');
+                        });*/
+                        // try and make sure we don't delay writes
+                        client._socket && typeof(client._socket.setNoDelay)==='function' && client._socket.setNoDelay(true);
+                    });
+                    //this.wss = null;
+                    resolve();
                 });
-                this.wss = null;
-                LogcatContent._wssdone.resolveWith(LogcatContent, []);
-            });
-            this.wss.on('error', (/*err*/) => {
-                if (!LogcatContent._wss) {
-                    // listen failed -try the next port
-                    this.retries++ , this.port++;
-                    this.tryCreateWSS();
-                }
-            })
-        }
-    }).tryCreateWSS();
+                this.wss.on('error', (/*err*/) => {
+                    if (!LogcatContent._wss) {
+                        // listen failed -try the next port
+                        this.retries++ , this.port++;
+                        this.tryCreateWSS();
+                    }
+                })
+            }
+        }).tryCreateWSS();
+    });
     return LogcatContent._wssdone;
 }
 
@@ -262,22 +260,26 @@ function openLogcatWindow(vscode) {
             case 1:
                 return devices; // only one device - just show it
         }
-        var multidevicewait = $.Deferred(), prefix = 'Android: View Logcat - ', all = '[ Display All ]';
+        var prefix = 'Android: View Logcat - ', all = '[ Display All ]';
         var devicelist = devices.map(d => prefix + d.serial);
         //devicelist.push(prefix + all);
-        vscode.window.showQuickPick(devicelist)
+        return vscode.window.showQuickPick(devicelist)
             .then(which => {
                 if (!which) return; // user cancelled
                 which = which.slice(prefix.length);
-                new ADBClient().list_devices()
+                return new ADBClient().list_devices()
                     .then(devices => {
-                        if (which === all) return multidevicewait.resolveWith(this,[devices]);
-                        var found = devices.find(d => d.serial===which);
-                        if (found) return multidevicewait.resolveWith(this,[[found]]);
+                        if (which === all) {
+                            return devices
+                        }
+                        const found = devices.find(d => d.serial === which);
+                        if (found) {
+                            return [found];
+                        }
                         vscode.window.showInformationMessage('Logcat cannot be displayed. The device is disconnected');
+                        return null;
                     });
-            });
-        return multidevicewait;
+            }, () => null);
     })
     .then(devices => {
         if (!Array.isArray(devices)) return;    // user cancelled (or no devices connected)
@@ -298,10 +300,10 @@ function openLogcatWindow(vscode) {
                 return;
             }
             var uri = AndroidContentProvider.getReadLogcatUri(device.serial);
-            return vscode.commands.executeCommand("vscode.previewHtml",uri,vscode.ViewColumn.Two);
+            vscode.commands.executeCommand("vscode.previewHtml",uri,vscode.ViewColumn.Two);
         });
     })
-    .fail((/*e*/) => {
+    .catch((/*e*/) => {
         vscode.window.showInformationMessage('Logcat cannot be displayed. Querying the connected devices list failed. Is ADB running?');
     });
 }

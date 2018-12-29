@@ -1,4 +1,3 @@
-const $ = require('./jq-promise');
 const { btoa,D,E,getutf8bytes,fromutf8bytes,intToHex } = require('./util');
 /*
     JDWP - The Java Debug Wire Protocol
@@ -21,13 +20,12 @@ function _JDWP() {
 
 		this.name = name;
 		this.replydecodefn = replydecodefn;
-		this.deferred = $.Deferred();
+		this.promise = new Promise((resolve, reject) => {
+			this.completion = {resolve, reject};
+		})
 	}
 
 	Command.prototype = {
-		promise : function() {
-			return this.deferred.promise();
-		},
 		toRawString : function() {
 			var s = '';
 			s += String.fromCharCode((this.length >> 24)&255);
@@ -116,9 +114,16 @@ function _JDWP() {
 	}
 
 	this.decodereply = function(ths,s) {
-		var reply = new Reply(s);
+		const reply = new Reply(s);
 		if (reply.command) {
-			reply.command.deferred.resolveWith(ths, [reply.decoded, reply.command, reply]);
+			if (reply.errorcode) {
+				const err = new Error(`JDWP command failed '${reply.command.name}'. Error ${reply.errorcode}`);
+				err.command = reply.command;
+				err.reply = reply;
+				reply.command.completion.reject(err);
+			} else {
+				reply.command.completion.resolve(reply);
+			}
 		}
 		return reply;
 	};
@@ -152,7 +157,7 @@ function _JDWP() {
 			o.idx+= utf8len;
 			return res;
 		},
-		decodeLong: function(o, hexstring) {
+		decodeLong: function(o) {
 			var rd = o.data;
 			var res1=(rd[o.idx++]<<24)+(rd[o.idx++]<<16)+(rd[o.idx++]<<8)+(rd[o.idx++]);
 			var res2=(rd[o.idx++]<<24)+(rd[o.idx++]<<16)+(rd[o.idx++]<<8)+(rd[o.idx++]);
@@ -178,8 +183,6 @@ function _JDWP() {
 			return o.data[o.idx++] != 0;
 		},
 		decodeDecimal: function(bytes, signBits, exponentBits, fractionBits, eMin, eMax, littleEndian) {
-			var totalBits = (signBits + exponentBits + fractionBits);
-
 			var binary = "";
 			for (var i = 0, l = bytes.length; i < l; i++) {
 			var bits = bytes[i].toString(2);
@@ -859,7 +862,7 @@ function _JDWP() {
 					DataCoder.encodeTaggedValue(res, data.valuetype, data.value);
 					return res;
 				},
-				function(o) {
+				function() {
 					// there's no return data - if we reach here, the update was successfull
 					return true;
 				}
@@ -910,7 +913,7 @@ function _JDWP() {
 					DataCoder.encodeValue(res, data.valuetype, data.value);
 					return res;
 				},
-				function(o) {
+				function() {
 					// there's no return data - if we reach here, the update was successfull
 					return true;
 				}
@@ -985,7 +988,7 @@ function _JDWP() {
 						DataCoder.encodeValue(res, data.valuetype, data.value);
 					return res;
 				},
-				function(o) {
+				function() {
 					// there's no return data - if we reach here, the update was successfull
 					return true;
 				}

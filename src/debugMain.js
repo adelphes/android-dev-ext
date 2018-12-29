@@ -17,7 +17,6 @@ const xpath = require('xpath');
 const { ADBClient } = require('./adbclient');
 const { decode_binary_xml } = require('./apkdecoder');
 const { Debugger } = require('./debugger');
-const $ = require('./jq-promise');
 const { AndroidThread } = require('./threads');
 const { D, onMessagePrint, isEmptyObject } = require('./util');
 const { AndroidVariables } = require('./variables');
@@ -200,11 +199,10 @@ class AndroidDebugSession extends DebugSession {
         this.checkPendingThreadBreaks();
     }
 
-    refreshThreads(extra) {
-        return this.dbgr.allthreads(extra)
-            .then((thread_ids, extra) => this.dbgr.threadinfos(thread_ids, extra))
-            .then((threadinfos, extra) => {
-
+    refreshThreads() {
+        return this.dbgr.allthreads()
+            .then(thread_ids => this.dbgr.threadinfos(thread_ids))
+            .then(threadinfos => {
                 for (var i=0; i < threadinfos.length; i++) {
                     var ti = threadinfos[i];
                     var thread = this.getThread(ti.threadid);
@@ -229,9 +227,7 @@ class AndroidDebugSession extends DebugSession {
                     }
                     return threadinfos;
                 },threadinfos);
-
-                return extra;
-            })
+            });
     }
 
 	launchRequest(response/*: DebugProtocol.LaunchResponse*/, args/*: LaunchRequestArguments*/) {
@@ -268,7 +264,7 @@ class AndroidDebugSession extends DebugSession {
             return;
         }
 
-        var fail_launch = (msg) => $.Deferred().rejectWith(this, [new Error(msg)]);
+        var fail_launch = (msg) => Promise.reject(new Error(msg));
 
         this.LOG('Checking build')
         this.getAPKFileInfo()
@@ -363,10 +359,9 @@ class AndroidDebugSession extends DebugSession {
                     .on('exception', this, this.onException)
                     .on('threadchange', this, this.onThreadChange)
                     .on('disconnect', this, this.onDebuggerDisconnect);
-                this.waitForConfigurationDone = $.Deferred();
                 // - tell the client we're initialised and ready for breakpoint info, etc
                 this.sendEvent(new InitializedEvent());
-                return this.waitForConfigurationDone;
+                return new Promise(resolve => this.waitForConfigurationDone = resolve);
             })
             .then(() => {
                 // get the debugger to tell us about any thread creations/terminations
@@ -381,7 +376,7 @@ class AndroidDebugSession extends DebugSession {
             .then(() => {
                 this.LOG('Application started');
             })
-            .fail(e => {
+            .catch(e => {
                 // exceptions use message, adbclient uses msg
                 this.LOG('Launch failed: '+(e.message||e.msg||'No additional information is available'));
                 // more info for adb connect errors
@@ -418,9 +413,9 @@ class AndroidDebugSession extends DebugSession {
             // failures:
             // 	       pkg: x-y-z.apk
             //  Failure [INSTALL_FAILED_OLDER_SDK]
-            var m = stdout.match(/Failure\s+\[([^\]]+)\]/g);
-            if (m) {
-                return $.Deferred().rejectWith(this, [new Error('Installation failed. ' + m[0])]);
+            const failure_match = stdout.match(/Failure\s+\[([^\]]+)\]/g);
+            if (failure_match) {
+                throw new Error('Installation failed. ' + failure_match[0]);
             }
             // now the 'pm install' command can have user-defined arguments, we must check that the command
             // is not rejected because of bad values
@@ -432,48 +427,48 @@ class AndroidDebugSession extends DebugSession {
     }
 
     getAPKFileInfo() {
-        var done = $.Deferred();
-        done.result = { fpn:this.apk_fpn, app_modified:0, content_hash:'', manifest:'', package:'', activities:[], launcher:'' };
-        // read the APK
-        fs.readFile(this.apk_fpn, (err,apk_file_data) => {
-            if (err) return done.rejectWith(this, [new Error('APK read error. ' + err.message)]);
-            // debugging is painful when the APK file content is large, so keep the data in a separate field so node
-            // doesn't have to evaluate it when we're looking at the apk info
-            this._apk_file_data = apk_file_data;
-            // save the last modification time of the app
-            done.result.app_modified = fs.statSync(done.result.fpn).mtime.getTime();
-            // create a SHA-1 hash as a simple way to see if we need to install/update the app
-            const h = crypto.createHash('SHA1');
-            h.update(apk_file_data);
-            done.result.content_hash = h.digest('hex');
-            // read the manifest
-            this.readAndroidManifest((err, manifest) => {
-                if (err) return done.rejectWith(this, [new Error('Manifest read error. ' + err.message)]);
-                done.result.manifest = manifest;
-                try {
-                    const doc = new dom().parseFromString(manifest);
-                    // extract the package name from the manifest
-                    const pkg_xpath = '/manifest/@package';
-                    done.result.package = xpath.select1(pkg_xpath, doc).value;
-                    const android_select = xpath.useNamespaces({"android": "http://schemas.android.com/apk/res/android"});
-                    // extract a list of all the (named) activities declared in the manifest
-        			const activity_xpath='/manifest/application/activity/@android:name';
-                    var nodes = android_select(activity_xpath, doc);
-                    nodes && (done.result.activities = nodes.map(n => n.value));
+        return new Promise((resolve, reject) => {
+            const result = { fpn:this.apk_fpn, app_modified:0, content_hash:'', manifest:'', package:'', activities:[], launcher:'' };
+            // read the APK
+            fs.readFile(this.apk_fpn, (err,apk_file_data) => {
+                if (err) return reject(new Error('APK read error. ' + err.message));
+                // debugging is painful when the APK file content is large, so keep the data in a separate field so node
+                // doesn't have to evaluate it when we're looking at the apk info
+                this._apk_file_data = apk_file_data;
+                // save the last modification time of the app
+                result.app_modified = fs.statSync(result.fpn).mtime.getTime();
+                // create a SHA-1 hash as a simple way to see if we need to install/update the app
+                const h = crypto.createHash('SHA1');
+                h.update(apk_file_data);
+                result.content_hash = h.digest('hex');
+                // read the manifest
+                this.readAndroidManifest((err, manifest) => {
+                    if (err) return reject(new Error('Manifest read error. ' + err.message));
+                    result.manifest = manifest;
+                    try {
+                        const doc = new dom().parseFromString(manifest);
+                        // extract the package name from the manifest
+                        const pkg_xpath = '/manifest/@package';
+                        result.package = xpath.select1(pkg_xpath, doc).value;
+                        const android_select = xpath.useNamespaces({"android": "http://schemas.android.com/apk/res/android"});
+                        // extract a list of all the (named) activities declared in the manifest
+                        const activity_xpath='/manifest/application/activity/@android:name';
+                        var nodes = android_select(activity_xpath, doc);
+                        nodes && (result.activities = nodes.map(n => n.value));
 
-                    // extract the default launcher activity
-        			const launcher_xpath='/manifest/application/activity[intent-filter/action[@android:name="android.intent.action.MAIN"] and intent-filter/category[@android:name="android.intent.category.LAUNCHER"]]/@android:name';
-                    var nodes = android_select(launcher_xpath, doc);
-                    // should we warn if there's more than one?
-                    if (nodes && nodes.length >= 1)
-                        done.result.launcher = nodes[0].value
-                } catch(err) {
-                    return done.rejectWith(this, [new Error('Manifest parse failed. ' + err.message)]);
-                }
-                done.resolveWith(this, [done.result]);
+                        // extract the default launcher activity
+                        const launcher_xpath='/manifest/application/activity[intent-filter/action[@android:name="android.intent.action.MAIN"] and intent-filter/category[@android:name="android.intent.category.LAUNCHER"]]/@android:name';
+                        var nodes = android_select(launcher_xpath, doc);
+                        // should we warn if there's more than one?
+                        if (nodes && nodes.length >= 1)
+                            result.launcher = nodes[0].value
+                    } catch(err) {
+                        return reject(new Error('Manifest parse failed. ' + err.message));
+                    }
+                    resolve(result);
+                });
             });
         });
-        return done;
     }
 
     readAndroidManifest(cb) {
@@ -584,7 +579,7 @@ class AndroidDebugSession extends DebugSession {
         return this.dbgr.list_devices()
             .then(devices => {
                 this.LOG(`Found ${devices.length} device${devices.length===1?'':'s'}`);
-                var reject;
+                let reject;
                 if (devices.length === 0) {
                     reject = 'No devices are connected';
                 } else if (target_deviceid) {
@@ -604,13 +599,13 @@ class AndroidDebugSession extends DebugSession {
                     // be nice and list the devices so the user can easily configure
                     devices.forEach(d => this.LOG(`\t${d.serial}\t${d.status}`));
                 }
-                return $.Deferred().rejectWith(this, [new Error(reject)]);
+                throw new Error(reject);
             })
     }
 
     configurationDoneRequest(response/*, args*/) {
         D('configurationDoneRequest');
-        this.waitForConfigurationDone.resolve();
+        this.waitForConfigurationDone();
         this.sendResponse(response);
     }
 
@@ -630,8 +625,8 @@ class AndroidDebugSession extends DebugSession {
         // if we're connected, ask ADB to terminate the app
         if (this.dbgr.status() === 'connected')
             this.dbgr.forcestop();
-        return this.dbgr.disconnect(response)
-            .then((state, response) => {
+        this.dbgr.disconnect()
+            .then(state => {
                 if (/^connect/.test(state))
                     this.LOG(`Debugger disconnected`);
                 this.sendResponse(response);
@@ -726,7 +721,7 @@ class AndroidDebugSession extends DebugSession {
             var src_bp = o.args.breakpoints[idx|=0];
             if (!src_bp) {
                 // done
-                return $.Deferred().resolveWith(this, [javabp_arr]);
+                return Promise.resolve(javabp_arr);
             }
             var dbgline = this.convertClientLineToDebugger(src_bp.line);
             var options = {}; 
@@ -784,15 +779,16 @@ class AndroidDebugSession extends DebugSession {
 
     setExceptionBreakPointsRequest(response /*: SetExceptionBreakpointsResponse*/, args /*: SetExceptionBreakpointsArguments*/) {
         this.dbgr.clearBreakOnExceptions({response,args})
-            .then(x => {
-                if (x.args.filters.includes('all')) {
-                    x.set = this.dbgr.setBreakOnExceptions('both', x);
-                } else if (x.args.filters.includes('uncaught')) {
-                    x.set = this.dbgr.setBreakOnExceptions('uncaught', x);
+            .then(() => {
+                let set_promise;
+                if (args.filters.includes('all')) {
+                    set_promise = this.dbgr.setBreakOnExceptions('both');
+                } else if (args.filters.includes('uncaught')) {
+                    set_promise = this.dbgr.setBreakOnExceptions('uncaught');
                 } else {
-                    x.set = $.Deferred().resolveWith(this, [x]);
+                    set_promise = Promise.resolve();
                 }
-                x.set.then(x => this.sendResponse(x.response));
+                set_promise.then(() => this.sendResponse(response));
             });
     }
 
@@ -809,8 +805,8 @@ class AndroidDebugSession extends DebugSession {
             return;
         }
 
-        this.refreshThreads(response)
-            .then(response => {
+        this.refreshThreads()
+            .then(() => {
                 response.body = {
                     threads: this._threads.array.filter(x=>x).map(t => {
                         var javaid = parseInt(t.threadid, 16);
@@ -819,10 +815,10 @@ class AndroidDebugSession extends DebugSession {
                 };
                 this.sendResponse(response);
             })
-            .fail(() => {
+            .catch(() => {
                 response.success = false;
                 this.sendResponse(response);
-            });
+            })
 	}
 
 	/**
@@ -836,22 +832,21 @@ class AndroidDebugSession extends DebugSession {
         if (!thread.paused) return this.cancelRequestThreadNotSuspended('Stack trace', args.threadId, response);
 
         // retrieve the (stack) frames from the debugger
-        this.dbgr.getframes(thread.threadid, {response, args, thread})
-            .then((frames, x) => {
+        this.dbgr.getframes(thread.threadid)
+            .then(frames => {
                 // first ensure that the line-tables for all the methods are loaded
-                var defs = frames.map(f => this.dbgr._ensuremethodlines(f.method));
-                defs.unshift(frames,x);
-                return $.when.apply($,defs);
+                const defs = frames.map(f => this.dbgr._ensuremethodlines(f.method));
+                return Promise.all(defs).then(() => frames);
             })
-            .then((frames, x) => {
-                const startFrame = typeof x.args.startFrame === 'number' ? x.args.startFrame : 0;
-                const maxLevels = typeof x.args.levels === 'number' ? x.args.levels : frames.length-startFrame;
+            .then(frames => {
+                const startFrame = typeof args.startFrame === 'number' ? args.startFrame : 0;
+                const maxLevels = typeof args.levels === 'number' ? args.levels : frames.length-startFrame;
                 const endFrame = Math.min(startFrame + maxLevels, frames.length);
                 var stack = [], totalFrames = frames.length, highest_known_source=0;
                 const android_src_path = this._android_sources_path || '{Android SDK}';
-                for (var i = startFrame; (i < endFrame) && x.thread.paused; i++) {
+                for (var i = startFrame; (i < endFrame) && thread.paused; i++) {
                     // the stack_frame_id must be unique across all threads
-                    const stack_frame_id = x.thread.addStackFrameVariable(frames[i], i).frameId;
+                    const stack_frame_id = thread.addStackFrameVariable(frames[i], i).frameId;
                     const name = `${frames[i].method.owningclass.name}.${frames[i].method.name}`;
                     const pkginfo = this.src_packages.packages[frames[i].method.owningclass.type.package];
                     const srcloc = this.dbgr.line_idx_to_source_location(frames[i].method, frames[i].location.idx);
@@ -885,7 +880,7 @@ class AndroidDebugSession extends DebugSession {
                     pkginfo && (highest_known_source=i);
                     // we don't support column number when reporting source locations (because JDWP only supports line-granularity)
                     // but in order to get the Exception UI to show, we must have a non-zero column
-                    const colnum = (!i && x.thread.paused.last_exception && x.thread.paused.reasons[0]==='exception') ? 1 : 0;
+                    const colnum = (!i && thread.paused.last_exception && thread.paused.reasons[0]==='exception') ? 1 : 0;
                     stack.push(new StackFrame(stack_frame_id, name, src, linenum, colnum));
                 }
                 // trim the stack to exclude calls above the known sources
@@ -900,7 +895,7 @@ class AndroidDebugSession extends DebugSession {
                 };
                 this.sendResponse(response);
             })
-            .fail(() => {
+            .catch(() => {
                 this.failRequest('No call stack is available', response);
             });
 	}
@@ -916,31 +911,35 @@ class AndroidDebugSession extends DebugSession {
 			scopes: scopes
 		};
 
-        var last_exception = thread.paused.last_exception;
-        if (last_exception && !last_exception.objvar) {
-            // retrieve the exception object
-            thread.allocateExceptionScopeReference(args.frameId);
-            this.dbgr.getExceptionLocal(last_exception.exception, {thread,response,scopes,last_exception})
-                .then((ex_local,x) => {
-                    x.last_exception.objvar = ex_local;
-                    return $.when(x, x.thread.getVariables(x.last_exception.scopeRef));
-                })
-                .then((x, vars) => {
-                    var {response,scopes,last_exception} = x;
-                    // put the exception first - otherwise it can get lost if there's a lot of locals
-                    scopes.unshift(new Scope("Exception: " + last_exception.objvar.type.typename, last_exception.scopeRef, false));
-                    this.sendResponse(response);
-                    // notify the exceptionInfo who may be waiting on us
-                    if (last_exception.waitForExObject) {
-                        var def = last_exception.waitForExObject;
-                        last_exception.waitForExObject = null;
-                        def.resolveWith(this, []);
-                    }
-                })
-                .fail((/*e*/) => { this.sendResponse(response); });
+        const last_exception = thread.paused.last_exception;
+        if (!last_exception || last_exception.objvar) {
+            this.sendResponse(response);
             return;
         }
-		this.sendResponse(response);
+
+        // retrieve the exception object
+        thread.allocateExceptionScopeReference(args.frameId);
+        this.dbgr.getExceptionLocal(last_exception.exception)
+            .then(ex_local => {
+                last_exception.objvar = ex_local;
+                let p = thread.getVariables(last_exception.scopeRef);
+                if (!Array.isArray(p)) {
+                    p = [p];
+                }
+                return Promise.all(p);
+            })
+            .then(() => {
+                // put the exception first - otherwise it can get lost if there's a lot of locals
+                scopes.unshift(new Scope("Exception: " + last_exception.objvar.type.typename, last_exception.scopeRef, false));
+                this.sendResponse(response);
+                // notify the exceptionInfo who may be waiting on us
+                if (last_exception.waitForExObject) {
+                    last_exception.waitForExObject();
+                }
+            })
+            .catch((/*e*/) => {
+                this.sendResponse(response);
+            });
 	}
 
     sourceRequest(response/*: DebugProtocol.SourceResponse, args: DebugProtocol.SourceArguments*/) {
@@ -1104,7 +1103,8 @@ class AndroidDebugSession extends DebugSession {
                         event.body = { reason:'started', threadId: t.vscode_threadid };
                         this.sendEvent(event);
                     })
-                    .always(() => this.dbgr.resumethread(e.threadid));
+                    .catch(err => err)
+                    .then(() => this.dbgr.resumethread(e.threadid));
                 return;
             case 'end':
                 var t = this._threads[e.threadid];
@@ -1130,19 +1130,19 @@ class AndroidDebugSession extends DebugSession {
         if (!t.paused) return this.failRequestThreadNotSuspended('Set variable', threadId, response);
 
         t.setVariableValue(args)
-            .then(function(response,vsvar) {
+            .then(vsvar => {
                 response.body = {
                     value: vsvar.value,
                     type: vsvar.type,
                     variablesReference: vsvar.variablesReference,
                 };
-                this.sendResponse(response);
-            }.bind(this,response))
-            .fail(function(response,e) {
+            }, e => {
                 response.success = false;
                 response.message = e.message;
+            })
+            .then(() => {
                 this.sendResponse(response);
-            }.bind(this,response));
+            })
 	}
 
     /**
@@ -1175,12 +1175,15 @@ class AndroidDebugSession extends DebugSession {
             if (!thread) return this.failRequestNoThread('Evaluate',threadId, response);
             if (!thread.paused) return this.failRequestThreadNotSuspended('Evaluate',threadId, response);
             getvars = thread._ensureLocals(args.frameId).then(frameId => {
-                var locals = thread.paused.stack_frame_vars[frameId].locals;
-                return $.Deferred().resolve(thread, locals.variableHandles[frameId].cached, locals);
+                const locals = thread.paused.stack_frame_vars[frameId].locals;
+                return {
+                    locals: locals.variableHandles[frameId].cached,
+                    vars: locals,
+                }
             })
         } else {
             // global context - no locals
-            getvars = $.Deferred().resolve(null, [], this._globals);
+            getvars = Promise.resolve({});
         }
 
         this._evals_queue.push({response,args,getvars,thread});
@@ -1198,20 +1201,21 @@ class AndroidDebugSession extends DebugSession {
         if (!this._evals_queue.length) {
             return;
         }
-        var {response, args, getvars} = this._evals_queue[0];
+        var {response, args, getvars, thread} = this._evals_queue[0];
 
         // wait for any locals in the given context to be retrieved
-        getvars.then((thread, locals, vars) => {
+        getvars.then(varinfo => {
+                const {locals, vars} = varinfo;
                 return evaluate(args.expression, thread, locals, vars, this.dbgr);
             })
-            .then((value,variablesReference) => {
+            .then(({value,variablesReference}) => {
                 response.body = { result:value, variablesReference:variablesReference|0 };
             })
-            .fail(e => {
+            .catch(e => {
                 response.success = false;
                 response.message = e.message;
             })
-            .always(() => {
+            .then(() => {
                 this.sendResponse(response);
                 this._evals_queue.shift();
                 this.doNextEvaluateRequest();
@@ -1219,7 +1223,7 @@ class AndroidDebugSession extends DebugSession {
     }
 
     exceptionInfoRequest(response /*DebugProtocol.ExceptionInfoResponse*/, args /**/) {
-        var thread = this.getThread(args.threadId);
+        const thread = this.getThread(args.threadId);
         if (!thread) return this.failRequestNoThread('Exception info', args.threadId, response);
         if (!thread.paused) return this.cancelRequestThreadNotSuspended('Exception info', args.threadId, response);
         if (!thread.paused.last_exception) return this.failRequest('No exception available', response);
@@ -1227,15 +1231,16 @@ class AndroidDebugSession extends DebugSession {
         if (!thread.paused.last_exception.objvar || !thread.paused.last_exception.cached) {
             // we must wait for the exception object to be retreived as a local (along with the message field)
             if (!thread.paused.last_exception.waitForExObject) {
-                thread.paused.last_exception.waitForExObject = $.Deferred().then(() => {
+                thread.paused.last_exception.waitForExObject = () => {
+                    thread.paused.last_exception.waitForExObject = null;
                     // redo the request
                     this.exceptionInfoRequest(response, args);
-                });
+                }
             }
             return;
         }
-        var exobj = thread.paused.last_exception.objvar;
-        var exmsg = thread.paused.last_exception.cached.find(v => v.name === exmsg_var_name);
+        let exobj = thread.paused.last_exception.objvar;
+        let exmsg = thread.paused.last_exception.cached.find(v => v.name === exmsg_var_name);
         exmsg = (exmsg && exmsg.string) || '';
 
         response.body = {
