@@ -611,7 +611,11 @@ class AndroidDebugSession extends DebugSession {
         var srcfolder = path.dirname(srcfpn);
         var pkginfo;
         for (var pkg in this.src_packages.packages) {
-            if ((pkginfo = this.src_packages.packages[pkg]).package_path === srcfolder) break;
+            var pkgpath = (pkginfo = this.src_packages.packages[pkg]).package_path;
+            pkgpath = pkgpath.toLowerCase();
+            srcfolder = srcfolder.toLowerCase();
+            if (pkgpath === srcfolder)
+                break;
             pkginfo = null;
         }
         // if it's not in our source packages, check if it's in the Android source file cache
