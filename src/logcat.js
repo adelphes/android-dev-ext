@@ -274,6 +274,21 @@ function openLogcatWindow(vscode) {
     .then(devices => {
         if (!Array.isArray(devices)) return;    // user cancelled (or no devices connected)
         devices.forEach(device => {
+            if (vscode.window.createWebviewPanel) {
+                const panel = vscode.window.createWebviewPanel(
+                    'androidlogcat', // Identifies the type of the webview. Used internally
+                    `logcat-${device.serial}`, // Title of the panel displayed to the user
+                    vscode.ViewColumn.One, // Editor column to show the new webview panel in.
+                    {
+                        enableScripts: true,
+                    }
+                );
+                const logcat = new LogcatContent(device.serial);
+                logcat.content.then(html => {
+                    panel.webview.html = html;
+                });
+                return;
+            }
             var uri = AndroidContentProvider.getReadLogcatUri(device.serial);
             return vscode.commands.executeCommand("vscode.previewHtml",uri,vscode.ViewColumn.Two);
         });
