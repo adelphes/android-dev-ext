@@ -28,12 +28,12 @@ const JTYPES = {
 }
 
 function signatureToFullyQualifiedType(sig) {
-    var arr = sig.match(/^\[+/) || '';
+    let arr = sig.match(/^\[+/) || '';
     if (arr) {
         arr = '[]'.repeat(arr[0].length);
         sig = sig.slice(0, arr.length/2);
     }
-    var m = sig.match(/^((L([^<;]+).)|T([^;]+).|.)/);
+    const m = sig.match(/^((L([^<;]+).)|T([^;]+).|.)/);
     if (!m) return '';
     if (m[3]) {
         return m[3].replace(/[/$]/g,'.') + arr;
@@ -45,6 +45,15 @@ function signatureToFullyQualifiedType(sig) {
 
 // the special name given to exception message fields
 const exmsg_var_name = ':msg';  
+const BACKSLASH_ESCAPE_MAP = {
+    b: '\b',
+    f: '\f',
+    r: '\r',
+    n: '\n',
+    t: '\t',
+    v: '\v',
+    '0': '\0',
+};
 
 function createJavaString(dbgr, s, opts) {
     const raw = (opts && opts.israw) ? s : s.slice(1,-1).replace(/\\u[0-9a-fA-F]{4}|\\./,decode_char);
@@ -56,8 +65,8 @@ function decode_char(c) {
     switch(true) {
         case /^\\[^u]$/.test(c):
             // backslash escape
-            var x = {b:'\b',f:'\f',r:'\r',n:'\n',t:'\t',v:'\v','0':String.fromCharCode(0)}[c[1]];
-            return x || c[1];
+            const char = BACKSLASH_ESCAPE_MAP[c[1]];
+            return char || c[1];
         case /^\\u[0-9a-fA-F]{4}$/.test(c):
             // unicode escape
             return String.fromCharCode(parseInt(c.slice(2),16));

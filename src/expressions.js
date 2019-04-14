@@ -19,7 +19,7 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
     // - this is called if the user tries to evaluate ':msg' from the locals
     if (expression === exmsg_var_name) {
         if (thread && thread.paused.last_exception && thread.paused.last_exception.cached) {
-            var msglocal = thread.paused.last_exception.cached.find(v => v.name === exmsg_var_name);
+            const msglocal = thread.paused.last_exception.cached.find(v => v.name === exmsg_var_name);
             if (msglocal) {
                 return resolve_evaluation(vars._local_to_variable(msglocal).value);
             }
@@ -28,7 +28,11 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
     }
 
     const parse_array_or_fncall = function (e) {
-        var arg, res = { arr: [], call: null };
+        let arg;
+        const res = {
+            arr: [],
+            call: null,
+        };
         // pre-call array indexes
         while (e.expr[0] === '[') {
             e.expr = e.expr.slice(1).trim();
@@ -65,34 +69,40 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
     const parse_expression_term = function (e) {
         if (e.expr[0] === '(') {
             e.expr = e.expr.slice(1).trim();
-            var subexpr = { expr: e.expr };
-            var res = parse_expression(subexpr);
+            const subexpr = { expr: e.expr };
+            let res = parse_expression(subexpr);
             if (res) {
                 if (subexpr.expr[0] !== ')') return null;
                 e.expr = subexpr.expr.slice(1).trim();
                 if (/^(int|long|byte|short|double|float|char|boolean)$/.test(res.root_term) && !res.members.length && !res.array_or_fncall.call && !res.array_or_fncall.arr.length) {
                     // primitive typecast
-                    var castexpr = parse_expression_term(e);
+                    const castexpr = parse_expression_term(e);
                     if (castexpr) castexpr.typecast = res.root_term;
                     res = castexpr;
                 }
             }
             return res;
         }
-        var unop = e.expr.match(/^(?:(!\s?)+|(~\s?)+|(?:([+-]\s?)+(?![\d.])))/);
+        const unop = e.expr.match(/^(?:(!\s?)+|(~\s?)+|(?:([+-]\s?)+(?![\d.])))/);
         if (unop) {
-            var op = unop[0].replace(/\s/g, '');
+            const op = unop[0].replace(/\s/g, '');
             e.expr = e.expr.slice(unop[0].length).trim();
-            var res = parse_expression_term(e);
+            let res = parse_expression_term(e);
             if (res) {
-                for (var i = op.length - 1; i >= 0; --i)
-                    res = { operator: op[i], rhs: res };
+                for (let i = op.length - 1; i >= 0; --i) {
+                    res = {
+                        operator: op[i],
+                        rhs: res
+                    };
+                }
             }
             return res;
         }
-        var root_term = e.expr.match(/^(?:(true(?![\w$]))|(false(?![\w$]))|(null(?![\w$]))|([a-zA-Z_$][a-zA-Z0-9_$]*)|([+-]?0x[0-9a-fA-F]+[lL]?)|([+-]?0[0-7]+[lL]?)|([+-]?\d+\.\d+(?:[eE][+-]?\d+)?[fFdD]?)|([+-]?\d+[lL]?)|('[^\\']')|('\\[bfrntv0]')|('\\u[0-9a-fA-F]{4}')|("[^"]*"))/);
-        if (!root_term) return null;
-        var res = {
+        const root_term = e.expr.match(/^(?:(true(?![\w$]))|(false(?![\w$]))|(null(?![\w$]))|([a-zA-Z_$][a-zA-Z0-9_$]*)|([+-]?0x[0-9a-fA-F]+[lL]?)|([+-]?0[0-7]+[lL]?)|([+-]?\d+\.\d+(?:[eE][+-]?\d+)?[fFdD]?)|([+-]?\d+[lL]?)|('[^\\']')|('\\[bfrntv0]')|('\\u[0-9a-fA-F]{4}')|("[^"]*"))/);
+        if (!root_term) {
+            return null;
+        }
+        const res = {
             root_term: root_term[0],
             root_term_type: ['boolean', 'boolean', 'null', 'ident', 'hexint', 'octint', 'decfloat', 'decint', 'char', 'echar', 'uchar', 'string'][[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].find(x => root_term[x]) - 1],
             array_or_fncall: null,
@@ -106,11 +116,20 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
         while (e.expr[0] === '.') {
             // member expression
             e.expr = e.expr.slice(1).trim();
-            var m, member_name = e.expr.match(/^:?[a-zA-Z_$][a-zA-Z0-9_$]*/);   // allow : at start for :super and :msg
-            if (!member_name) return null;
-            res.members.push(m = { member: member_name[0], array_or_fncall: null })
+            const member_name = e.expr.match(/^:?[a-zA-Z_$][a-zA-Z0-9_$]*/);   // allow : at start for :super and :msg
+            if (!member_name) {
+                return null;
+            }
+            const m = {
+                member: member_name[0],
+                array_or_fncall: null,
+            }
+            res.members.push(m);
             e.expr = e.expr.slice(m.member.length).trim();
-            if ((m.array_or_fncall = parse_array_or_fncall(e)) === null) return null;
+            m.array_or_fncall = parse_array_or_fncall(e);
+            if (m.array_or_fncall === null) {
+                return null;
+            }
         }
         return res;
     }
@@ -123,13 +142,15 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
         '&': 6, '^': 7, '|': 8, '&&': 9, '||': 10, '?': 11,
     }
     const parse_expression = function (e) {
-        var res = parse_expression_term(e);
+        let res = parse_expression_term(e);
 
-        if (!e.currprec) e.currprec = [12];
+        if (!e.currprec) {
+            e.currprec = [12];
+        }
         for (; ;) {
-            var binary_operator = e.expr.match(/^([/%*&|^+-]=|<<=|>>>?=|[><!=]=|=|<<|>>>?|[><]|&&|\|\||[/%*&|^]|\+(?=[^+]|[+][\w\d.])|\-(?=[^-]|[-][\w\d.])|instanceof\b|\?)/);
+            const binary_operator = e.expr.match(/^([/%*&|^+-]=|<<=|>>>?=|[><!=]=|=|<<|>>>?|[><]|&&|\|\||[/%*&|^]|\+(?=[^+]|[+][\w\d.])|\-(?=[^-]|[-][\w\d.])|instanceof\b|\?)/);
             if (!binary_operator) break;
-            var precdiff = (prec[binary_operator[0]] || 12) - e.currprec[0];
+            const precdiff = (prec[binary_operator[0]] || 12) - e.currprec[0];
             if (precdiff > 0) {
                 // bigger number -> lower precendence -> end of (sub)expression
                 break;
@@ -143,14 +164,23 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
             e.expr = e.expr.slice(binary_operator[0].length).trim();
             // current or higher precendence
             if (binary_operator[0] === '?') {
-                res = { condition: res, operator: binary_operator[0], ternary_true: null, ternary_false: null };
+                res = {
+                    condition: res,
+                    operator: binary_operator[0],
+                    ternary_true: null,
+                    ternary_false: null,
+                };
                 res.ternary_true = parse_expression(e);
                 if (e.expr[0] === ':') {
                     e.expr = e.expr.slice(1).trim();
                     res.ternary_false = parse_expression(e);
                 }
             } else {
-                res = { lhs: res, operator: binary_operator[0], rhs: parse_expression(e) };
+                res = {
+                    lhs: res,
+                    operator: binary_operator[0],
+                    rhs: parse_expression(e),
+                };
             }
             e.currprec.shift();
         }
@@ -159,7 +189,8 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
     const hex_long = long => ('000000000000000' + long.toUnsigned().toString(16)).slice(-16);
     const evaluate_number = (n) => {
         n += '';
-        var numtype, m = n.match(/^([+-]?)0([bBxX0-7])(.+)/), base = 10;
+        let numtype, base = 10;
+        const m = n.match(/^([+-]?)0([bBxX0-7])(.+)/);
         if (m) {
             switch (m[2]) {
                 case 'b': base = 2; n = m[1] + m[3]; break;
@@ -195,13 +226,22 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
         return parseInt(local.value, 10);
     }
     const stringify = (local) => {
-        var s;
-        if (JTYPES.isString(local.type)) s = local.string;
-        else if (JTYPES.isChar(local.type)) s = local.char;
-        else if (JTYPES.isPrimitive(local.type)) s = '' + local.value;
-        else if (local.hasnullvalue) s = '(null)';
-        if (typeof s === 'string')
+        let s;
+        if (JTYPES.isString(local.type)) {
+            s = local.string;
+        }
+        else if (JTYPES.isChar(local.type)) {
+            s = local.char;
+        }
+        else if (JTYPES.isPrimitive(local.type)) {
+            s = '' + local.value;
+        }
+        else if (local.hasnullvalue) {
+            s = '(null)';
+        }
+        if (typeof s === 'string') {
             return Promise.resolve(s);
+        }
         return dbgr.invokeToString(local.value, local.info.frame.threadid, local.type.signature)
             .then(s => s.string);
     }
@@ -210,7 +250,7 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
         if (expr.operator) {
             const invalid_operator = (unary) => reject_evaluation(`Invalid ${unary ? 'type' : 'types'} for operator '${expr.operator}'`),
                 divide_by_zero = () => reject_evaluation('ArithmeticException: divide by zero');
-            var lhs_local;
+            let lhs_local;
             return !expr.lhs
                 ? // unary operator
                 evaluate_expression(expr.rhs)
@@ -243,9 +283,9 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
                         if ((lhs_local.type.signature === 'J' && JTYPES.isInteger(rhs_local.type))
                             || (rhs_local.type.signature === 'J' && JTYPES.isInteger(lhs_local.type))) {
                             // one operand is a long, the other is an integer -> the result is a long
-                            var a, b, lbase, rbase;
-                            lbase = lhs_local.type.signature === 'J' ? 16 : 10;
-                            rbase = rhs_local.type.signature === 'J' ? 16 : 10;
+                            let a, b;
+                            const lbase = lhs_local.type.signature === 'J' ? 16 : 10;
+                            const rbase = rhs_local.type.signature === 'J' ? 16 : 10;
                             a = Long.fromString('' + lhs_local.value, false, lbase);
                             b = Long.fromString('' + rhs_local.value, false, rbase);
                             switch (expr.operator) {
@@ -274,7 +314,7 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
                         }
                         else if (JTYPES.isInteger(lhs_local.type) && JTYPES.isInteger(rhs_local.type)) {
                             // both are (non-long) integer types
-                            var a = numberify(lhs_local), b = numberify(rhs_local);
+                            let a = numberify(lhs_local), b = numberify(rhs_local);
                             switch (expr.operator) {
                                 case '+': a += b; break;
                                 case '-': a -= b; break;
@@ -300,7 +340,7 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
                             return { vtype: 'literal', name: '', hasnullvalue: false, type: JTYPES.int, value: '' + a, valid: true };
                         }
                         else if (JTYPES.isNumber(lhs_local.type) && JTYPES.isNumber(rhs_local.type)) {
-                            var a = numberify(lhs_local), b = numberify(rhs_local);
+                            let a = numberify(lhs_local), b = numberify(rhs_local);
                             switch (expr.operator) {
                                 case '+': a += b; break;
                                 case '-': a -= b; break;
@@ -317,12 +357,12 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
                             if (typeof a === 'boolean')
                                 return { vtype: 'literal', name: '', hasnullvalue: false, type: JTYPES.boolean, value: a, valid: true };
                             // one of them must be a float or double
-                            var result_type = 'float double'.split(' ')[Math.max("FD".indexOf(lhs_local.type.signature), "FD".indexOf(rhs_local.type.signature))];
+                            const result_type = 'float double'.split(' ')[Math.max("FD".indexOf(lhs_local.type.signature), "FD".indexOf(rhs_local.type.signature))];
                             return { vtype: 'literal', name: '', hasnullvalue: false, type: JTYPES[result_type], value: '' + a, valid: true };
                         }
                         else if (lhs_local.type.signature === 'Z' && rhs_local.type.signature === 'Z') {
                             // boolean operands
-                            var a = lhs_local.value, b = rhs_local.value;
+                            let a = lhs_local.value, b = rhs_local.value;
                             switch (expr.operator) {
                                 case '&': case '&&': a = a && b; break;
                                 case '|': case '||': a = a || b; break;
@@ -388,7 +428,7 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
         return evaluate_expression(index_expr)
             .then(function (arr_local, idx_local) {
                 if (!JTYPES.isInteger(idx_local.type)) return reject_evaluation('TypeError: array index is not an integer value');
-                var idx = numberify(idx_local);
+                const idx = numberify(idx_local);
                 if (idx < 0 || idx >= arr_local.arraylen) return reject_evaluation(`BoundsError: array index (${idx}) out of bounds. Array length = ${arr_local.arraylen}`);
                 return dbgr.getarrayvalues(arr_local, idx, 1)
             }.bind(this, arr_local))
@@ -426,18 +466,21 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
                         });
                         const matching_methods = methods.filter(m => {
                             // extract a list of parameter types
-                            var paramtypere = /\[*([BSIJFDCZ]|([LT][^;]+;))/g;
-                            for (var x, ptypes=[]; x = paramtypere.exec(m.sig); ) {
-                                ptypes.push(x[0]);
+                            const paramtypere = /\[*([BSIJFDCZ]|([LT][^;]+;))/g;
+                            const parameter_types = [];
+                            for (let x; x = paramtypere.exec(m.sig); ) {
+                                parameter_types.push(x[0]);
                             }
                             // the last paramter type is the return value
-                            ptypes.pop();
+                            parameter_types.pop();
                             // check if they match
-                            if (ptypes.length !== paramValues.length)
-                                return;
-                            return matchers.filter(m => {
-                                return !m.test(ptypes.shift())
-                            }).length === 0;
+                            if (parameter_types.length !== paramValues.length) {
+                                return false;
+                            }
+                            if (matchers.find((m, idx) => !m.test(parameter_types[idx]))) {
+                                return false;
+                            }
+                            return true;
                         });
                         if (!matching_methods[0])
                             return reject_evaluation(`Error: incompatible parameters for method '${m.member}'`);
@@ -452,9 +495,13 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
         });
     }
     const evaluate_member = (m, obj_local) => {
-        if (!JTYPES.isReference(obj_local.type)) return reject_evaluation('TypeError: value is not a reference type');
-        if (obj_local.hasnullvalue) return reject_evaluation('NullPointerException');
-        var chain;
+        if (!JTYPES.isReference(obj_local.type)) {
+            return reject_evaluation('TypeError: value is not a reference type');
+        }
+        if (obj_local.hasnullvalue) {
+            return reject_evaluation('NullPointerException');
+        }
+        let chain;
         if (m.array_or_fncall.call) {
             chain = evaluate_methodcall(m, obj_local);
         }
@@ -490,7 +537,7 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
         if (type === 'boolean' || local.type.typename === 'boolean') return incompatible_cast();
         if (local.type.typename === 'long') {
             // long to something else
-            var value = Long.fromString(local.value, true, 16);
+            const value = Long.fromString(local.value, true, 16);
             switch (true) {
                 case (type === 'byte'): local = evaluate_number((parseInt(value.toString(16).slice(-2), 16) << 24) >> 24); break;
                 case (type === 'short'): local = evaluate_number((parseInt(value.toString(16).slice(-4), 16) << 16) >> 16); break;
@@ -516,14 +563,14 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
         return local;
     }
 
-    var e = { expr: expression.trim() };
-    var parsed_expression = parse_expression(e);
+    const e = { expr: expression.trim() };
+    const parsed_expression = parse_expression(e);
     // if there's anything left, it's an error
     if (parsed_expression && !e.expr) {
         // the expression is well-formed - start the (asynchronous) evaluation
         return evaluate_expression(parsed_expression)
             .then(local => {
-                var v = vars._local_to_variable(local);
+                const v = vars._local_to_variable(local);
                 return resolve_evaluation(v.value, v.variablesReference);
             });
     }

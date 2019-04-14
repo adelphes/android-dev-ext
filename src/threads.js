@@ -28,12 +28,15 @@ class AndroidThread {
     }
 
     addStackFrameVariable(frame, level) {
-        if (!this.paused) throw this.threadNotSuspendedError();
-        var frameId = (this.vscode_threadid * 1e9) + (level * 1e6);
-        var stack_frame_var = {
-            frame, frameId,
-            locals: null,
+        if (!this.paused) {
+            throw this.threadNotSuspendedError();
         }
+        const frameId = (this.vscode_threadid * 1e9) + (level * 1e6);
+        const stack_frame_var = {
+            frame,
+            frameId,
+            locals: null,
+        };
         return this.paused.stack_frame_vars[frameId] = stack_frame_var;
     }
 

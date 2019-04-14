@@ -1,17 +1,17 @@
 const WebSocketServer = require('./minwebsocket').WebSocketServer;
-const { atob, btoa, ab2str, str2u8arr, arrayBufferToString, intFromHex, intToHex, D,E,W, get_file_fd_from_fdn } = require('./util');
+const { atob, btoa, ab2str, str2u8arr, arrayBufferToString, intFromHex, intToHex, D, E, get_file_fd_from_fdn } = require('./util');
 const { connect_forward_listener } = require('./services');
 const { get_socket_fd_from_fdn, socket_loopback_client } = require('./sockets');
 const { readx, writex } = require('./transport');
 
-var dprintfln = ()=>{};//D;
+const dprintfln = ()=>{};//D;
 WebSocketServer.DEFAULT_ADB_PORT = 5037;
 
-var proxy = {
+const proxy = {
 
     Server: function(port, adbport) {
         // Listen for websocket connections.
-        var wsServer = new WebSocketServer(port);
+        const wsServer = new WebSocketServer(port);
         wsServer.adbport = adbport;
         wsServer.setADBPort = function(port) {
           if (typeof(port) === 'undefined')
@@ -20,20 +20,22 @@ var proxy = {
         }
 
         // A list of connected websockets.
-        var connectedSockets = [];
+        const connectedSockets = [];
 
         function indexof_connected_socket(socketinfo) {
             if (!socketinfo) return -1;
-            for (var i=0; i < connectedSockets.length; i++)
-            if (connectedSockets[i] === socketinfo)
+            for (let i = 0; i < connectedSockets.length; i++) {
+              if (connectedSockets[i] === socketinfo) {
                 return i;
+              }
+            }
             return -1;
         }
 
         wsServer.onconnection = function(req) {
 
-            var ws = req.accept(); 
-            var si = {
+            const ws = req.accept(); 
+            const si = {
                 wsServer: wsServer,
                 ws: ws,
                 fn: check_client_version,
@@ -50,7 +52,7 @@ var proxy = {
                 while (si.fdarr.length) {
                     si.fdarr.pop().close();
                 }
-                var idx = indexof_connected_socket(si);
+                const idx = indexof_connected_socket(si);
                 if (idx>=0) connectedSockets.splice(idx, 1);
                 else D('Cannot find disconnected socket in connectedSockets');
             };
@@ -64,7 +66,7 @@ var proxy = {
     }
 }
 
-var check_client_version = function(si, e) {
+const check_client_version = function(si, e) {
   if (e.data !== 'vscadb client version 1') {
     D('Wrong client version: ', e.data);
     return end_of_connection(si);
@@ -73,15 +75,15 @@ var check_client_version = function(si, e) {
   si.ws.send('vscadb proxy version 1');
 }
 
-var end_of_connection = function(si) {
+const end_of_connection = function(si) {
   if (!si || !si.ws) return;
   si.ws.close();
 }
 
-var handle_proxy_command = function(si, e) {
+const handle_proxy_command = function(si, e) {
   if (!e || !e.data || e.data.length<2) return end_of_connection(si);
-  var cmd = e.data.slice(0,2);
-  var fn = proxy_command_fns[cmd];
+  const cmd = e.data.slice(0,2);
+  const fn = proxy_command_fns[cmd];
   if (!fn) {
     E('Unknown command: %s', e.data);
     return end_of_connection(si);
@@ -92,11 +94,13 @@ var handle_proxy_command = function(si, e) {
 function end_of_command(si, respfmt) {
   if (!si || !si.ws || !respfmt) return;
   // format the response - we allow %s, %d and %xX
-  var response = respfmt;
-  var fmtidx = 0;
-  for (var i=2; i < arguments.length; i++) {
-    var fmt = response.slice(fmtidx).match(/%([sdxX])/);
-    if (!fmt) break;
+  let response = respfmt;
+  let fmtidx = 0;
+  for (let i = 2; i < arguments.length; i++) {
+    const fmt = response.slice(fmtidx).match(/%([sdxX])/);
+    if (!fmt) {
+      break;
+    }
     response = [response.slice(0,fmt.index),arguments[i],response.slice(fmt.index+2)];
     switch(fmt[1]) {
         case 'x': response[1] = response[1].toString(16).toLowerCase(); break;
@@ -125,7 +129,7 @@ function read_adb_status(adbfd, extra, cb) {
 	// read back the status
 	readsckt(adbfd, 4+extra, function(err, data) {
 	  if (err) return cb();
-	  var status = ab2str(data);
+	  const status = ab2str(data);
       dprintfln("adb status: %s", status);
       cb(status);
 	});
@@ -136,44 +140,48 @@ function read_adb_reply(adbfd, b64encode, cb) {
   // read reply length
   readsckt(adbfd, 4, function(err, data) {
     if (err) return cb();
-    var n = intFromHex(ab2str(data));
+    const n = intFromHex(ab2str(data));
     dprintfln("adb expected reply: %d bytes", n);
     // read reply
     readsckt(adbfd, n, function(err, data) {
       if (err) return cb();
-      var n = data.byteLength;
+      const n = data.byteLength;
       dprintfln("adb reply: %d bytes", n);
-      var response = ab2str(data);
-      if (n === 0) response = '\n'; // always send something
+      let response = ab2str(data);
+      if (n === 0) {
+        response = '\n'; // always send something
+      }
       dprintfln("%s",response);	   
-      if (b64encode) response = btoa(response);
+      if (b64encode) {
+        response = btoa(response);
+      }
       return cb(response); 
     });
   });
 }
 
 const min_fd_num = 1000;
-var fdn_to_fd = function(n) {
-  var fd;
+const fdn_to_fd = function(n) {
+  let fd;
   if (n >= min_fd_num) fd = get_file_fd_from_fdn(n);
 	else fd = get_socket_fd_from_fdn(n);
   if (!fd) throw new Error('Invalid file descriptor number: '+n);
 	return fd;
 }
 
-var retryread = function(fd, len, cb) {
+const retryread = function(fd, len, cb) {
   fd.readbytes(len, cb);
 }
 
-var retryreadfill = function(fd, len, cb) {
-  var buf = new Uint8Array(len);
-  var totalread = 0;
-  var readmore = function(amount) {
+const retryreadfill = function(fd, len, cb) {
+  const buf = new Uint8Array(len);
+  let totalread = 0;
+  const readmore = function(amount) {
     fd.readbytes(amount, function(err, data) {
       if (err) return cb(err);
       buf.set(data, totalread);
       totalread += data.byteLength;
-      var diff = len - totalread;
+      const diff = len - totalread;
       if (diff > 0) return readmore(diff);
       cb(err, buf);
     });
@@ -181,16 +189,16 @@ var retryreadfill = function(fd, len, cb) {
   readmore(len);
 }
 
-var be2le = function(buf) {
-  var x = new Uint8Array(buf);
-  var a = x[0];
-  a = (a<<8)+x[1];
-  a = (a<<8)+x[2];
-  a = (a<<8)+x[3];
+const be2le = function(buf) {
+  const x = new Uint8Array(buf);
+  let a = x[0];
+  a = (a<<8) + x[1];
+  a = (a<<8) + x[2];
+  a = (a<<8) + x[3];
   return a;
 }
 
-var jdwpReplyMonitor = function(fd, si, packets) {
+const jdwpReplyMonitor = function(fd, si, packets) {
   if (!packets) {
     packets = 0;
     dprintfln("jdwpReplyMonitor thread started. jdwpfd:%d.", fd.n);
@@ -202,7 +210,7 @@ var jdwpReplyMonitor = function(fd, si, packets) {
   retryread(fd, 4, function(err, data) {
     if (err) return terminate();
 
-    var m = data.byteLength;
+    let m = data.byteLength;
     if (m != 4) {
         dprintfln("rj %d len read", m);
         return terminate();
@@ -210,19 +218,19 @@ var jdwpReplyMonitor = function(fd, si, packets) {
     m = be2le(data.buffer.slice(0,4));
     //dprintfln("STARTING JDWP DATA: %.8x....", m);
 
-    var lenstr = arrayBufferToString(data.buffer);
+    const lenstr = arrayBufferToString(data.buffer);
 
     retryreadfill(fd, m-4, function(err, data) {
       if (err) return terminate();
 
-      var n = data.byteLength + 4;
+      const n = data.byteLength + 4;
       if (n != m) {
           dprintfln("rj read incomplete %d/%d", (n+4),m);
           return terminate();
       }
       //dprintfln("GOT JDWP DATA....");
       dprintfln("rj encoding %d bytes", n);
-      var response = "rj ok ";
+      let response = "rj ok ";
       response += btoa(lenstr + arrayBufferToString(data.buffer));
 
       si.ws.send(response);
@@ -235,7 +243,7 @@ var jdwpReplyMonitor = function(fd, si, packets) {
 
   function terminate() {
     // try and send a final event reply indicating the VM has disconnected
-      var vmdisconnect = [
+      const vmdisconnect = [
             0,0,0,17, // len
             100,100,100,100, // id
             0, //flags
@@ -244,7 +252,7 @@ var jdwpReplyMonitor = function(fd, si, packets) {
             0,0,0,1, // eventcount
             100, // eventkind=VM_DISCONNECTED
         ];
-        var response = "rj ok ";
+        let response = "rj ok ";
         response += btoa(ab2str(new Uint8Array(vmdisconnect)));
         si.ws.send(response);
         dprintfln("jdwpReplyMonitor thread finished. Sent:%d packets.", packets);
@@ -252,7 +260,7 @@ var jdwpReplyMonitor = function(fd, si, packets) {
 }
 
 
-var stdoutMonitor = function(fd, si, packets) {
+const stdoutMonitor = function(fd, si, packets) {
   if (!packets) {
     packets = 0;
     dprintfln("stdoutMonitor thread started. jdwpfd:%d, wsfd:%o.", fd.n, si);
@@ -260,7 +268,7 @@ var stdoutMonitor = function(fd, si, packets) {
 
   retryread(fd, function(err, data) {
     if (err) return terminate();
-    var response  = 'so ok '+btoa(ab2str(new Uint8Array(data)));
+    const response  = 'so ok '+btoa(ab2str(new Uint8Array(data)));
     si.ws.send(response);
     packets++;
 
@@ -269,8 +277,8 @@ var stdoutMonitor = function(fd, si, packets) {
 
   function terminate() {
     // send a unique terminating string to indicate the stdout monitor has finished
-	var eoso = "eoso:d10d9798-1351-11e5-bdd9-5b316631f026";
-	var response = "so ok " + btoa(eoso);
+	const eoso = "eoso:d10d9798-1351-11e5-bdd9-5b316631f026";
+	const response = "so ok " + btoa(eoso);
     si.ws.send(response);
     dprintfln("stdoutMonitor thread finished. Sent:%d packets.", packets);
   }
@@ -287,8 +295,8 @@ var stdoutMonitor = function(fd, si, packets) {
 // wx <fd> <base64data> - write raw data to adb socket
 // dc <fd|all> - disconnect adb sockets
 
-var proxy_command_fns = {
-  cn:function(si, e) {
+const proxy_command_fns = {
+  cn:function(si) {
     // create adb socket
     socket_loopback_client(si.wsServer.adbport, function(fd) {
       if (!fd) {
@@ -300,17 +308,18 @@ var proxy_command_fns = {
   },
 
   cp:function(si, e) {
-    var x = e.data.split(' '), port;
-    port = parseInt(x[1], 10);
+    const x = e.data.split(' ');
+    const port = parseInt(x[1], 10);
     connect_forward_listener(port, {create:true}, function(sfd) {
       return end_of_command(si, 'cp ok %d', sfd.n);
     });
   },
 
   wa:function(si, e) {
-    var x = e.data.split(' '), fd, buffer;
+    const x = e.data.split(' ');
+    let fd, buffer;
     try {
-      var fdn = parseInt(x[1], 10);
+      const fdn = parseInt(x[1], 10);
       fd = fdn_to_fd(fdn);
       buffer = atob(x[2]);
     } catch(err) {
@@ -322,9 +331,10 @@ var proxy_command_fns = {
 
   // rs fd [extra]
   rs:function(si, e) {
-    var x = e.data.split(' '), fd, extra;
+    const x = e.data.split(' ');
+    let fd, extra;
     try {
-      var fdn = parseInt(x[1], 10);
+      const fdn = parseInt(x[1], 10);
       fd = fdn_to_fd(fdn);
       // optional additional bytes - used for sync-responses which
       // send status+length as 8 bytes
@@ -338,9 +348,10 @@ var proxy_command_fns = {
   },
 
   ra:function(si, e) {
-    var x = e.data.split(' '), fd;
+    const x = e.data.split(' ');
+    let fd;
     try {
-      var fdn = parseInt(x[1], 10);
+      const fdn = parseInt(x[1], 10);
       fd = fdn_to_fd(fdn);
     } catch(err) {
       return end_of_command(si, 'ra error wrong parameters');
@@ -354,9 +365,10 @@ var proxy_command_fns = {
   },
 
   rj:function(si, e) {
-    var x = e.data.split(' '), fd;
+    const x = e.data.split(' ');
+    let fd;
     try {
-      var fdn = parseInt(x[1], 10);
+      const fdn = parseInt(x[1], 10);
       fd = fdn_to_fd(fdn);
     } catch(err) {
       return end_of_command(si, 'rj error wrong parameters');
@@ -366,9 +378,10 @@ var proxy_command_fns = {
   },
 
   rx:function(si, e) {
-    var x = e.data.split(' '), fd;
+    const x = e.data.split(' ');
+    let fd;
     try {
-      var fdn = parseInt(x[1], 10);
+      const fdn = parseInt(x[1], 10);
       fd = fdn_to_fd(fdn);
     } catch(err) {
       return end_of_command(si, 'rx error wrong parameters');
@@ -387,9 +400,10 @@ var proxy_command_fns = {
   },
 
   so:function(si, e) {
-    var x = e.data.split(' '), fd;
+    const x = e.data.split(' ');
+    let fd;
     try {
-      var fdn = parseInt(x[1], 10);
+      const fdn = parseInt(x[1], 10);
       fd = fdn_to_fd(fdn);
     } catch(err) {
       return end_of_command(si, 'so error wrong parameters');
@@ -399,9 +413,10 @@ var proxy_command_fns = {
   },
 
   wx:function(si, e) {
-    var x = e.data.split(' '), fd, buffer;
+    const x = e.data.split(' ');
+    let fd, buffer;
     try {
-      var fdn = parseInt(x[1], 10);
+      const fdn = parseInt(x[1], 10);
       fd = fdn_to_fd(fdn);
       buffer = atob(x[2]);
     } catch(err) {
@@ -416,7 +431,7 @@ var proxy_command_fns = {
   },
 
   dc:function(si, e) {
-    var x = e.data.split(' ');
+    const x = e.data.split(' ');
     if (x[1] === 'all') {
       while (si.fdarr.length) {
         si.fdarr.pop().close();
@@ -424,10 +439,10 @@ var proxy_command_fns = {
       return end_of_command(si, 'dc ok');
     }
 
-    var n = parseInt(x[1],10);
-    for (var i=0; i < si.fdarr.length; i++) {
+    const n = parseInt(x[1],10);
+    for (let i = 0; i < si.fdarr.length; i++) {
       if (si.fdarr[i].n === n) {
-        var fd = si.fdarr.splice(i,1)[0];
+        const fd = si.fdarr.splice(i,1)[0];
         fd.close();
         break;
       }

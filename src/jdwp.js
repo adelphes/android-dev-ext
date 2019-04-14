@@ -3,9 +3,9 @@ const { btoa,D,E,getutf8bytes,fromutf8bytes,intToHex } = require('./util');
     JDWP - The Java Debug Wire Protocol
 */
 function _JDWP() {
-	var gCommandId = 0;
-	var gCommandList = [];
-	var gEventCallbacks = {};
+	let gCommandId = 0;
+	const gCommandList = [];
+	const gEventCallbacks = {};
 
 	function Command(name, cs, cmd, outdatafn, replydecodefn) {
 		this.length = 11;
@@ -20,14 +20,14 @@ function _JDWP() {
 
 		this.name = name;
 		this.replydecodefn = replydecodefn;
-		this.promise = new Promise((resolve, reject) => {
-			this.completion = {resolve, reject};
-		})
+		// this.promise = new Promise((resolve, reject) => {
+		// 	this.completion = {resolve, reject};
+		// })
 	}
 
 	Command.prototype = {
 		toRawString : function() {
-			var s = '';
+			let s = '';
 			s += String.fromCharCode((this.length >> 24)&255);
 			s += String.fromCharCode((this.length >> 16)&255);
 			s += String.fromCharCode((this.length >> 8)&255);
@@ -39,9 +39,8 @@ function _JDWP() {
 			s += String.fromCharCode(this.flags);
 			s += String.fromCharCode(this.commandset);
 			s += String.fromCharCode(this.command);
-			var i=this.rawdata.length, j=0;
-			while (--i>=0) {
-				s += String.fromCharCode(this.rawdata[j++]);
+			for (let i = 0; i < this.rawdata.length; i++) {
+				s += String.fromCharCode(this.rawdata[i]);
 			}
 			return s;
 		},
@@ -63,34 +62,33 @@ function _JDWP() {
 		this.errorcode = s.charCodeAt(9) << 8;
 		this.errorcode += s.charCodeAt(10);
 		this.rawdata = new Array(s.length-11);
-		var i=0, j=this.rawdata.length;
-		while (--j>=0) {
-			this.rawdata[i]=s.charCodeAt(i+11);
+		let i = 0, j = this.rawdata.length;
+		while (--j >= 0) {
+			this.rawdata[i] = s.charCodeAt(i+11);
 			i++;
 		}
 		this.command = gCommandList[this.id];
 		
-		if (this.errorcode===16484) {
+		if (this.errorcode === 16484) {
             //	errorcode===16484 (0x4064) means a composite event command (set 64,cmd 100) sent from the VM
-            this.errorcode=0;
-            this.isevent=!0;
-            this.decoded=DataCoder.decodeCompositeEvent({
-				idx:0,
-				data:this.rawdata.slice()
+            this.errorcode = 0;
+            this.isevent = true;
+            this.decoded = DataCoder.decodeCompositeEvent({
+				idx: 0,
+				data: this.rawdata.slice()
             });
             // call any registered event callbacks
-            for (var i in this.decoded.events) {
-            	var event = this.decoded.events[i];
-            	var cbinfo = event.reqid && gEventCallbacks[event.reqid];
+            this.decoded.events.forEach(event => {
+            	const cbinfo = event.reqid && gEventCallbacks[event.reqid];
 				if (cbinfo) {
-					var e = { 
-						data:cbinfo.callback.data,
-						event:event,
-						reply:this,
+					const e = { 
+						data: cbinfo.callback.data,
+						event,
+						reply: this,
 					};
 					cbinfo.callback.fn.call(cbinfo.callback.ths, e);
 				}
-            }
+            });
             return;
 		}
 		
@@ -115,16 +113,6 @@ function _JDWP() {
 
 	this.decodereply = function(ths,s) {
 		const reply = new Reply(s);
-		if (reply.command) {
-			if (reply.errorcode) {
-				const err = new Error(`JDWP command failed '${reply.command.name}'. Error ${reply.errorcode}`);
-				err.command = reply.command;
-				err.reply = reply;
-				reply.command.completion.reject(err);
-			} else {
-				reply.command.completion.resolve(reply);
-			}
-		}
 		return reply;
 	};
 	
@@ -136,107 +124,103 @@ function _JDWP() {
 		DataCoder._idsizes = idsizes;
 	}
 
-	var DataCoder = {
+	const DataCoder = {
 		_idsizes:null,
 
 		nullRefValue: function() {
 			if (!this._idsizes._nullreftypeid) {
-				var x = '00', len = this._idsizes.reftypeidsize * 2; // each byte needs 2 chars
-				while (x.length < len) x += x;
+				let x = '00';
+				const len = this._idsizes.reftypeidsize * 2; // each byte needs 2 chars
+				while (x.length < len) {
+					x += x;
+				}
 				this._idsizes._nullreftypeid = x.slice(0, len); // should be power of 2, but just in case...
 			}
 			return this._idsizes._nullreftypeid;
 		},
 
 		decodeString: function(o) {
-			var rd = o.data;
-			var utf8len=(rd[o.idx++]<<24)+(rd[o.idx++]<<16)+(rd[o.idx++]<<8)+(rd[o.idx++]);
-			if (utf8len > 10000)
+			const rd = o.data;
+			let utf8len = (rd[o.idx++]<<24) + (rd[o.idx++]<<16) + (rd[o.idx++]<<8) + (rd[o.idx++]);
+			if (utf8len > 10000) {
 				utf8len = 10000;	// just to prevent hangs if the decoding is wrong
-			var res=fromutf8bytes(o.data.slice(o.idx, o.idx+utf8len));
-			o.idx+= utf8len;
+			}
+			const res = fromutf8bytes(o.data.slice(o.idx, o.idx+utf8len));
+			o.idx += utf8len;
 			return res;
 		},
 		decodeLong: function(o) {
-			var rd = o.data;
-			var res1=(rd[o.idx++]<<24)+(rd[o.idx++]<<16)+(rd[o.idx++]<<8)+(rd[o.idx++]);
-			var res2=(rd[o.idx++]<<24)+(rd[o.idx++]<<16)+(rd[o.idx++]<<8)+(rd[o.idx++]);
-			return intToHex(res1>>>0,8)+intToHex(res2>>>0,8);	// >>> 0 ensures +ve value
+			const rd = o.data;
+			const res1 = (rd[o.idx++]<<24) + (rd[o.idx++]<<16) + (rd[o.idx++]<<8) + (rd[o.idx++]);
+			const res2 = (rd[o.idx++]<<24) + (rd[o.idx++]<<16) + (rd[o.idx++]<<8) + (rd[o.idx++]);
+			return intToHex(res1>>>0,8) + intToHex(res2>>>0,8);	// >>> 0 ensures +ve value
 		},
 		decodeInt: function(o) {
-			var rd = o.data;
-			var res=(rd[o.idx++]<<24)+(rd[o.idx++]<<16)+(rd[o.idx++]<<8)+(rd[o.idx++]);
+			const rd = o.data;
+			const res = (rd[o.idx++]<<24) + (rd[o.idx++]<<16) + (rd[o.idx++]<<8) + (rd[o.idx++]);
 			return res;
 		},
 		decodeByte: function(o) {
-			var i = o.data[o.idx++];
-			return i<128?i:i-256;
+			const i = o.data[o.idx++];
+			return i<128 ? i : i-256;
 		},
 		decodeShort: function(o) {
-			var i = (o.data[o.idx++]<<8)+o.data[o.idx++];
-			return i<32768?i:i-65536;
+			const i = (o.data[o.idx++] << 8) + o.data[o.idx++];
+			return i<32768 ? i : i-65536;
 		},
 		decodeChar: function(o) {
-			return (o.data[o.idx++]<<8)+o.data[o.idx++];	// uint16
+			return (o.data[o.idx++] << 8) + o.data[o.idx++];	// uint16
 		},
 		decodeBoolean: function(o) {
-			return o.data[o.idx++] != 0;
+			return !!o.data[o.idx++];
 		},
 		decodeDecimal: function(bytes, signBits, exponentBits, fractionBits, eMin, eMax, littleEndian) {
-			var binary = "";
-			for (var i = 0, l = bytes.length; i < l; i++) {
-			var bits = bytes[i].toString(2);
-			while (bits.length < 8) 
-			  bits = "0" + bits;
-
-			if (littleEndian)
-			  binary = bits + binary;
-			else
-			  binary += bits;
+			let byte_bits = bytes.map(byte => `0000000${byte.toString(2)}`.slice(-8));
+			if (littleEndian) {
+				byte_bits = byte_bits.reverse();
 			}
+			const binary = byte_bits.join('');
 
-			var sign = (binary.charAt(0) == '1')?-1:1;
-			var exponent = parseInt(binary.substr(signBits, exponentBits), 2) - eMax;
-			var significandBase = binary.substr(signBits + exponentBits, fractionBits);
-			var significandBin = '1'+significandBase;
-			var i = 0;
-			var val = 1;
-			var significand = 0;
+			const sign = (binary[0] === '1') ? -1 : 1;
+			let exponent = parseInt(binary.substr(signBits, exponentBits), 2) - eMax;
+			const significandBase = binary.substr(signBits + exponentBits, fractionBits);
+			let significandBin = `1${significandBase}`;
+			let val = 1;
+			let significand = 0;
 
-			if (exponent+eMax===((eMax*2)+1)) {
-				if (significandBase.indexOf('1')<0)
-					return sign>0?Number.POSITIVE_INFINITY:Number.NEGATIVE_INFINITY;
+			if (exponent+eMax === ((eMax*2)+1)) {
+				if (significandBase.indexOf('1') < 0) {
+					return sign > 0 ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+				}
 				return Number.NaN;
 			}
-			if (exponent == -eMax) {
-			  if (significandBase.indexOf('1') == -1)
-				  return 0;
-			  else {
-				  exponent = eMin;
-				  significandBin = '0'+significandBase;
-			  }
+			if (exponent === -eMax) {
+				if (significandBase.indexOf('1') === -1) {
+					return 0;
+				}
+				exponent = eMin;
+				significandBin = `0${significandBase}`;
 			}
 
-			while (i < significandBin.length) {
-			  significand += val * parseInt(significandBin.charAt(i));
+			for (let bit of significandBin) {
+			  significand += val * bit;
 			  val = val / 2;
-			  i++;
 			}
 
 			return sign * significand * Math.pow(2, exponent);
 		},
 		decodeFloat: function(o) {
-			var bytes = o.data.slice(o.idx, o.idx+=4);
+			const bytes = o.data.slice(o.idx, o.idx+=4);
 			return this.decodeDecimal(bytes, 1, 8, 23, -126, 127, false);
 		},
 		decodeDouble: function(o) {
-			var bytes = o.data.slice(o.idx, o.idx+=8);
+			const bytes = o.data.slice(o.idx, o.idx+=8);
 			return this.decodeDecimal(bytes, 1, 11, 52, -1022, 1023, false);
 		},
 		decodeRef: function(o, bytes) {
-			var rd = o.data;
-			var res = '';
-			while (--bytes>=0) {
+			const rd = o.data;
+			let res = '';
+			for (let i = 0; i < bytes; i++) {
 				res += ('0'+rd[o.idx++].toString(16)).slice(-2);
 		    }
 			return res;
@@ -266,7 +250,7 @@ function _JDWP() {
 			return this.decodeValue(o);
 		},
 		decodeValue : function(o) {
-			var rd = o.data;
+			const rd = o.data;
 			return this.tagtodecoder(rd[o.idx++]).call(this, o);
 		},
 		tagtodecoder: function(tag) {
@@ -303,9 +287,12 @@ function _JDWP() {
 			return {value: value, string:values[value] };
 		},
 		mapflags : function(value,values) {
-			var res = {value: value, string:'[]'};
-			var flgs=[];
-			for (var i=value,j=0;i;i>>=1) {
+			const res = {
+				value,
+				string:'[]',
+			};
+			const flgs = [];
+			for (let i = value,j = 0; i; i>>=1) {
 				if ((i&1)&&(values[j]))
 					flgs.push(values[j]);
 				j++;
@@ -314,10 +301,10 @@ function _JDWP() {
 			return res;
 		},
 		decodeList: function(o, list) {
-			var res = {};
+			const res = {};
 			while (list.length) {
-				var next = list.shift();
-				for ( var key in next) {
+				const next = list.shift();
+				for ( let key in next) {
 				    switch(next[key]) {
 					    case 'string': res[key]=this.decodeString(o); break;
 					    case 'int': res[key]=this.decodeInt(o); break;
@@ -347,21 +334,24 @@ function _JDWP() {
 			};
 		},
 		decodeTypeFromSignature : function(o) {
-			var sig = this.decodeString(o);
+			const sig = this.decodeString(o);
 			return this.signaturetotype(sig);
 		},
 	    decodeCompositeEvent: function (o) {
-			var rd = o.data;
-	        var res = {};
+			const rd = o.data;
+	        const res = {};
     	    res.suspend = rd[o.idx++];
     	    res.events = [];
-    	    var arrlen = this.decodeInt(o);
-    	    while (--arrlen>=0) {
+    	    let arrlen = this.decodeInt(o);
+    	    while (--arrlen >= 0) {
     	    	// all event types return kind+requestid as their first entries
-        	    var event = { 
-        	    	kind:{name:'', value:rd[o.idx++]},
+        	    const event = { 
+        	    	kind:{
+						name:'',
+						value:rd[o.idx++],
+					},
 				};
-				var eventkinds = ['','step','breakpoint','framepop','exception','userdefined','threadstart','threadend','classprepare','classunload','classload'];
+				const eventkinds = ['','step','breakpoint','framepop','exception','userdefined','threadstart','threadend','classprepare','classunload','classload'];
 				event.kind.name = eventkinds[event.kind.value];
         	    switch(event.kind.value) {
         	        case 1: // step
@@ -418,24 +408,26 @@ function _JDWP() {
 			this.encodeShort(res, typeof c === 'string' ? c.charCodeAt(0) : c);
 		},
 		encodeString : function(res, s) {
-			var utf8bytes = getutf8bytes(s);
+			const utf8bytes = getutf8bytes(s);
 			this.encodeInt(res, utf8bytes.length);
-			for (var i=0; i < utf8bytes.length; i++)
+			for (let i = 0; i < utf8bytes.length; i++)
 				res.push(utf8bytes[i]);
 		},
 		encodeRef: function(res, ref) {
-			if (ref === null) ref = this.nullRefValue();
-		    for(var i=0; i < ref.length; i+=2) {
+			if (ref === null) {
+				ref = this.nullRefValue();
+			}
+		    for(let i = 0; i < ref.length; i+=2) {
 		        res.push(parseInt(ref.substring(i,i+2), 16));
 	        }
 		},
 		encodeLong: function(res, l) {
-		    for(var i=0; i < l.length; i+=2) {
+		    for(let i = 0; i < l.length; i+=2) {
 		        res.push(parseInt(l.substring(i,i+2), 16));
 	        }
 		},
 		encodeDouble: function(res, value) {
-			var hiWord = 0, loWord = 0;
+			let hiWord = 0, loWord = 0;
 			switch (value) {
 				case Number.POSITIVE_INFINITY: hiWord = 0x7FF00000; break;
 				case Number.NEGATIVE_INFINITY: hiWord = 0xFFF00000; break;
@@ -449,8 +441,8 @@ function _JDWP() {
 						value = -value;
 					}
 
-					var exponent = Math.floor(Math.log(value) / Math.log(2));
-					var significand = Math.floor((value / Math.pow(2, exponent)) * Math.pow(2, 52));
+					let exponent = Math.floor(Math.log(value) / Math.log(2));
+					let significand = Math.floor((value / Math.pow(2, exponent)) * Math.pow(2, 52));
 
 					loWord = significand & 0xFFFFFFFF;
 					significand /= Math.pow(2, 32);
@@ -469,7 +461,7 @@ function _JDWP() {
 			this.encodeInt(res, loWord);
 		},
 		encodeFloat: function(res, value) {
-			var bytes = 0;
+			let bytes = 0;
 			switch (value) {
 				case Number.POSITIVE_INFINITY: bytes = 0x7F800000; break;
 				case Number.NEGATIVE_INFINITY: bytes = 0xFF800000; break;
@@ -483,8 +475,8 @@ function _JDWP() {
 						value = -value;
 					}
 
-					var exponent = Math.floor(Math.log(value) / Math.log(2));
-					var significand = ((value / Math.pow(2, exponent)) * 0x00800000) | 0;
+					let exponent = Math.floor(Math.log(value) / Math.log(2));
+					let significand = ((value / Math.pow(2, exponent)) * 0x00800000) | 0;
 
 					exponent += 127;
 					if (exponent >= 0xFF) {
@@ -532,26 +524,26 @@ function _JDWP() {
 		},
 
 		signaturetotype:function(signature) {
-			var m = signature.match(/^L([^$]+)\/([^$\/]+)(\$.+)?;$/);
-			if (m) {
+			const class_match = signature.match(/^L([^$]+)\/([^$\/]+)(\$.+)?;$/);
+			if (class_match) {
 				return {
-					signature: signature,
-					package: m[1].replace(/\//g,'.'),
-					typename: (m[2]+(m[3]||'')).replace(/\$(?=[^\d])/g,'.'),
-					anonymous: /\$\d/.test(m[3]),
+					signature,
+					package: class_match[1].replace(/\//g,'.'),
+					typename: (class_match[2]+(class_match[3]||'')).replace(/\$(?=[^\d])/g,'.'),
+					anonymous: /\$\d/.test(class_match[3]),
 				}
 			}
-			m = signature.match(/^(\[+)(.+)$/);
-			if (m) {
-				var elementtype = this.signaturetotype(m[1].slice(0,-1) + m[2]);
+			const array_match = signature.match(/^(\[+)(.+)$/);
+			if (array_match) {
+				const elementtype = this.signaturetotype(array_match[1].slice(0,-1) + array_match[2]);
 				return {
-					signature:signature,
-					arraydims:m[1].length,
-					elementtype: elementtype,
-					typename:elementtype.typename+'[]',
+					signature,
+					arraydims: array_match[1].length,
+					elementtype,
+					typename: elementtype.typename+'[]',
 				}
 			}
-			var primitivetypes = {
+			const primitivetypes = {
 				B: { signature:'B', typename:'byte', primitive:true, },
 				C: { signature:'C', typename:'char', primitive:true, },
 				F: { signature:'F', typename:'float', primitive:true, },
@@ -562,17 +554,18 @@ function _JDWP() {
 				V: { signature:'V', typename:'void', primitive:true, },
 				Z: { signature:'Z', typename:'boolean', primitive:true, },
 			}
-			var res = (signature.length===1)?primitivetypes[signature[0]]:null;
-			if (res) return res;
+			const primitive_match = (signature.length === 1) ? primitivetypes[signature[0]] : null;
+			if (primitive_match) {
+				return primitive_match;
+			}
 			return {
-				signature:signature,
-				typename:signature,
-				invalid:true,
+				signature,
+				typename: signature,
+				invalid: true,
 			}
 		},
 	};
 
-	//var Commands = {
 	this.Commands = {
 		version:function() {
 			return new Command('version',1, 1,
@@ -595,14 +588,14 @@ function _JDWP() {
 		classinfo:function(ci) {
 			return new Command('ClassesBySignature:'+ci.name, 1, 2,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeString(res, ci.type.signature);
 					return res;
 				},
 				function(o) {
-					var arrlen = DataCoder.decodeInt(o);
-					var res = [];
-					while (--arrlen>=0) {
+					let arrlen = DataCoder.decodeInt(o);
+					const res = [];
+					while (--arrlen >= 0) {
 						res.push(DataCoder.decodeList(o, [{reftype:'reftype'},{typeid:'tref'},{status:'status'}]));
 					}
 					return res;
@@ -613,14 +606,14 @@ function _JDWP() {
     		// not supported by Dalvik
 			return new Command('Fields:'+ci.name, 2, 4,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, ci.info.typeid);
 					return res;
 				},
 				function(o) {
-					var arrlen = DataCoder.decodeInt(o);
-					var res = [];
-					while (--arrlen>=0) {
+					let arrlen = DataCoder.decodeInt(o);
+					const res = [];
+					while (--arrlen >= 0) {
 						res.push(DataCoder.decodeList(o, [{fieldid:'fref'},{name:'string'},{sig:'string'},{modbits:'int'}]));
 					}
 					return res;
@@ -631,14 +624,14 @@ function _JDWP() {
     		// not supported by Dalvik - use methodsWithGeneric
 			return new Command('Methods:'+ci.name, 2, 5,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, ci.info.typeid);
 					return res;
 				},
 				function(o) {
-					var arrlen = DataCoder.decodeInt(o);
-					var res = [];
-					while (--arrlen>=0) {
+					let arrlen = DataCoder.decodeInt(o);
+					const res = [];
+					while (--arrlen >= 0) {
 						res.push(DataCoder.decodeList(o, [{methodid:'mref'},{name:'string'},{sig:'string'},{modbits:'int'}]));
 					}
 					return res;
@@ -648,19 +641,19 @@ function _JDWP() {
 		GetStaticFieldValues:function(typeid, fields) {
 			return new Command('GetStaticFieldValues:'+typeid, 2, 6,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, typeid);
 					DataCoder.encodeInt(res, fields.length);
-					for (var i in fields) {
+					for (const i in fields) {
 						DataCoder.encodeRef(res, fields[i].fieldid);
 					}
 					return res;
 				},
 				function(o) {
-					var res = [];
-					var arrlen = DataCoder.decodeInt(o);
-					while (--arrlen>=0) {
-    					var v = DataCoder.decodeValue(o);
+					const res = [];
+					let arrlen = DataCoder.decodeInt(o);
+					while (--arrlen >= 0) {
+    					const v = DataCoder.decodeValue(o);
 					    res.push(v);
 					}
 					return res;
@@ -670,7 +663,7 @@ function _JDWP() {
 		sourcefile:function(ci) {
 			return new Command('SourceFile:'+ci.name, 2, 7,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, ci.info.typeid);
 					return res;
 				},
@@ -682,15 +675,15 @@ function _JDWP() {
 		fieldsWithGeneric:function(ci) {
 			return new Command('FieldsWithGeneric:'+ci.name, 2, 14,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, ci.info.typeid);
 					return res;
 				},
 				function(o) {
-					var arrlen = DataCoder.decodeInt(o);
-					var res = [];
-					while (--arrlen>=0) {
-						var field = DataCoder.decodeList(o, [{fieldid:'fref'},{name:'string'},{type:'signature'},{genericsig:'string'},{modbits:'int'}]);
+					let arrlen = DataCoder.decodeInt(o);
+					const res = [];
+					while (--arrlen >= 0) {
+						const field = DataCoder.decodeList(o, [{fieldid:'fref'},{name:'string'},{type:'signature'},{genericsig:'string'},{modbits:'int'}]);
 						field.typeid = ci.info.typeid;
 						res.push(field);
 					}
@@ -701,14 +694,14 @@ function _JDWP() {
 		methodsWithGeneric:function(ci) {
 			return new Command('MethodsWithGeneric:'+ci.name, 2, 15,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, ci.info.typeid);
 					return res;
 				},
 				function(o) {
-					var arrlen = DataCoder.decodeInt(o);
-					var res = [];
-					while (--arrlen>=0) {
+					let arrlen = DataCoder.decodeInt(o);
+					const res = [];
+					while (--arrlen >= 0) {
 						res.push(DataCoder.decodeList(o, [{methodid:'mref'},{name:'string'},{sig:'string'},{genericsig:'string'},{modbits:'int'}]));
 					}
 					return res;
@@ -718,7 +711,7 @@ function _JDWP() {
 		superclass:function(ci) {
 			return new Command('Superclass:'+ci.name, 3, 1,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, ci.info.typeid);
 					return res;
 				},
@@ -730,7 +723,7 @@ function _JDWP() {
 		signature:function(typeid) {
 			return new Command('Signature:'+typeid, 2, 1,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, typeid);
 					return res;
 				},
@@ -743,15 +736,15 @@ function _JDWP() {
 		nestedTypes:function(ci) {
 			return new Command('NestedTypes:'+ci.name, 2, 8,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, ci.info.typeid);
 					return res;
 				},
 				function(o) {
-					var res=[];
-					var arrlen = DataCoder.decodeInt(o);
-					while (--arrlen>=0) {
-    					var v = DataCoder.decodeList(o, [{reftype:'reftype'},{typeid:'tref'}]);
+					const res = [];
+					let arrlen = DataCoder.decodeInt(o);
+					while (--arrlen >= 0) {
+    					const v = DataCoder.decodeList(o, [{reftype:'reftype'},{typeid:'tref'}]);
 					    res.push(v);
 					}
 					return res;
@@ -761,19 +754,19 @@ function _JDWP() {
 		lineTable:function(ci, mi) {
 			return new Command('Linetable:'+ci.name+","+mi.name, 6, 1,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, ci.info.typeid);
 					DataCoder.encodeRef(res, mi.methodid);
 					return res;
 				},
 				function(o) {
-					var res = {};
+					const res = {};
 					res.start = DataCoder.decodeLong(o, true);
 					res.end = DataCoder.decodeLong(o, true);
 					res.lines = [];
-					var arrlen = DataCoder.decodeInt(o);
-					while (--arrlen>=0) {
-    					var line = DataCoder.decodeList(o, [{linecodeidx:'codeindex'},{linenum:'int'}]);
+					let arrlen = DataCoder.decodeInt(o);
+					while (--arrlen >= 0) {
+    					const line = DataCoder.decodeList(o, [{linecodeidx:'codeindex'},{linenum:'int'}]);
 					    res.lines.push(line);
 					}
 					// sort the lines by...um..line number
@@ -789,18 +782,18 @@ function _JDWP() {
 		    // VariableTable is not supported by Dalvik
 			return new Command('VariableTableWithGeneric:'+ci.name+","+mi.name, 6, 5,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, ci.info.typeid);
 					DataCoder.encodeRef(res, mi.methodid);
 					return res;
 				},
 				function(o) {
-					var res = {};
+					const res = {};
 					res.argCnt = DataCoder.decodeInt(o);
 					res.vars = [];
-					var arrlen = DataCoder.decodeInt(o);
-					while (--arrlen>=0) {
-    					var v = DataCoder.decodeList(o, [{codeidx:'codeindex'},{name:'string'},{type:'signature'},{genericsig:'string'},{length:'int'},{slot:'int'}]);
+					let arrlen = DataCoder.decodeInt(o);
+					while (--arrlen >= 0) {
+    					const v = DataCoder.decodeList(o, [{codeidx:'codeindex'},{name:'string'},{type:'signature'},{genericsig:'string'},{length:'int'},{slot:'int'}]);
 					    res.vars.push(v);
 					}
 					return res;
@@ -810,17 +803,17 @@ function _JDWP() {
 		Frames:function(threadid, start, count) {
 			return new Command('Frames:'+threadid, 11, 6,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, threadid);
 					DataCoder.encodeInt(res, start||0);
 					DataCoder.encodeInt(res, count||-1);
 					return res;
 				},
 				function(o) {
-					var res = [];
-					var arrlen = DataCoder.decodeInt(o);
-					while (--arrlen>=0) {
-    					var v = DataCoder.decodeList(o, [{frameid:'frameid'},{location:'location'}]);
+					const res = [];
+					let arrlen = DataCoder.decodeInt(o);
+					while (--arrlen >= 0) {
+    					const v = DataCoder.decodeList(o, [{frameid:'frameid'},{location:'location'}]);
 					    res.push(v);
 					}
 					return res;
@@ -830,21 +823,21 @@ function _JDWP() {
 		GetStackValues:function(threadid, frameid, slots) {
 			return new Command('GetStackValues:'+threadid, 16, 1,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, threadid);
 					DataCoder.encodeRef(res, frameid);
 					DataCoder.encodeInt(res, slots.length);
-					for (var i in slots) {
+					for (const i in slots) {
 						DataCoder.encodeInt(res, slots[i].slot);
 						DataCoder.encodeByte(res, slots[i].tag);
 					}
 					return res;
 				},
 				function(o) {
-					var res = [];
-					var arrlen = DataCoder.decodeInt(o);
-					while (--arrlen>=0) {
-    					var v = DataCoder.decodeValue(o);
+					const res = [];
+					let arrlen = DataCoder.decodeInt(o);
+					while (--arrlen >= 0) {
+    					const v = DataCoder.decodeValue(o);
 					    res.push(v);
 					}
 					return res;
@@ -854,7 +847,7 @@ function _JDWP() {
 		SetStackValue:function(threadid, frameid, slot, data) {
 			return new Command('SetStackValue:'+threadid, 16, 2,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, threadid);
 					DataCoder.encodeRef(res, frameid);
 					DataCoder.encodeInt(res, 1);
@@ -871,7 +864,7 @@ function _JDWP() {
 		GetObjectType:function(objectid) {
 			return new Command('GetObjectType:'+objectid, 9, 1,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, objectid);
 					return res;
 				},
@@ -884,19 +877,19 @@ function _JDWP() {
 		GetFieldValues:function(objectid, fields) {
 			return new Command('GetFieldValues:'+objectid, 9, 2,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, objectid);
 					DataCoder.encodeInt(res, fields.length);
-					for (var i in fields) {
+					for (const i in fields) {
 						DataCoder.encodeRef(res, fields[i].fieldid);
 					}
 					return res;
 				},
 				function(o) {
-					var res = [];
-					var arrlen = DataCoder.decodeInt(o);
-					while (--arrlen>=0) {
-    					var v = DataCoder.decodeValue(o);
+					const res = [];
+					let arrlen = DataCoder.decodeInt(o);
+					while (--arrlen >= 0) {
+    					const v = DataCoder.decodeValue(o);
 					    res.push(v);
 					}
 					return res;
@@ -906,7 +899,7 @@ function _JDWP() {
 		SetFieldValue:function(objectid, field, data) {
 			return new Command('SetFieldValue:'+objectid, 9, 3,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, objectid);
 					DataCoder.encodeInt(res, 1);
 					DataCoder.encodeRef(res, field.fieldid);
@@ -922,7 +915,7 @@ function _JDWP() {
 		InvokeMethod:function(objectid, threadid, classid, methodid, args) {
 			return new Command('InvokeMethod:'+[objectid, threadid, classid, methodid, args].join(','), 9, 6,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, objectid);
 					DataCoder.encodeRef(res, threadid);
 					DataCoder.encodeRef(res, classid);
@@ -943,7 +936,7 @@ function _JDWP() {
 		GetArrayLength:function(arrobjid) {
 			return new Command('GetArrayLength:'+arrobjid, 13, 1,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, arrobjid);
 					return res;
 				},
@@ -955,22 +948,23 @@ function _JDWP() {
 		GetArrayValues:function(arrobjid, idx, count) {
 			return new Command('GetArrayValues:'+arrobjid, 13, 2,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, arrobjid);
 					DataCoder.encodeInt(res, idx);
 					DataCoder.encodeInt(res, count);
 					return res;
 				},
 				function(o) {
-					var res = [];
-					var tag = DataCoder.decodeByte(o);
-					var decodefn = DataCoder.tagtodecoder(tag);
+					const res = [];
+					const tag = DataCoder.decodeByte(o);
+					let decodefn = DataCoder.tagtodecoder(tag);
 					// objects are decoded as values
-					if (decodefn===DataCoder.decodeORef)
+					if (decodefn === DataCoder.decodeORef) {
 						decodefn = DataCoder.decodeValue;
-					var arrlen = DataCoder.decodeInt(o);
-					while (--arrlen>=0) {
-    					var v = decodefn.call(DataCoder, o);
+					}
+					let arrlen = DataCoder.decodeInt(o);
+					while (--arrlen >= 0) {
+    					const v = decodefn.call(DataCoder, o);
 					    res.push(v);
 					}
 					return res;
@@ -980,11 +974,11 @@ function _JDWP() {
 		SetArrayElements:function(arrobjid, idx, count, data) {
 			return new Command('SetArrayElements:'+arrobjid, 13, 3,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, arrobjid);
 					DataCoder.encodeInt(res, idx);
 					DataCoder.encodeInt(res, count);
-					for (var i=0; i < count; i++)
+					for (let i = 0; i < count; i++)
 						DataCoder.encodeValue(res, data.valuetype, data.value);
 					return res;
 				},
@@ -997,7 +991,7 @@ function _JDWP() {
 		GetStringValue:function(strobjid) {
 			return new Command('GetStringValue:'+strobjid, 10, 1,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, strobjid);
 					return res;
 				},
@@ -1009,7 +1003,7 @@ function _JDWP() {
 		CreateStringObject:function(text) {
 			return new Command('CreateStringObject:'+text.substring(0,20), 1, 11,
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeString(res, text);
 					return res;
 				},
@@ -1021,15 +1015,15 @@ function _JDWP() {
 		SetEventRequest:function(kindname, kind, suspend, modifiers, modifiercb, onevent) {
 			return new Command('SetEventRequest:'+kindname, 15, 1,
 				function() {
-					var res=[kind,suspend];
+					const res = [kind, suspend];
 					DataCoder.encodeInt(res, modifiers.length);
-					for (var i=0;i<modifiers.length; i++) {
+					for (let i = 0; i < modifiers.length; i++) {
                         modifiercb(modifiers[i], i, res);
 					}
 					return res;
 				},
 				function(o) {
-					var res = {
+					const res = {
 						id:DataCoder.decodeInt(o),
 						callback: onevent,
 					};
@@ -1042,7 +1036,7 @@ function _JDWP() {
 		ClearEvent:function(kindname, kind, requestid) {
 			return new Command('ClearEvent:'+kindname, 15, 2,
 				function() {
-					var res=[kind];
+					const res = [kind];
 					DataCoder.encodeInt(res, requestid);
 					D('Clearing event request: '+kindname+', id:'+requestid);
 					return res;
@@ -1051,8 +1045,12 @@ function _JDWP() {
 		},
 		SetSingleStep:function(steptype, threadid, onevent) {
 			// a wrapper around SetEventRequest
-			var stepdepths = {into:0,over:1,out:2};
-			var mods =[{
+			const stepdepths = {
+				into: 0,
+				over: 1,
+				out:2,
+			};
+			const mods = [{
 			    modkind:10, // step
 			    threadid: threadid,
 			    size:1,// =Line
@@ -1072,9 +1070,14 @@ function _JDWP() {
 		},
 		SetBreakpoint:function(ci, mi, idx, hitcount, onevent) {
 			// a wrapper around SetEventRequest
-			var mods = [{
-			    modkind:7, // location
-			    loc:{ type:ci.info.reftype.value, cid:ci.info.typeid, mid:mi.methodid, idx:idx },
+			const mods = [{
+			    modkind: 7, // location
+			    loc: {
+					type: ci.info.reftype.value,
+					cid: ci.info.typeid,
+					mid: mi.methodid,
+					idx: idx,
+				},
 				encode(res) {
 					res.push(this.modkind);
 					res.push(this.loc.type);
@@ -1086,7 +1089,7 @@ function _JDWP() {
 			if (hitcount > 0) {
 				// remember when setting a hitcount, the event is automatically cancelled after being fired
 				mods.unshift({
-					modkind:1,
+					modkind: 1,
 					count: hitcount,
 					encode(res) {
 						res.push(this.modkind);
@@ -1113,7 +1116,7 @@ function _JDWP() {
 		},
 		ThreadStartNotify:function(onevent) {
 			// a wrapper around SetEventRequest
-			var mods = [];
+			const mods = [];
 			// kind(6=threadstart)
 			// suspendpolicy(0=none,1=event-thread,2=all)
 			return this.SetEventRequest("threadstart",6,1,mods,
@@ -1123,7 +1126,7 @@ function _JDWP() {
 		},
 		ThreadEndNotify:function(onevent) {
 			// a wrapper around SetEventRequest
-			var mods = [];
+			const mods = [];
 			// kind(7=threadend)
 			// suspendpolicy(0=none,1=event-thread,2=all)
 			return this.SetEventRequest("threadend",7,1,mods,
@@ -1133,7 +1136,7 @@ function _JDWP() {
 		},
 		OnClassPrepare:function(pattern, onevent) {
 			// a wrapper around SetEventRequest
-			var mods = [{
+			const mods = [{
 			    modkind:5, // classmatch
 			    pattern: pattern,
 		    }];
@@ -1153,7 +1156,7 @@ function _JDWP() {
 		},
 		SetExceptionBreak:function(pattern, caught, uncaught, onevent) {
 			// a wrapper around SetEventRequest
-			var mods = [{
+			const mods = [{
 				modkind:8,	// exceptiononly
 				reftypeid: DataCoder.nullRefValue(),	// exception class
 				caught: caught,
@@ -1187,9 +1190,9 @@ function _JDWP() {
 			return new Command('allclasses',1,20,
 				null,
 				function(o) {
-					var res = [];
-					var arrlen = DataCoder.decodeInt(o);
-					while (--arrlen>=0) {
+					const res = [];
+					let arrlen = DataCoder.decodeInt(o);
+					while (--arrlen >= 0) {
 						res.push(DataCoder.decodeList(o, [{reftype:'reftype'},{typeid:'tref'},{type:'signature'},{genericSignature:'string'},{status:'status'}]));
 					}
 					return res;
@@ -1205,7 +1208,7 @@ function _JDWP() {
 		suspendthread:function(threadid) {
 			return new Command('suspendthread:'+threadid,11, 2, 
 				function() {
-					var res = [];
+					const res = [];
 					DataCoder.encodeRef(res, this);
 					return res;
 				}.bind(threadid),
@@ -1215,7 +1218,7 @@ function _JDWP() {
 		resumethread:function(threadid) {
 			return new Command('resumethread:'+threadid,11, 3, 
 				function() {
-					var res = [];
+					const res = [];
 					DataCoder.encodeRef(res, this);
 					return res;
 				}.bind(threadid),
@@ -1226,9 +1229,9 @@ function _JDWP() {
 			return new Command('allthreads',1, 4, 
 				null, 
 				function(o) {
-					var res = [];
-					var arrlen = DataCoder.decodeInt(o);
-					while (--arrlen>=0) {
+					const res = [];
+					let arrlen = DataCoder.decodeInt(o);
+					while (--arrlen >= 0) {
 						res.push(DataCoder.decodeTRef(o));
 					}
 					return res;
@@ -1238,7 +1241,7 @@ function _JDWP() {
 		threadname:function(threadid) {
 			return new Command('threadname',11,1, 
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, this);
 					return res;
 				}.bind(threadid),
@@ -1250,7 +1253,7 @@ function _JDWP() {
 		threadstatus:function(threadid) {
 			return new Command('threadstatus',11,4, 
 				function() {
-					var res=[];
+					const res = [];
 					DataCoder.encodeRef(res, this);
 					return res;
 				}.bind(threadid),

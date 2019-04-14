@@ -158,24 +158,24 @@ class AndroidDebugSession extends DebugSession {
     }
 
     getThread(id) {
-        var t;
+        let thread;
         switch(typeof id) {
             case 'string': 
-                t = this._threads[id];
-                if (!t) {
-                    t = new AndroidThread(this, id, ++this._nextVSCodeThreadId);
-                    this._threads[id] = this._threads.array[t.vscode_threadid] = t;
+                thread = this._threads[id];
+                if (!thread) {
+                    thread = new AndroidThread(this, id, ++this._nextVSCodeThreadId);
+                    this._threads[id] = this._threads.array[thread.vscode_threadid] = thread;
                 }
                 break;
             case 'number': 
-                t = this._threads.array[id];
+                thread = this._threads.array[id];
                 break;
         }
-        return t;
+        return thread;
     }
 
     reportStoppedEvent(reason, location, last_exception) {
-        var thread = this.getThread(location.threadid);
+        const thread = this.getThread(location.threadid);
         if (thread.stepTimeout) {
             clearTimeout(thread.stepTimeout);
             thread.stepTimeout = null;
@@ -183,8 +183,9 @@ class AndroidDebugSession extends DebugSession {
         if (thread.paused) {
             // this thread is already in the paused state - ignore the notification
             thread.paused.reasons.push(reason);
-            if (last_exception)
+            if (last_exception) {
                 thread.paused.last_exception = last_exception;
+            }
             return;
         }
         thread.paused = {
@@ -203,27 +204,27 @@ class AndroidDebugSession extends DebugSession {
         return this.dbgr.allthreads()
             .then(thread_ids => this.dbgr.threadinfos(thread_ids))
             .then(threadinfos => {
-                for (var i=0; i < threadinfos.length; i++) {
-                    var ti = threadinfos[i];
-                    var thread = this.getThread(ti.threadid);
+                threadinfos.forEach(threadinfo => {
+                    const thread = this.getThread(threadinfo.threadid);
                     if (thread.name === null) {
-                        thread.name = ti.name;
-                    } else if (thread.name !== ti.name) {
+                        thread.name = threadinfo.name;
+                    } else if (thread.name !== threadinfo.name) {
                         // give the thread a new id for VS code
                         delete this._threads.array[thread.vscode_threadid];
                         thread.vscode_threadid = ++this._nextVSCodeThreadId;
                         this._threads.array[thread.vscode_threadid] = thread;
-                        thread.name = ti.name;
+                        thread.name = threadinfo.name;
                     }
-                }
+                });
 
                 // remove any threads that are no longer in the system
-                this._threads.array.reduceRight((threadinfos,t) => {
-                    if (!t) return threadinfos;
-                    var exists = threadinfos.find(ti => ti.threadid === t.threadid);
-                    if (!exists) {
-                        delete this._threads[t.threadid];
-                        delete this._threads.array[t.vscode_threadid];
+                this._threads.array.reduceRight((threadinfos,thread) => {
+                    if (thread) {
+                        const exists = threadinfos.find(ti => ti.threadid === thread.threadid);
+                        if (!exists) {
+                            delete this._threads[thread.threadid];
+                            delete this._threads.array[thread.vscode_threadid];
+                        }
                     }
                     return threadinfos;
                 },threadinfos);
@@ -264,7 +265,7 @@ class AndroidDebugSession extends DebugSession {
             return;
         }
 
-        var fail_launch = (msg) => Promise.reject(new Error(msg));
+        const fail_launch = (msg) => Promise.reject(new Error(msg));
 
         this.LOG('Checking build')
         this.getAPKFileInfo()
@@ -280,7 +281,7 @@ class AndroidDebugSession extends DebugSession {
                     }
                 }
                 // check we have something to launch - we do this again later, but it's a bit better to do it before we start device comms
-                var launchActivity = args.launchActivity;
+                let launchActivity = args.launchActivity;
                 if (!launchActivity)
                     if (!(launchActivity = this.apk_file_info.launcher))
                         return fail_launch('No valid launch activity found in AndroidManifest.xml or launch.json');
@@ -288,13 +289,13 @@ class AndroidDebugSession extends DebugSession {
                 return new ADBClient().test_adb_connection()
                     .then(err => {
                         // if adb is not running, see if we can start it ourselves using ANDROID_HOME (and a sensible port number)
-                        var adbport = ws_proxy.adbport;
+                        const adbport = ws_proxy.adbport;
                         if (err && args.autoStartADB!==false && process.env.ANDROID_HOME && typeof adbport === 'number' && adbport > 0 && adbport < 65536) {
-                            var adbpath = path.join(process.env.ANDROID_HOME, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');
-                            var adbargs = ['-P',''+adbport,'start-server'];
+                            const adbpath = path.join(process.env.ANDROID_HOME, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');
+                            const adbargs = ['-P',''+adbport,'start-server'];
                             try {
                                 this.LOG([adbpath, ...adbargs].join(' '));
-                                var stdout = require('child_process').execFileSync(adbpath, adbargs, {cwd:process.env.ANDROID_HOME, encoding:'utf8'});
+                                const stdout = require('child_process').execFileSync(adbpath, adbargs, {cwd:process.env.ANDROID_HOME, encoding:'utf8'});
                                 this.LOG(stdout);
                             } catch (ex) {} // if we fail, it doesn't matter - the device query will fail and the user will have to work it out themselves
                         }
@@ -330,7 +331,7 @@ class AndroidDebugSession extends DebugSession {
 
                 // look for the android sources folder appropriate for this device
                 if (process.env.ANDROID_HOME && apilevel) {
-                    var sources_path = path.join(process.env.ANDROID_HOME,'sources','android-'+apilevel);
+                    const sources_path = path.join(process.env.ANDROID_HOME,'sources',`android-${apilevel}`);
                     fs.stat(sources_path, (err,stat) => {
                         if (!err && stat && stat.isDirectory())
                             this._android_sources_path = sources_path;
@@ -338,11 +339,11 @@ class AndroidDebugSession extends DebugSession {
                 }
 
                 // start the launch
-                var launchActivity = args.launchActivity;
+                let launchActivity = args.launchActivity;
                 if (!launchActivity)
                     if (!(launchActivity = this.apk_file_info.launcher))
                         return fail_launch('No valid launch activity found in AndroidManifest.xml or launch.json');
-                var build = {
+                const build = {
                     pkgname:this.apk_file_info.package, 
                     packages:Object.assign({}, this.src_packages.packages),
                     launchActivity: launchActivity,
@@ -395,9 +396,10 @@ class AndroidDebugSession extends DebugSession {
         this.LOG('Deploying current build...');
         const device_apk_fpn = '/data/local/tmp/debug.apk';
         return this._device.adbclient.push_file({
-            filepathname:device_apk_fpn,
-            filedata:this._apk_file_data,
-            filemtime:new Date().getTime(),
+            pathname: device_apk_fpn,
+            data: this._apk_file_data,
+            mtime: (Date.now() / 1000) | 0,
+            perms: 0o100664,
         })
         .then(() => {
             // send the install command
@@ -451,17 +453,21 @@ class AndroidDebugSession extends DebugSession {
                         const pkg_xpath = '/manifest/@package';
                         result.package = xpath.select1(pkg_xpath, doc).value;
                         const android_select = xpath.useNamespaces({"android": "http://schemas.android.com/apk/res/android"});
+                        
                         // extract a list of all the (named) activities declared in the manifest
-                        const activity_xpath='/manifest/application/activity/@android:name';
-                        var nodes = android_select(activity_xpath, doc);
-                        nodes && (result.activities = nodes.map(n => n.value));
+                        const activity_xpath = '/manifest/application/activity/@android:name';
+                        const activity_nodes = android_select(activity_xpath, doc);
+                        if (activity_nodes) {
+                            result.activities = activity_nodes.map(n => n.value);
+                        }
 
                         // extract the default launcher activity
-                        const launcher_xpath='/manifest/application/activity[intent-filter/action[@android:name="android.intent.action.MAIN"] and intent-filter/category[@android:name="android.intent.category.LAUNCHER"]]/@android:name';
-                        var nodes = android_select(launcher_xpath, doc);
+                        const launcher_xpath = '/manifest/application/activity[intent-filter/action[@android:name="android.intent.action.MAIN"] and intent-filter/category[@android:name="android.intent.category.LAUNCHER"]]/@android:name';
+                        const launcher_nodes = android_select(launcher_xpath, doc);
                         // should we warn if there's more than one?
-                        if (nodes && nodes.length >= 1)
-                            result.launcher = nodes[0].value
+                        if (launcher_nodes && launcher_nodes.length >= 1) {
+                            result.launcher = launcher_nodes[0].value
+                        }
                     } catch(err) {
                         return reject(new Error('Manifest parse failed. ' + err.message));
                     }
@@ -532,28 +538,36 @@ class AndroidDebugSession extends DebugSession {
     scanSourceSync(app_root) {
         try {
             // scan known app folders looking for file changes and package folders
-            var p, paths = fs.readdirSync(app_root,'utf8'), done=[];
-            var src_packages = {
+            let subpaths = fs.readdirSync(app_root,'utf8');
+            const done_subpaths = new Set();
+            const src_packages = {
                 last_src_modified: 0,
                 packages: {},
             };
-            while (paths.length) {
-                p = paths.shift();
+            while (subpaths.length) {
+                const subpath = subpaths.shift();
                 // just in case someone has some crazy circular links going on
-                if (done.indexOf(p)>=0) continue;
-                done.push(p);
-                var subfiles = [], stat, fpn = path.join(app_root,p);
+                if (done_subpaths.has(subpath)) {
+                    continue;
+                }
+                done_subpaths.add(subpath);
+                let subfiles = [];
+                const fpn = path.join(app_root, subpath);
                 try {
-                    stat = fs.statSync(fpn);
+                    const stat = fs.statSync(fpn);
                     src_packages.last_src_modified = Math.max(src_packages.last_src_modified, stat.mtime.getTime());
-                    if (!stat.isDirectory()) continue;
+                    if (!stat.isDirectory()) {
+                        continue;
+                    }
                     subfiles = fs.readdirSync(fpn, 'utf8');
                 }
-                catch (err) { continue }
+                catch (err) {
+                    continue;
+                }
                 // ignore folders not starting with a known top-level Android folder
-                if (!/^(assets|res|src|main|java|kotlin)([\\/]|$)/.test(p)) continue;
+                if (!(/^(assets|res|src|main|java|kotlin)([\\/]|$)/.test(p))) continue;
                 // is this a package folder
-                var pkgmatch = p.match(/^(src|main|java|kotlin)[\\/](.+)/);
+                const pkgmatch = subpath.match(/^(src|main|java|kotlin)[\\/](.+)/);
                 if (pkgmatch && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(pkgmatch[2].split(/[\\/]/).pop())) {
                     // looks good - add it to the list
                     const src_folder = pkgmatch[1]; // src, main, java or kotlin
@@ -566,7 +580,7 @@ class AndroidDebugSession extends DebugSession {
                     }
                 }
                 // add the subfiles to the list to process
-                paths = subfiles.map(sf => path.join(p,sf)).concat(paths);
+                subpaths = subfiles.map(sf => path.join(subpath,sf)).concat(subpaths);
             }
             return src_packages;
         } catch(err) {
@@ -584,7 +598,7 @@ class AndroidDebugSession extends DebugSession {
                     reject = 'No devices are connected';
                 } else if (target_deviceid) {
                     // check (only one of) the requested device is present
-                    var matching_devices = devices.filter(d => d.serial === target_deviceid);
+                    const matching_devices = devices.filter(d => d.serial === target_deviceid);
                     switch(matching_devices.length) {
                         case 0: reject = `Target device: '${target_deviceid}' is not connected. Connect it or specify an alternate target device in launch.json`; break;
                         case 1: return matching_devices[0];
@@ -622,13 +636,11 @@ class AndroidDebugSession extends DebugSession {
     disconnectRequest(response/*, args*/) {
         D('disconnectRequest');
         this._isDisconnecting = true;
-        // if we're connected, ask ADB to terminate the app
-        if (this.dbgr.status() === 'connected')
-            this.dbgr.forcestop();
         this.dbgr.disconnect()
             .then(state => {
-                if (/^connect/.test(state))
+                if (/^connect/.test(state)) {
                     this.LOG(`Debugger disconnected`);
+                }
                 this.sendResponse(response);
                 //this.sendEvent(new ExitedEvent(0));
             })
@@ -639,7 +651,7 @@ class AndroidDebugSession extends DebugSession {
         e.breakpoints.forEach(javabp => {
             // if there's no associated vsbp we're deleting it, so just ignore the update
             if (!javabp.vsbp) return;
-            var verified = !!javabp.state.match(/set|enabled/);
+            const verified = !!javabp.state.match(/set|enabled/);
             javabp.vsbp.verified = verified;
             javabp.vsbp.message = null;
             this.sendEvent(new BreakpointEvent('changed', javabp.vsbp));
@@ -657,11 +669,11 @@ class AndroidDebugSession extends DebugSession {
      * Note: all breakpoints in a file are always sent in args, even if they are not changing
      */
 	setBreakPointsRequest(response/*: DebugProtocol.SetBreakpointsResponse*/, args/*: DebugProtocol.SetBreakpointsArguments*/) {
-		var srcfpn = args.source && args.source.path;
+		const srcfpn = args.source && args.source.path;
         D('setBreakPointsRequest: ' + srcfpn);
 
         const unverified_breakpoint = (src_bp,reason) => {
-            var bp = new Breakpoint(false,src_bp.line);
+            const bp = new Breakpoint(false,src_bp.line);
             bp.id = ++this._breakpointId;
             bp.message = reason;
             return bp;
@@ -676,10 +688,13 @@ class AndroidDebugSession extends DebugSession {
         }
 
         // the file must lie inside one of the source packages we found (and it must be have a .java extension)
-        var srcfolder = path.dirname(srcfpn);
-        var pkginfo;
-        for (var pkg in this.src_packages.packages) {
-            if ((pkginfo = this.src_packages.packages[pkg]).package_path === srcfolder) break;
+        const srcfolder = path.dirname(srcfpn);
+        let pkginfo;
+        for (let pkgname in this.src_packages.packages) {
+            pkginfo = this.src_packages.packages[pkgname];
+            if (pkginfo.package_path === srcfolder) {
+                break;
+            }
             pkginfo = null;
         }
         // if we didn't find an exact path match, look for a case-insensitive match
@@ -704,12 +719,12 @@ class AndroidDebugSession extends DebugSession {
 
         // our debugger requires a relative fpn beginning with / , rooted at the java source base folder
         // - it should look like: /some/package/name/abc.java
-        var relative_fpn = srcfpn.slice(pkginfo.srcroot.match(/^(.*?)[\\/]?$/)[1].length).replace(/\\/g,'/');
+        const relative_fpn = srcfpn.slice(pkginfo.srcroot.match(/^(.*?)[\\/]?$/)[1].length).replace(/\\/g,'/');
 
         // delete any existing breakpoints not in the list
-        var src_line_nums = args.breakpoints.map(bp => bp.line);
+        const src_line_nums = args.breakpoints.map(bp => bp.line);
         this.dbgr.clearbreakpoints(javabp => {
-            var remove = javabp.srcfpn===relative_fpn && !src_line_nums.includes(javabp.linenum);
+            const remove = javabp.srcfpn===relative_fpn && !src_line_nums.includes(javabp.linenum);
             if (remove) javabp.vsbp = null;
             return remove;
         });
@@ -718,18 +733,18 @@ class AndroidDebugSession extends DebugSession {
         // - setting a debugger bp is now asynchronous, so we do this as an orderly queue
         const _setup_breakpoints = (o, idx, javabp_arr) => {
             javabp_arr = javabp_arr || [];
-            var src_bp = o.args.breakpoints[idx|=0];
+            const src_bp = o.args.breakpoints[idx|=0];
             if (!src_bp) {
                 // done
                 return Promise.resolve(javabp_arr);
             }
-            var dbgline = this.convertClientLineToDebugger(src_bp.line);
-            var options = {}; 
+            const dbgline = this.convertClientLineToDebugger(src_bp.line);
+            const options = {}; 
             if (src_bp.hitCondition) {
                 // the hit condition is an expression that requires evaluation
                 // until we get more comprehensive evaluation support, just allow integer literals
-                var m = src_bp.hitCondition.match(/^\s*(?:0x([0-9a-f]+)|0b([01]+)|0*(\d+([e]\+?\d+)?))\s*$/i);
-                var hitcount = m && (m[3] ? parseFloat(m[3]) : m[2] ? parseInt(m[2],2) : parseInt(m[1],16));
+                const m = src_bp.hitCondition.match(/^\s*(?:0x([0-9a-f]+)|0b([01]+)|0*(\d+([e]\+?\d+)?))\s*$/i);
+                const hitcount = m && (m[3] ? parseFloat(m[3]) : m[2] ? parseInt(m[2],2) : parseInt(m[1],16));
                 if (!m || hitcount < 0 || hitcount > 0x7fffffff) return unverified_breakpoint(src_bp, 'The breakpoint is configured with an invalid hit count value');
                 options.hitcount = hitcount;
             }
@@ -737,7 +752,7 @@ class AndroidDebugSession extends DebugSession {
                 .then(javabp => {
                     if (!javabp.vsbp) {
                         // state is one of: set,notloaded,enabled,removed
-                        var verified = !!javabp.state.match(/set|enabled/);
+                        const verified = !!javabp.state.match(/set|enabled/);
                         const bp = new Breakpoint(verified, this.convertDebuggerLineToClient(dbgline));
                         // the breakpoint *must* have an id field or it won't update properly
                         bp.id = ++this._breakpointId;
@@ -764,7 +779,7 @@ class AndroidDebugSession extends DebugSession {
                     if (!this._queue.length) return;  // done
                     this._setup_breakpoints(this._queue[0]).then(javabp_arr => {
                         // send back the VS Breakpoint instances
-                        var response = this._queue[0].response;
+                        const response = this._queue[0].response;
                         sendBPResponse(response, javabp_arr.map(javabp => javabp.vsbp));
                         // .. and do the next one
                         this._queue.shift();
@@ -797,7 +812,7 @@ class AndroidDebugSession extends DebugSession {
             D('threadsRequest: ' + this._threads.array.length);
             response.body = {
                 threads: this._threads.array.filter(x=>x).map(t => {
-                    var javaid = parseInt(t.threadid, 16);
+                    const javaid = parseInt(t.threadid, 16);
                     return new Thread(t.vscode_threadid, `Thread (id:${javaid}) ${t.name||'<unnamed>'}`);
                 })
             };
@@ -809,7 +824,7 @@ class AndroidDebugSession extends DebugSession {
             .then(() => {
                 response.body = {
                     threads: this._threads.array.filter(x=>x).map(t => {
-                        var javaid = parseInt(t.threadid, 16);
+                        const javaid = parseInt(t.threadid, 16);
                         return new Thread(t.vscode_threadid, `Thread (id:${javaid}) ${t.name}`);
                     })
                 };
@@ -827,7 +842,7 @@ class AndroidDebugSession extends DebugSession {
 	stackTraceRequest(response/*: DebugProtocol.StackTraceResponse*/, args/*: DebugProtocol.StackTraceArguments*/) {
 
         // debugger threadid's are a padded 64bit hex string
-        var thread = this.getThread(args.threadId);
+        const thread = this.getThread(args.threadId);
         if (!thread) return this.failRequestNoThread('Stack trace', args.threadId, response);
         if (!thread.paused) return this.cancelRequestThreadNotSuspended('Stack trace', args.threadId, response);
 
@@ -842,9 +857,11 @@ class AndroidDebugSession extends DebugSession {
                 const startFrame = typeof args.startFrame === 'number' ? args.startFrame : 0;
                 const maxLevels = typeof args.levels === 'number' ? args.levels : frames.length-startFrame;
                 const endFrame = Math.min(startFrame + maxLevels, frames.length);
-                var stack = [], totalFrames = frames.length, highest_known_source=0;
+                let stack = [];
+                let totalFrames = frames.length;
+                let highest_known_source = 0;
                 const android_src_path = this._android_sources_path || '{Android SDK}';
-                for (var i = startFrame; (i < endFrame) && thread.paused; i++) {
+                for (let i = startFrame; (i < endFrame) && thread.paused; i++) {
                     // the stack_frame_id must be unique across all threads
                     const stack_frame_id = thread.addStackFrameVariable(frames[i], i).frameId;
                     const name = `${frames[i].method.owningclass.name}.${frames[i].method.name}`;
@@ -856,9 +873,11 @@ class AndroidDebugSession extends DebugSession {
                     }
                     const linenum = srcloc && this.convertDebuggerLineToClient(srcloc.linenum);
                     const sourcefile = frames[i].method.owningclass.src.sourcefile || (frames[i].method.owningclass.type.signature.match(/([^\/$]+)[;$]/)[1]+'.java');
-                    var srcRefId = 0;
+                    let srcRefId = 0;
+                    let srcInfo;
                     if (!pkginfo) {
-                        var sig = frames[i].method.owningclass.type.signature, srcInfo = this._sourceRefs[sig];
+                        const sig = frames[i].method.owningclass.type.signature;
+                        srcInfo = this._sourceRefs[sig];
                         if (!srcInfo) {
                             this._sourceRefs.all.push(srcInfo = { 
                                 id: this._sourceRefs.all.length, 
@@ -901,12 +920,12 @@ class AndroidDebugSession extends DebugSession {
 	}
 
 	scopesRequest(response/*: DebugProtocol.ScopesResponse*/, args/*: DebugProtocol.ScopesArguments*/) {
-        var threadId = variableRefToThreadId(args.frameId);
-        var thread = this.getThread(threadId);
+        const threadId = variableRefToThreadId(args.frameId);
+        const thread = this.getThread(threadId);
         if (!thread) return this.failRequestNoThread('Scopes',threadId, response);
         if (!thread.paused) return this.cancelRequestThreadNotSuspended('Scopes', threadId, response);
 
-        var scopes = [new Scope("Local", args.frameId, false)];
+        const scopes = [new Scope("Local", args.frameId, false)];
 		response.body = {
 			scopes: scopes
 		};
@@ -943,7 +962,7 @@ class AndroidDebugSession extends DebugSession {
 	}
 
     sourceRequest(response/*: DebugProtocol.SourceResponse, args: DebugProtocol.SourceArguments*/) {
-        var content = 
+        const content = 
 `/*
   The source for this class is unavailable.
 
@@ -956,7 +975,7 @@ class AndroidDebugSession extends DebugSession {
         // don't actually attempt to load the file here - just recheck to see if the sources
         // path is valid yet.
         if (process.env.ANDROID_HOME && this.dbgr.session.apilevel) {
-            var sources_path = path.join(process.env.ANDROID_HOME,'sources','android-'+this.dbgr.session.apilevel);
+            const sources_path = path.join(process.env.ANDROID_HOME,'sources','android-'+this.dbgr.session.apilevel);
             fs.stat(sources_path, (err,stat) => {
                 if (!err && stat && stat.isDirectory())
                     this._android_sources_path = sources_path;
@@ -968,8 +987,8 @@ class AndroidDebugSession extends DebugSession {
     }
 
 	variablesRequest(response/*: DebugProtocol.VariablesResponse*/, args/*: DebugProtocol.VariablesArguments*/) {
-        var threadId = variableRefToThreadId(args.variablesReference);
-        var thread = this.getThread(threadId);
+        const threadId = variableRefToThreadId(args.variablesReference);
+        const thread = this.getThread(threadId);
         if (!thread) return this.failRequestNoThread('Variables',threadId, response);
         if (!thread.paused) return this.cancelRequestThreadNotSuspended('Variables',threadId, response);
 
@@ -983,13 +1002,13 @@ class AndroidDebugSession extends DebugSession {
 	}
 
     checkPendingThreadBreaks() {
-        var stepping_thread = this._threads.array.find(t => t && t.stepTimeout);
-        var paused_threads = this._threads.array.filter(t => t && t.paused);
-        var stopped_thread = paused_threads.find(t => t.paused.stoppedEvent);
+        const stepping_thread = this._threads.array.find(t => t && t.stepTimeout);
+        const paused_threads = this._threads.array.filter(t => t && t.paused);
+        const stopped_thread = paused_threads.find(t => t.paused.stoppedEvent);
         if (!stopped_thread && !stepping_thread && paused_threads.length) {
             // prioritise any stepped thread (if it's stopped) or whichever other thread stopped first
-            var thread;
-            var paused_step_thread = paused_threads.find(t => t.paused.reasons.includes("step"));
+            let thread;
+            const paused_step_thread = paused_threads.find(t => t.paused.reasons.includes("step"));
             if (paused_step_thread) {
                 thread = paused_step_thread;
             } else {
@@ -998,13 +1017,13 @@ class AndroidDebugSession extends DebugSession {
             }
             // if the break was due to a breakpoint and it has since been removed, just resume the thread
             if (thread.paused.reasons.length === 1 && thread.paused.reasons[0] === 'breakpoint') {
-                var bp = this.dbgr.breakpoints.bysrcloc[thread.paused.location.qtype + ':' + thread.paused.location.linenum];
+                const bp = this.dbgr.breakpoints.bysrcloc[thread.paused.location.qtype + ':' + thread.paused.location.linenum];
                 if (!bp) {
                     this.doContinue(thread);
                     return;
                 }
             }
-            var event = new StoppedEvent(thread.paused.reasons[0], thread.vscode_threadid, thread.paused.last_exception && "Exception thrown");
+            const event = new StoppedEvent(thread.paused.reasons[0], thread.vscode_threadid, thread.paused.last_exception && "Exception thrown");
             thread.paused.stoppedEvent = event;
             this.sendEvent(event);
         }
@@ -1021,7 +1040,7 @@ class AndroidDebugSession extends DebugSession {
 	continueRequest(response/*: DebugProtocol.ContinueResponse*/, args/*: DebugProtocol.ContinueArguments*/) {
         D('Continue');
 
-        var t = this.getThread(args.threadId);
+        const t = this.getThread(args.threadId);
         if (!t) return this.failRequestNoThread('Continue', args.threadId, response);
         if (!t.paused) return this.failRequestThreadNotSuspended('Continue', args.threadId, response);
 
@@ -1044,7 +1063,7 @@ class AndroidDebugSession extends DebugSession {
     doStep(which, response, args) {
         D('step '+which);
 
-        var t = this.getThread(args.threadId);
+        const t = this.getThread(args.threadId);
         if (!t) return this.failRequestNoThread('Step', args.threadId, response);
         if (!t.paused) return this.failRequestThreadNotSuspended('Step', args.threadId, response);
 
@@ -1080,7 +1099,7 @@ class AndroidDebugSession extends DebugSession {
     onException(e) {
         // it's possible for the debugger to send multiple exception notifications for the same thread, depending on the package filters
         D('exception hit: ' + JSON.stringify(e.throwlocation));
-        var last_exception = {
+        const last_exception = {
             exception: e.event.exception,
             threadid: e.throwlocation.threadid,
             frameId: null,   // allocated during scopesRequest
@@ -1098,7 +1117,7 @@ class AndroidDebugSession extends DebugSession {
             case 'start':
                 this.dbgr.threadinfos([e.threadid])
                     .then((threadinfos) => {
-                        var ti = threadinfos[0], t = this.getThread(ti.threadid), event = new ThreadEvent();
+                        const ti = threadinfos[0], t = this.getThread(ti.threadid), event = new ThreadEvent();
                         t.name = ti.name;
                         event.body = { reason:'started', threadId: t.vscode_threadid };
                         this.sendEvent(event);
@@ -1107,12 +1126,12 @@ class AndroidDebugSession extends DebugSession {
                     .then(() => this.dbgr.resumethread(e.threadid));
                 return;
             case 'end':
-                var t = this._threads[e.threadid];
+                const t = this._threads[e.threadid];
                 if (t) {
                     t.stepTimeout && clearTimeout(t.stepTimeout) && (t.stepTimeout = null);
                     delete this._threads[e.threadid];
                     delete this._threads.array[t.vscode_threadid];
-                    var event = new ThreadEvent();
+                    const event = new ThreadEvent();
                     event.body = { reason:'exited', threadId: t.vscode_threadid };
                     this.sendEvent(event);
                     this.checkPendingThreadBreaks();    // in case we were stepping this thread
@@ -1124,12 +1143,12 @@ class AndroidDebugSession extends DebugSession {
 
     setVariableRequest(response/*: DebugProtocol.SetVariableResponse*/, args/*: DebugProtocol.SetVariableArguments*/) {
 
-        var threadId = variableRefToThreadId(args.variablesReference);
-        var t = this.getThread(threadId);
-        if (!t) return this.failRequestNoThread('Set variable', threadId, response);
-        if (!t.paused) return this.failRequestThreadNotSuspended('Set variable', threadId, response);
+        const threadId = variableRefToThreadId(args.variablesReference);
+        const thread = this.getThread(threadId);
+        if (!thread) return this.failRequestNoThread('Set variable', threadId, response);
+        if (!thread.paused) return this.failRequestThreadNotSuspended('Set variable', threadId, response);
 
-        t.setVariableValue(args)
+        thread.setVariableValue(args)
             .then(vsvar => {
                 response.body = {
                     value: vsvar.value,
@@ -1159,19 +1178,19 @@ class AndroidDebugSession extends DebugSession {
         // so we have to queue them or we end up with strange results
 
         // look for a matching entry in the list (other than at index:0)
-        var previdx = this._evals_queue.findIndex(e => e.args.expression === args.expression);
+        const previdx = this._evals_queue.findIndex(e => e.args.expression === args.expression);
         if (previdx > 0) {
             // if we find a match, immediately fail the old one and queue the new one
-            var prev = this._evals_queue.splice(previdx,1)[0];
+            const prev = this._evals_queue.splice(previdx,1)[0];
             prev.response.success = false;
             prev.response.message = '(evaluating)';
             this.sendResponse(prev.response);
         }
         // if there's no frameId, we are being asked to evaluate the value in the 'global' context
-        var getvars;
+        let getvars, thread;
         if (args.frameId) {
-            var threadId = variableRefToThreadId(args.frameId);
-            var thread = this.getThread(threadId);
+            const threadId = variableRefToThreadId(args.frameId);
+            thread = this.getThread(threadId);
             if (!thread) return this.failRequestNoThread('Evaluate',threadId, response);
             if (!thread.paused) return this.failRequestThreadNotSuspended('Evaluate',threadId, response);
             getvars = thread._ensureLocals(args.frameId).then(frameId => {
@@ -1186,7 +1205,12 @@ class AndroidDebugSession extends DebugSession {
             getvars = Promise.resolve({});
         }
 
-        this._evals_queue.push({response,args,getvars,thread});
+        this._evals_queue.push({
+            response,
+            args,
+            getvars,
+            thread,
+        });
 
         // if we're currently processing, just wait
         if (this._evals_queue.length > 1) {
@@ -1201,7 +1225,7 @@ class AndroidDebugSession extends DebugSession {
         if (!this._evals_queue.length) {
             return;
         }
-        var {response, args, getvars, thread} = this._evals_queue[0];
+        const {response, args, getvars, thread} = this._evals_queue[0];
 
         // wait for any locals in the given context to be retrieved
         getvars.then(varinfo => {

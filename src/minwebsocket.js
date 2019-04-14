@@ -1,18 +1,21 @@
 /*
     A dummy websocket implementation for passing messages internally using a WS-like protocol
 */
-var Servers = {};
+const Servers = {};
 
 function isfn(x) { return typeof(x) === 'function' }
 
 function WebSocketClient(url) {
     // we only support localhost addresses in this implementation
-    var match = url.match(/^ws:\/\/127\.0\.0\.1:(\d+)$/);
-    var port = match && parseInt(match[1],10);
-    if (!port || port <= 0 || port >= 65536)
+    const match = url.match(/^ws:\/\/127\.0\.0\.1:(\d+)$/);
+    const port = match && parseInt(match[1],10);
+    if (!port || port <= 0 || port >= 65536) {
         throw new Error('Invalid websocket url');
-    var server = Servers[port];
-    if (!server) throw new Error('Connection refused'); // 'port' already in use :)
+    }
+    const server = Servers[port];
+    if (!server) {
+        throw new Error('Connection refused'); // 'port' already in use :)
+    }
     server.addClient(this);
     this._ws = {
         port: port,
@@ -64,8 +67,7 @@ function WebSocketServer(port) {
 }
 
 WebSocketServer.prototype.addClient = function(client) {
-    var status;
-    this.clients.push(status = {
+    const status = {
         server:this,
         client: client,
         onmessage:null,
@@ -73,7 +75,9 @@ WebSocketServer.prototype.addClient = function(client) {
         outgoing:[],
         send: function(message) {
             this.outgoing.push(message);
-            if (this.outgoing.length > 1) return;
+            if (this.outgoing.length > 1) {
+                return;
+            }
             process.nextTick(function(status) {
                 if (!status || !status.client)
                     return;
@@ -81,7 +85,7 @@ WebSocketServer.prototype.addClient = function(client) {
                 status.outgoing = [];
             }, this);
         }
-    });
+    };
     process.nextTick((status) => {
         if (isfn(this.onconnection))
             this.onconnection({
@@ -95,10 +99,11 @@ WebSocketServer.prototype.addClient = function(client) {
                 }
             });
     }, status);
+    this.clients.push(status);
 }
 
 WebSocketServer.prototype.rmClient = function(client) {
-    for (var i = this.clients.length-1; i >= 0; --i) {
+    for (let i = this.clients.length-1; i >= 0; --i) {
         if (this.clients[i].client === client) {
             if (isfn(this.clients[i].onclose))
                 this.clients[i].onclose();
@@ -108,9 +113,13 @@ WebSocketServer.prototype.rmClient = function(client) {
 }
 
 WebSocketServer.prototype.receive = function(client, messages) {
-    var status = this.clients.filter(c => c.client === client)[0];
-    if (!status) return;
-    if (!isfn(status.onmessage)) return;
+    const status = this.clients.filter(c => c.client === client)[0];
+    if (!status) {
+        return;
+    }
+    if (!isfn(status.onmessage)) {
+        return;
+    }
     messages.forEach(m => {
         status.onmessage({
             data: m,

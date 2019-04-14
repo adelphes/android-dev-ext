@@ -74,18 +74,15 @@ class LogcatContent {
         });
     }
     sendClientMessage(msg) {
-        LogcatContent._wss.clients.forEach(client => {
-            if (client._logcatid === this._logcatid) {
-                client.send(msg + '\n');   // include a newline to try and persuade a buffer write
-            }
-        })
+        const clients = LogcatContent._wss.clients.filter(client => client._logcatid === this._logcatid);
+        clients.forEach(client => client.send(msg+'\n'));   // include a newline to try and persuade a buffer write
     }
     sendDisconnectMsg() {
         this.sendClientMessage(':disconnect');
     }
     onClientConnect(client) {
         if (this._oldhtmllogs.length) {
-            var lines = '<div class="logblock">' + this._oldhtmllogs.join(os.EOL) + '</div>';
+            const lines = '<div class="logblock">' + this._oldhtmllogs.join(os.EOL) + '</div>';
             client.send(lines);
         }
         // if the window is tabbed away and then returned to, vscode assumes the content
@@ -111,9 +108,9 @@ class LogcatContent {
     }
     updateLogs() {
         // no point in formatting the data if there are no connected clients
-        var clients = [...LogcatContent._wss.clients].filter(client => client._logcatid === this._logcatid);
+        const clients = LogcatContent._wss.clients.filter(client => client._logcatid === this._logcatid);
         if (clients.length) {
-            var lines = '<div class="logblock">' + this._htmllogs.join('') + '</div>';
+            const lines = '<div class="logblock">' + this._htmllogs.join('') + '</div>';
             clients.forEach(client => client.send(lines));
         }
         // once we've updated all the clients, discard the info
@@ -128,7 +125,7 @@ class LogcatContent {
             wssport: LogcatContent._wssport,
         }, vars);
         // simple value replacement using !{name} as the placeholder
-        var html = this._htmltemplate.replace(/!\{(.*?)\}/g, (match,expr) => ''+(vars[expr.trim()]||''));
+        const html = this._htmltemplate.replace(/!\{(.*?)\}/g, (match,expr) => ''+(vars[expr.trim()]||''));
         return html;
     }
     renotify() {
@@ -143,13 +140,13 @@ class LogcatContent {
     }
     onLogcatContent(e) {
         if (e.logs.length) {
-            var mrlast = e.logs.slice();
+            const mrlast = e.logs.slice();
             this._logs = this._logs.concat(mrlast);
             mrlast.forEach(log => {
                 if (!(log = log.trim())) return;
                 // replace html-interpreted chars
-                var m = log.match(/^\d\d-\d\d\s+?\d\d:\d\d:\d\d\.\d+?\s+?(.)/);
-                var style = (m && m[1]) || '';
+                const m = log.match(/^\d\d-\d\d\s+?\d\d:\d\d:\d\d\.\d+?\s+?(.)/);
+                const style = (m && m[1]) || '';
                 log = log.replace(/[&"'<>]/g, c => ({ '&': '&amp;', '"': '&quot;', "'": '&#39;', '<': '&lt;', '>': '&gt;' }[c]));
                 this._htmllogs.unshift(`<div class="log ${style}">${log}</div>`);
                 
@@ -175,10 +172,11 @@ LogcatContent.initWebSocketServer = function () {
     }
 
     // retrieve the logcat websocket port
-    var default_wssport = 7038;
-    var wssport = AndroidContentProvider.getLaunchConfigSetting('logcatPort', default_wssport);
-    if (typeof wssport !== 'number' || wssport <= 0 || wssport >= 65536 || wssport !== (wssport|0))
+    const default_wssport = 7038;
+    let wssport = AndroidContentProvider.getLaunchConfigSetting('logcatPort', default_wssport);
+    if (typeof wssport !== 'number' || wssport <= 0 || wssport >= 65536 || wssport !== (wssport|0)) {
         wssport = default_wssport;
+    }
 
     LogcatContent._wssdone = new Promise(resolve => {
         ({
@@ -200,12 +198,14 @@ LogcatContent.initWebSocketServer = function () {
                     this.wss.on('connection', (client, req) => {
                         // the client uses the url path to signify which logcat data it wants
                         client._logcatid = req.url.match(/^\/?(.*)$/)[1];
-                        var lc = LogcatContent.byLogcatID[client._logcatid];
+                        const lc = LogcatContent.byLogcatID[client._logcatid];
                         if (lc) lc.onClientConnect(client);
                         else client.close();
                         client.on('message', function(message) {
-                            var lc = LogcatContent.byLogcatID[this._logcatid];
-                            if (lc) lc.onClientMessage(this, message);
+                            const lc = LogcatContent.byLogcatID[this._logcatid];
+                            if (lc) {
+                                lc.onClientMessage(this, message);
+                            }
                         }.bind(client));
                         /*client.on('close', e => {
                             console.log('client close');
@@ -230,8 +230,8 @@ LogcatContent.initWebSocketServer = function () {
 }
 
 function getADBPort() {
-    var defaultPort = 5037;
-    var adbPort = AndroidContentProvider.getLaunchConfigSetting('adbPort', defaultPort);
+    const defaultPort = 5037;
+    const adbPort = AndroidContentProvider.getLaunchConfigSetting('adbPort', defaultPort);
     if (typeof adbPort === 'number' && adbPort === (adbPort|0))
         return adbPort;
     return defaultPort;
@@ -241,13 +241,13 @@ function openLogcatWindow(vscode) {
     new ADBClient().test_adb_connection()
     .then(err => {
         // if adb is not running, see if we can start it ourselves using ANDROID_HOME (and a sensible port number)
-        var adbport = getADBPort();
-        var autoStartADB = AndroidContentProvider.getLaunchConfigSetting('autoStartADB', true);
+        const adbport = getADBPort();
+        const autoStartADB = AndroidContentProvider.getLaunchConfigSetting('autoStartADB', true);
         if (err && autoStartADB!==false && process.env.ANDROID_HOME && typeof adbport === 'number' && adbport > 0 && adbport < 65536) {
-            var adbpath = path.join(process.env.ANDROID_HOME, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');
-            var adbargs = ['-P',''+adbport,'start-server'];
+            const adbpath = path.join(process.env.ANDROID_HOME, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');
+            const adbargs = ['-P',''+adbport,'start-server'];
             try {
-                /*var stdout = */require('child_process').execFileSync(adbpath, adbargs, {cwd:process.env.ANDROID_HOME, encoding:'utf8'});
+                /*const stdout = */require('child_process').execFileSync(adbpath, adbargs, {cwd:process.env.ANDROID_HOME, encoding:'utf8'});
             } catch (ex) {} // if we fail, it doesn't matter - the device query will fail and the user will have to work it out themselves
         }
     })
@@ -260,8 +260,8 @@ function openLogcatWindow(vscode) {
             case 1:
                 return devices; // only one device - just show it
         }
-        var prefix = 'Android: View Logcat - ', all = '[ Display All ]';
-        var devicelist = devices.map(d => prefix + d.serial);
+        const prefix = 'Android: View Logcat - ', all = '[ Display All ]';
+        const devicelist = devices.map(d => prefix + d.serial);
         //devicelist.push(prefix + all);
         return vscode.window.showQuickPick(devicelist)
             .then(which => {
@@ -299,7 +299,7 @@ function openLogcatWindow(vscode) {
                 });
                 return;
             }
-            var uri = AndroidContentProvider.getReadLogcatUri(device.serial);
+            const uri = AndroidContentProvider.getReadLogcatUri(device.serial);
             vscode.commands.executeCommand("vscode.previewHtml",uri,vscode.ViewColumn.Two);
         });
     })

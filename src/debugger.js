@@ -18,21 +18,22 @@ function Debugger() {
 
 Debugger.globals = {
     portrange: { lowest: 31000, highest: 31099 },
-    inuseports: [],
+    inuseports: new Set(),
     debuggers: {},
     reserveport: function () {
         // choose a random port to use each time
-        for (var i = 0; i < 10000; i++) {
-            var portidx = ((Math.random() * 100) | 0);
-            if (this.inuseports.includes(portidx))
+        for (let i = 0; i < 10000; i++) {
+            const portidx = this.portrange.lowest + ((Math.random() * 100) | 0);
+            if (this.inuseports.has(portidx)) {
                 continue;   // try again
-            this.inuseports.push(portidx);
-            return this.portrange.lowest + portidx;
+            }
+            this.inuseports.add(portidx);
+            return portidx;
         }
+        throw new Error('Failed to reserve debugger port');
     },
     freeport: function (port) {
-        var iuidx = this.inuseports.indexOf(port - this.portrange.lowest);
-        if (iuidx >= 0) this.inuseports.splice(iuidx, 1);
+        this.inuseports.delete(port);
     }
 };
 
@@ -53,12 +54,12 @@ Debugger.prototype = {
     },
 
     _trigger: function (which, e) {
-        var k = this.ons[which];
+        let k = this.ons[which];
         if (!k || !k.length) return this;
         k = k.slice();
         e = e || {};
         e.dbgr = this;
-        for (var i = 0; i < k.length; i++) {
+        for (let i = 0; i < k.length; i++) {
             e.data = k[i].data;
             try { k[i].fn.call(k[i].context, e) }
             catch (ex) {
@@ -174,11 +175,11 @@ Debugger.prototype = {
                     // USER     PID   PPID  VSIZE  RSS     WCHAN    PC        NAME
                     // u0_a153   32721 1452  1506500 37916 ffffffff 00000000 S com.example.somepkg
                     // but we cope with variations so long as PID and NAME exist
-                    var lines = stdout.split(/\r?\n|\r/g);
-                    var hdrs = (lines.shift() || '').trim().toUpperCase().split(/\s+/);
-                    var pidindex = hdrs.indexOf('PID');
-                    var nameindex = hdrs.indexOf('NAME');
-                    var result = {
+                    const lines = stdout.split(/\r?\n|\r/g);
+                    const hdrs = (lines.shift() || '').trim().toUpperCase().split(/\s+/);
+                    const pidindex = hdrs.indexOf('PID');
+                    const nameindex = hdrs.indexOf('NAME');
+                    const result = {
                         deviceid: adbclient.deviceid,
                         name: {},
                         jdwp: {},
@@ -187,7 +188,7 @@ Debugger.prototype = {
                     if (pidindex < 0 || nameindex < 0)
                         return [];
                     // scan the list looking for matching pids...
-                    for (var i = 0; i < lines.length; i++) {
+                    for (let i = 0; i < lines.length; i++) {
                         const entries = lines[i].trim().replace(/ [S] /, ' ').split(/\s+/);
                         if (entries.length != hdrs.length) continue;
                         const jdwpidx = info.jdwps.indexOf(entries[pidindex]);
@@ -289,7 +290,7 @@ Debugger.prototype = {
     _onjdwpmessage: function (data) {
         // decodereply will resolve the promise associated with
         // any command this reply is in response to.
-        var reply = this.JDWP.decodereply(this, data);
+        const reply = this.JDWP.decodereply(this, data);
         if (reply.isevent) {
             if (reply.decoded.events && reply.decoded.events.length) {
                 switch (reply.decoded.events[0].kind.value) {
@@ -300,6 +301,7 @@ Debugger.prototype = {
                 }
             }
         }
+        return reply;
     },
 
     ensureconnected: function (extra) {
@@ -314,12 +316,13 @@ Debugger.prototype = {
     },
 
     forcestop: function () {
-        return this.ensureconnected()
-            .then(() => {
-                return new ADBClient(this.session.deviceid).shell_cmd({
-                    command: 'am force-stop ' + this.session.build.pkgname,
-                });
-            })
+        return this.forcestopapp(this.session.deviceid, this.session.build.pkgname);
+    },
+
+    forcestopapp: function (deviceid, pkgname) {
+        return new ADBClient(deviceid).shell_cmd({
+            command: 'am force-stop ' + pkgname,
+        });
     },
 
     disconnect: function () {
@@ -329,7 +332,7 @@ Debugger.prototype = {
         if (!this.connection)
             return Promise.resolve(current_state);
 
-        var info = {
+        const info = {
             connection: this.connection,
             current_state: current_state,
         };
@@ -362,6 +365,8 @@ Debugger.prototype = {
                 if (info.connection.portforwarding) {
                     this.globals.freeport(info.connection.localport)
                 }
+                return this.forcestop();
+            }).then(() => {
                 this.session = null;
                 return info.current_state;
             });
@@ -470,7 +475,7 @@ Debugger.prototype = {
     },
 
     _splitsrcfpn: function (srcfpn) {
-        var m = srcfpn.match(/^\/([^/]+(?:\/[^/]+)*)?\/([^./]+)\.(java|kt)$/);
+        const m = srcfpn.match(/^\/([^/]+(?:\/[^/]+)*)?\/([^./]+)\.(java|kt)$/);
         return {
             pkg: m[1].replace(/\/+/g, '.'),
             type: m[2],
@@ -479,18 +484,13 @@ Debugger.prototype = {
     },
 
     getbreakpoint: function (srcfpn, line) {
-        var cls = this._splitsrcfpn(srcfpn);
-        var bp = this.breakpoints.bysrcloc[cls.qtype + ':' + line];
+        const cls = this._splitsrcfpn(srcfpn);
+        const bp = this.breakpoints.bysrcloc[cls.qtype + ':' + line];
         return bp;
     },
 
     getbreakpoints: function (filterfn) {
-        var x = this.breakpoints.all.reduce(function (x, bp) {
-            if (x.filterfn(bp))
-                x.res.push(bp);
-            return x;
-        }, { filterfn: filterfn, res: [] });
-        return x.res;
+        return this.breakpoints.all.filter(filterfn);
     },
 
     getallbreakpoints: function () {
@@ -527,12 +527,12 @@ Debugger.prototype = {
                 // try and load the class - if the runtime hasn't loaded it yet, this will just return an empty classes object
                 return this._loadclzinfo('L' + newbp.qtype + ';')
                     .then(classes => {
-                        var bploc = this._findbplocation(classes, newbp);
+                        let bploc = this._findbplocation(classes, newbp);
                         if (!bploc) {
                             // the required location may be inside a nested class (anonymous or named)
                             // Since Android doesn't support the NestedTypes JDWP call (ffs), all we can do here
                             // is look for existing (cached) loaded types matching inner type signatures
-                            for (var sig in this.session.classes) {
+                            for (let sig in this.session.classes) {
                                 if (newbp.sigpattern.test(sig))
                                     classes[sig] = this.session.classes[sig];
                             }
@@ -560,8 +560,8 @@ Debugger.prototype = {
     },
 
     clearbreakpoint: function (srcfpn, line) {
-        var cls = this._splitsrcfpn(srcfpn);
-        var bp = this.breakpoints.bysrcloc[cls.qtype + ':' + line];
+        const cls = this._splitsrcfpn(srcfpn);
+        const bp = this.breakpoints.bysrcloc[cls.qtype + ':' + line];
         if (!bp) return null;
         return this._clearbreakpoints([bp])[0];
     },
@@ -572,12 +572,12 @@ Debugger.prototype = {
             return this.clearbreakpoints(this.getbreakpoints(bps));
         }
         // sanitise first to remove duplicates, non-existants, nulls, etc
-        var bpstoclear = [];
-        var bpkeys = {};
+        const bpstoclear = [];
+        const bpkeys = {};
         (bps || []).forEach(bp => {
             if (!bp) return;
             if (this.breakpoints.all.indexOf(bp) < 0) return;
-            var bpkey = bp.cls + ':' + bp.linenum;
+            const bpkey = `${bp.cls}:${bp.linenum}`;
             if (bpkeys[bpkey]) return;
             bpkeys[bpkey] = 1;
             bpstoclear.push(bp);
@@ -631,30 +631,33 @@ Debugger.prototype = {
 
     getlocals: function (threadid, frame) {
         const method = this._findmethod(this.session.classes, frame.location.cid, frame.location.mid);
-        if (!method)
-            return Promise.resolve();
-
-        let slots = [];
+        if (!method) {
+            return Promise.resolve([]);
+        }
+        const slots = [];
         return this._ensuremethodvars(method)
             .then(method => {
 
                 function withincodebounds(low, length, idx) {
-                    var i = parseInt(low, 16), j = parseInt(idx, 16);
+                    const i = parseInt(low, 16);
+                    const j = parseInt(idx, 16);
                     return (j >= i) && (j < (i + length));
                 }
 
-                var validslots = [];
-                var tags = { '[': 76, B: 66, C: 67, L: 76, F: 70, D: 68, I: 73, J: 74, S: 83, V: 86, Z: 90 };
-                for (var i = 0, k = method.vartable.vars; i < k.length; i++) {
-                    var tag = tags[k[i].type.signature[0]];
+                const validslots = [];
+                const tags = { '[': 76, B: 66, C: 67, L: 76, F: 70, D: 68, I: 73, J: 74, S: 83, V: 86, Z: 90 };
+                for (let i = 0, k = method.vartable.vars; i < k.length; i++) {
+                    const tag = tags[k[i].type.signature[0]];
                     if (!tag) continue;
-                    var p = {
+                    const p = {
                         slot: k[i].slot,
                         tag: tag,
                         valid: withincodebounds(k[i].codeidx, k[i].length, frame.location.idx)
                     };
                     slots.push(p);
-                    if (p.valid) validslots.push(p);
+                    if (p.valid) {
+                        validslots.push(p);
+                    }
                 }
 
                 if (!validslots.length) {
@@ -676,7 +679,7 @@ Debugger.prototype = {
                 );
             })
             .then(res => {
-                for (var i = 0; i < res.length; i++)
+                for (let i = 0; i < res.length; i++)
                     res[i].data.slotinfo = slots[i];
                 return res;
             });
@@ -965,8 +968,8 @@ Debugger.prototype = {
                 return this._ensurefields(dbgtype['Ljava/lang/String;']);
             })
             .then(typeinfo => {
-                var countfields = typeinfo.fields.filter(f => f.name === 'count');
-                if (!countfields.length) return -1;
+                const countfields = typeinfo.fields.filter(f => f.name === 'count');
+                if (!countfields.length) return null;
                 return this.session.adbclient.jdwp_command({
                     cmd: this.JDWP.Commands.GetFieldValues(stringref, countfields),
                 });
@@ -989,8 +992,11 @@ Debugger.prototype = {
             .then(values => {
                 // generate some dummy keys to map against
                 const keys = [];
-                for (var i = 0; i < count; i++) {
-                    keys.push({ name: '' + (start + i), type });
+                for (let i = 0; i < count; i++) {
+                    keys.push({
+                        name: `${start + i}`,
+                        type,
+                    });
                 }
                 return this._mapvalues('arrelem', keys, values, { arrobj: local });
             });
@@ -1007,22 +1013,26 @@ Debugger.prototype = {
             .then(values => {
                 // generate some dummy keys to map against
                 const keys = [];
-                for (var i = 0; i < count; i++) {
-                    keys.push({ name: '' + (start + i), type: arrvar.type.elementtype });
+                for (let i = 0; i < count; i++) {
+                    keys.push({
+                        name: `${start + i}`,
+                        type: arrvar.type.elementtype,
+                    });
                 }
-                return this._mapvalues('arrelem', keys, values, { arrobj: arrvar });
+               return this._mapvalues('arrelem', keys, values, { arrobj: arrvar });
             });
     },
 
     _mapvalues: function (vtype, keys, values, data) {
-        var res = [];
-        var arrayfields = [];
-        var stringfields = [];
+        const res = [];
+        const arrayfields = [];
+        const stringfields = [];
 
         if (values && Array.isArray(values)) {
-            var v = values.slice(0), i = 0;
+            const v = values.slice(0);
+            let i = 0;
             while (v.length) {
-                var info = {
+                const info = {
                     vtype: vtype,
                     name: keys[i].name,
                     value: v.shift(),
@@ -1199,10 +1209,14 @@ Debugger.prototype = {
         })
             .then(methods => {
                 typeinfo.methods = {};
-                for (var i in methods) {
-                    methods[i].owningclass = typeinfo;
-                    typeinfo.methods[methods[i].methodid] = methods[i];
-                }
+                // for (let i in methods) {
+                //     methods[i].owningclass = typeinfo;
+                //     typeinfo.methods[methods[i].methodid] = methods[i];
+                // }
+                methods.forEach(method => {
+                    method.owningclass = typeinfo;
+                    typeinfo.methods[method.methodid] = method;
+                });
                 return typeinfo;
             });
     },
@@ -1400,11 +1414,17 @@ Debugger.prototype = {
     },
 
     _changebpstate: function (bparr, newstate) {
-        if (!bparr || !bparr.length || !newstate) return;
-        for (var i in bparr) {
-            bparr[i].state = newstate;
+        if (!bparr || !bparr.length || !newstate) {
+            return;
         }
-        this._trigger('bpstatechange', { breakpoints: bparr.slice(), newstate: newstate });
+        bparr.forEach(bp => bp.state = newstate);
+        // for (let i in bparr) {
+        //     bparr[i].state = newstate;
+        // }
+        this._trigger('bpstatechange', {
+            breakpoints: bparr.slice(),
+            newstate: newstate,
+        });
     },
 
     _initbreakpoints: function () {
@@ -1421,7 +1441,7 @@ Debugger.prototype = {
     },
 
     _ensureClassPrepareForPackage: function (pkg) {
-        var filter = pkg + '.*';
+        let filter = pkg + '.*';
         if (this.session.cpfilters.includes(filter))
             return Promise.resolve(); // already setup
 
@@ -1434,7 +1454,7 @@ Debugger.prototype = {
             }
             this.session.preparedclasses.push(preppedclass.type.signature);
             D('Prepared: ' + preppedclass.type.signature);
-            var m = preppedclass.type.signature.match(/^L(.*);$/);
+            const m = preppedclass.type.signature.match(/^L(.*);$/);
             if (!m) {
                 // unrecognised type - just resume
                 return this._resumesilent();
@@ -1572,7 +1592,7 @@ Debugger.prototype = {
         return this.gettypedebuginfo(signature)
             .then((classes) => {
                 const p = [];
-                for (var clz in classes) {
+                for (let clz in classes) {
                     p.push(this._ensuremethods(classes[clz]));
                 }
                 return Promise.all(p).then(() => classes);
@@ -1580,8 +1600,8 @@ Debugger.prototype = {
             .then((classes) => {
                 const p = [];
                 for (let clz in classes) {
-                    for (let m in classes[clz].methods) {
-                        p.push(this._ensuremethodlines(classes[clz].methods[m]));
+                    for (let mid in classes[clz].methods) {
+                        p.push(this._ensuremethodlines(classes[clz].methods[mid]));
                     }
                 }
                 return Promise.all(p).then(() => classes);
@@ -1590,15 +1610,15 @@ Debugger.prototype = {
 
     _findbplocation: function (classes, bp) {
         // search the classes for a method containing the line
-        for (var i in classes) {
+        for (let i in classes) {
             if (!bp.sigpattern.test(classes[i].type.signature))
                 continue;
-            for (var j in classes[i].methods) {
-                var lines = classes[i].methods[j].linetable.lines;
-                for (var k in lines) {
+            for (let j in classes[i].methods) {
+                const lines = classes[i].methods[j].linetable.lines;
+                for (let k in lines) {
                     if (lines[k].linenum === bp.linenum) {
                         // match - save the info for the command later
-                        var bploc = {
+                        const bploc = {
                             c: classes[i], m: classes[i].methods[j], l: lines[k].linecodeidx,
                             bp: bp,
                         };
@@ -1613,11 +1633,12 @@ Debugger.prototype = {
     line_idx_to_source_location: function (method, idx) {
         if (!method || !method.linetable || !method.linetable.lines || !method.linetable.lines.length)
             return null;
-        var m = method.owningclass.type.signature.match(/^L([^;$]+)[$a-zA-Z0-9_]*;$/);
+        const m = method.owningclass.type.signature.match(/^L([^;$]+)[$a-zA-Z0-9_]*;$/);
         if (!m)
             return null;
-        var lines = method.linetable.lines, prevk = 0;
-        for (var k in lines) {
+        const lines = method.linetable.lines;
+        let prevk = 0;
+        for (let k in lines) {
             if (lines[k].linecodeidx < idx) {
                 prevk = k;
                 continue;
@@ -1685,15 +1706,15 @@ Debugger.prototype = {
     },
 
     _findmethod: function (classes, classid, methodid) {
-        for (var i in classes) {
-            if (classes[i]._isdeferred)
+        for (let clzname in classes) {
+            if (classes[clzname]._isdeferred)
                 continue;
-            if (classes[i].info.typeid !== classid)
+            if (classes[clzname].info.typeid !== classid)
                 continue;
-            for (var j in classes[i].methods) {
-                if (classes[i].methods[j].methodid !== methodid)
+            for (let mid in classes[clzname].methods) {
+                if (classes[clzname].methods[mid].methodid !== methodid)
                     continue;
-                return classes[i].methods[j];
+                return classes[clzname].methods[mid];
             }
         }
         return null;

@@ -1,5 +1,3 @@
-const crypto = require('crypto');
-
 var nofn = function () { };
 const messagePrintCallbacks = new Set();
 var D = exports.D = (...args) => (console.log(...args), messagePrintCallbacks.forEach(cb => cb(...args)))
