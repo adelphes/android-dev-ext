@@ -44,7 +44,7 @@ class AndroidContentProvider /*extends TextDocumentContentProvider*/ {
     provideLogcatDocumentContent(uri) {
         // LogcatContent depends upon AndroidContentProvider, so we must delay-load this
         const { LogcatContent } = require('./logcat');
-        var doc = this._docs[uri] = new LogcatContent(this, uri);
+        var doc = this._docs[uri] = new LogcatContent(uri.query);
         return doc.content;
     }
 }

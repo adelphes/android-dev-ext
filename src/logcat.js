@@ -15,10 +15,8 @@ const { D } = require('./util');
  */
 class LogcatContent {
 
-    constructor(provider/*: AndroidContentProvider*/, uri/*: Uri*/) {
-        this._provider = provider;
-        this._uri = uri;
-        this._logcatid = uri.query;
+    constructor(deviceid) {
+        this._logcatid = deviceid;
         this._logs = [];
         this._htmllogs = [];
         this._oldhtmllogs = [];
@@ -27,7 +25,7 @@ class LogcatContent {
         this._refreshRate = 200;    // ms
         this._state = '';
         this._htmltemplate = '';
-        this._adbclient = new ADBClient(uri.query);
+        this._adbclient = new ADBClient(deviceid);
         this._initwait = new Promise((resolve, reject) => {
             this._state = 'connecting';
             LogcatContent.initWebSocketServer()
