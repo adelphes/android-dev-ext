@@ -135,10 +135,10 @@
         "test": "node ./node_modules/vscode/bin/test"
     },
     "dependencies": {
-        "vscode-debugprotocol": "^1.32.0",
-        "vscode-debugadapter": "^1.32.0",
         "long": "^4.0.0",
         "uuid": "^3.3.2",
+        "vscode-debugadapter": "^1.32.0",
+        "vscode-debugprotocol": "^1.32.0",
         "ws": "^1.1.1",
         "xmldom": "^0.1.27",
         "xpath": "^0.0.27"
