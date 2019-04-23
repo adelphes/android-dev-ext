@@ -611,13 +611,17 @@ class AndroidDebugSession extends DebugSession {
         var srcfolder = path.dirname(srcfpn);
         var pkginfo;
         for (var pkg in this.src_packages.packages) {
-            var pkgpath = (pkginfo = this.src_packages.packages[pkg]).package_path;
-            pkgpath = pkgpath.toLowerCase();
-            srcfolder = srcfolder.toLowerCase();
-            if (pkgpath === srcfolder)
-                break;
+            if ((pkginfo = this.src_packages.packages[pkg]).package_path === srcfolder) break;
             pkginfo = null;
         }
+        // if we didn't find an exact path match, look for a case-insensitive match
+        if (!pkginfo) {
+            for (var pkg in this.src_packages.packages) {
+                if ((pkginfo = this.src_packages.packages[pkg]).package_path.localeCompare(srcfolder, undefined, { sensitivity: 'base' }) === 0) break;
+                pkginfo = null;
+            }
+        }
+
         // if it's not in our source packages, check if it's in the Android source file cache
         if (!pkginfo && is_subpath_of(srcfpn, this._android_sources_path)) {
             // create a fake pkginfo to use to construct the bp
