@@ -137,7 +137,6 @@
     "dependencies": {
         "long": "^4.0.0",
         "uuid": "^3.3.2",
-        "vsce": "^1.59.0",
         "vscode-debugadapter": "^1.32.0",
         "vscode-debugprotocol": "^1.32.0",
         "ws": "^1.1.1",
