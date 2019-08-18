@@ -483,12 +483,12 @@ class AndroidDebugSession extends DebugSession {
                 }
                 catch (err) { continue }
                 // ignore folders not starting with a known top-level Android folder
-                if (!/^(assets|res|src|main|java)([\\/]|$)/.test(p)) continue;
+                if (!/^(assets|res|src|main|java|kotlin)([\\/]|$)/.test(p)) continue;
                 // is this a package folder
-                var pkgmatch = p.match(/^(src|main|java)[\\/](.+)/);
+                var pkgmatch = p.match(/^(src|main|java|kotlin)[\\/](.+)/);
                 if (pkgmatch && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(pkgmatch[2].split(/[\\/]/).pop())) {
                     // looks good - add it to the list
-                    const src_folder = pkgmatch[1]; // src, main or java
+                    const src_folder = pkgmatch[1]; // src, main, java or kotlin
                     const pkgname = pkgmatch[2].replace(/[\\/]/g,'.');
                     src_packages.packages[pkgname] = {
                         package: pkgname,
