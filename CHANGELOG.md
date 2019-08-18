@@ -1,5 +1,8 @@
 # Change Log
 
+### version 0.7.1
+* Added the [Buy Me A Coffee](https://www.buymeacoffee.com/adelphes) link to the README
+
 ### version 0.7.0
 * Fix logcat not displaying
 * Fix breakpoints not triggering on Windows
