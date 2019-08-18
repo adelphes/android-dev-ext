@@ -77,8 +77,11 @@ class LogcatContent {
         });
     }
     sendClientMessage(msg) {
-        var clients = LogcatContent._wss.clients.filter(client => client._logcatid === this._logcatid);
-        clients.forEach(client => client.send(msg+'\n'));   // include a newline to try and persuade a buffer write
+        LogcatContent._wss.clients.forEach(client => {
+            if (client._logcatid === this._logcatid) {
+                client.send(msg + '\n');   // include a newline to try and persuade a buffer write
+            }
+        })
     }
     sendDisconnectMsg() {
         this.sendClientMessage(':disconnect');
@@ -111,7 +114,7 @@ class LogcatContent {
     }
     updateLogs() {
         // no point in formatting the data if there are no connected clients
-        var clients = LogcatContent._wss.clients.filter(client => client._logcatid === this._logcatid);
+        var clients = [...LogcatContent._wss.clients].filter(client => client._logcatid === this._logcatid);
         if (clients.length) {
             var lines = '<div class="logblock">' + this._htmllogs.join('') + '</div>';
             clients.forEach(client => client.send(lines));
@@ -187,14 +190,19 @@ LogcatContent.initWebSocketServer = function () {
         port: wssport,
         retries: 0,
         tryCreateWSS() {
-            this.wss = new WebSocketServer({ host: '127.0.0.1', port: this.port }, () => {
+            const wsopts = {
+                host: '127.0.0.1',
+                port: this.port,
+                clientTracking: true,
+            };
+            this.wss = new WebSocketServer(wsopts, () => {
                 // success - save the info and resolve the deferred
                 LogcatContent._wssport = this.port;
                 LogcatContent._wssstartport = this.startport;
                 LogcatContent._wss = this.wss;
-                this.wss.on('connection', client => {
+                this.wss.on('connection', (client, req) => {
                     // the client uses the url path to signify which logcat data it wants
-                    client._logcatid = client.upgradeReq.url.match(/^\/?(.*)$/)[1];
+                    client._logcatid = req.url.match(/^\/?(.*)$/)[1];
                     var lc = LogcatContent.byLogcatID[client._logcatid];
                     if (lc) lc.onClientConnect(client);
                     else client.close();
