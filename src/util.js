@@ -627,9 +627,9 @@ exports.dumparr = function (arr, offset, count) {
 }
 
 exports.btoa = function (arr) {
-	return new Buffer(arr, 'binary').toString('base64');
+	return Buffer.from(arr, 'binary').toString('base64');
 }
 
 exports.atob = function (base64) {
-	return new Buffer(base64, 'base64').toString('binary');
+	return Buffer.from(base64, 'base64').toString('binary');
 }
