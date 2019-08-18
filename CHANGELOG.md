@@ -1,5 +1,13 @@
 # Change Log
 
+### version 0.7.0
+* Fix logcat not displaying
+* Fix breakpoints not triggering on Windows
+* Added kotlin folder to list of known source locations
+* Upgraded dependencies to resolve a number of security vulnerabilites
+* Updated README with info about prelaunch build task
+* Added MIT license file
+
 ### version 0.6.2
 * Fix broken logcat command due to missing dependency
 
