@@ -20,7 +20,7 @@ You must have [Android SDK Platform Tools](https://developer.android.com/studio/
 * This is a preview version so expect the unexpected. Please log any issues you find on [GitHub](https://github.com/adelphes/android-dev-ext/issues).  
 * This extension **will not build your app**.  
 If you use gradle (or Android Studio), you can build your app from the command-line using `./gradlew assembleDebug`.
-> You must use gradle or some other build procedure to create your APK. Once built, the extension can deploy and launch your app, allowing you to debug it in the normal way.  
+> You must use gradle or some other build procedure to create your APK. Once built, the extension can deploy and launch your app, allowing you to debug it in the normal way. See the section below on how to configure a VSCode task to automatically build your app before launching a debug session.
 * Some debugger options are yet to be implemented. You cannot set conditional breakpoints and watch expressions must be simple variables.
 * If you require a must-have feature that isn't there yet, let us know on [GitHub](https://github.com/adelphes/android-dev-ext/issues).  
 * This extension does not provide any additional code completion or other editing enhancements.
@@ -53,6 +53,42 @@ The following settings are used to configure the debugger:
             }
         ]
     }
+
+## Building your app automatically
+
+This extension will not build your App. If you would like to run a build each time a debug session is started, you can add a `preLaunchTask` option to your `launch.json` configuration which invokes a build task.
+
+#### .vscode/launch.json
+Add a `preLaunchTask` item to the launch configuration:
+```json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "android",
+            "request": "launch",
+            "name": "App Build & Launch",
+            "preLaunchTask": "run gradle",
+        }
+    ]
+}
+```
+Add a new task to run the build command:
+#### .vscode/tasks.json
+```json
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "run gradle",
+            "type": "shell",
+            "command": "${workspaceFolder}/gradlew",
+            "args": ["assembleDebug"]
+        }
+    ]
+}
+```
+
 
 ## Questions / Problems
 
