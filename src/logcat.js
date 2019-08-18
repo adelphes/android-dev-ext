@@ -15,10 +15,8 @@ const { D } = require('./util');
  */
 class LogcatContent {
 
-    constructor(provider/*: AndroidContentProvider*/, uri/*: Uri*/) {
-        this._provider = provider;
-        this._uri = uri;
-        this._logcatid = uri.query;
+    constructor(deviceid) {
+        this._logcatid = deviceid;
         this._logs = [];
         this._htmllogs = [];
         this._oldhtmllogs = [];
@@ -27,7 +25,7 @@ class LogcatContent {
         this._refreshRate = 200;    // ms
         this._state = '';
         this._htmltemplate = '';
-        this._adbclient = new ADBClient(uri.query);
+        this._adbclient = new ADBClient(deviceid);
         this._initwait = new Promise((resolve, reject) => {
             this._state = 'connecting';
             LogcatContent.initWebSocketServer()
@@ -276,6 +274,21 @@ function openLogcatWindow(vscode) {
     .then(devices => {
         if (!Array.isArray(devices)) return;    // user cancelled (or no devices connected)
         devices.forEach(device => {
+            if (vscode.window.createWebviewPanel) {
+                const panel = vscode.window.createWebviewPanel(
+                    'androidlogcat', // Identifies the type of the webview. Used internally
+                    `logcat-${device.serial}`, // Title of the panel displayed to the user
+                    vscode.ViewColumn.One, // Editor column to show the new webview panel in.
+                    {
+                        enableScripts: true,
+                    }
+                );
+                const logcat = new LogcatContent(device.serial);
+                logcat.content.then(html => {
+                    panel.webview.html = html;
+                });
+                return;
+            }
             var uri = AndroidContentProvider.getReadLogcatUri(device.serial);
             return vscode.commands.executeCommand("vscode.previewHtml",uri,vscode.ViewColumn.Two);
         });
