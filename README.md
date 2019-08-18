@@ -89,6 +89,16 @@ Add a new task to run the build command:
 }
 ```
 
+## Powered by coffee
+
+The Android Developer Extension is a completely free, fully open-source project. If you've found the extension useful, you
+can support it by [buying me a coffee](https://www.buymeacoffee.com/adelphes).
+
+If you use ApplePay or Google Pay, you can scan the code with your phone camera:
+
+![BuyMeACoffee Code](https://raw.githubusercontent.com/adelphes/android-dev-ext/master/images/bmac-code.png)
+
+Every coffee makes a difference, so thanks for adding your support.
 
 ## Questions / Problems
 
