@@ -84,6 +84,11 @@
                                 "description": "Port number to use for the internal logcat websocket link. Changes to this value only apply when the extension is restarted. Default: 7038",
                                 "default": 7038
                             },
+                            "manifestFile": {
+                                "type": "string",
+                                "description": "Overrides the default location of AndroidManifest.xml",
+                                "default": "${workspaceRoot}/app/src/main/AndroidManifest.xml"
+                            },
                             "staleBuild": {
                                 "type": "string",
                                 "description": "Launch behaviour if source files have been saved after the APK was built. One of: [\"ignore\" \"warn\" \"stop\"]. Default: \"warn\"",

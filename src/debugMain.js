@@ -47,6 +47,8 @@ class AndroidDebugSession extends DebugSession {
         this.src_packages = {};
         // the device we are debugging
         this._device = null;
+        // the full file path name of the AndroidManifest.xml, taken from the manifestFile launch property
+        this.manifest_fpn = '';
 
         // the threads (we know about from the last refreshThreads call)
         // this is implemented as both a hashmap<threadid,AndroidThread> and an array of AndroidThread objects
@@ -242,6 +244,7 @@ class AndroidDebugSession extends DebugSession {
         // app_src_root must end in a path-separator for correct validation of sub-paths
         this.app_src_root = ensure_path_end_slash(args.appSrcRoot);
         this.apk_fpn = args.apkFile;
+        this.manifest_fpn = args.manifestFile;
         if (typeof args.callStackDisplaySize === 'number' && args.callStackDisplaySize >= 0)
             this.callStackDisplaySize = args.callStackDisplaySize|0;
 
@@ -501,6 +504,14 @@ class AndroidDebugSession extends DebugSession {
         const readSourceManifest = (cb) => {
             D(`Reading source manifest from ${this.app_src_root}`);
             fs.readFile(path.join(this.app_src_root, 'AndroidManifest.xml'), 'utf8', cb);
+        }
+
+        // a value from the manifestFile overrides the default manifest extraction
+        // note: there's no validation that the file is a valid AndroidManifest.xml file
+        if (this.manifest_fpn) {
+            D(`Reading manifest from ${this.manifest_fpn}`);
+            fs.readFile(this.manifest_fpn, 'utf8', cb);
+            return;
         }
 
         readAPKManifest((err, manifest) => {

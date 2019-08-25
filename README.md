@@ -29,7 +29,7 @@ If you use gradle (or Android Studio), you can build your app from the command-l
 
 This extension allows you to debug your App by creating a new Android configuration in `launch.json`.  
 The following settings are used to configure the debugger:
-
+```jsonc
     {
         "version": "0.2.0",
         "configurations": [
@@ -50,9 +50,13 @@ The following settings are used to configure the debugger:
 
                 // Launch behaviour if source files have been saved after the APK was built. One of: [ ignore warn stop ]. Default: warn
                 "staleBuild": "warn",
+
+                // Fully qualified path to the AndroidManifest.xml file compiled in the APK. Default: appSrcRoot/AndroidManifest.xml
+                "manifestFile": "${workspaceRoot}/app/src/main/AndroidManifest.xml"
             }
         ]
     }
+```
 
 ## Building your app automatically
 
