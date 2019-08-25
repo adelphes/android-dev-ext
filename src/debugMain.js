@@ -10,10 +10,12 @@ const dom = require('xmldom').DOMParser;
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const unzipper = require('unzipper');
 const xpath = require('xpath');
 
 // our stuff
 const { ADBClient } = require('./adbclient');
+const { decode_binary_xml } = require('./apkdecoder');
 const { Debugger } = require('./debugger');
 const $ = require('./jq-promise');
 const { AndroidThread } = require('./threads');
@@ -45,6 +47,8 @@ class AndroidDebugSession extends DebugSession {
         this.src_packages = {};
         // the device we are debugging
         this._device = null;
+        // the full file path name of the AndroidManifest.xml, taken from the manifestFile launch property
+        this.manifest_fpn = '';
 
         // the threads (we know about from the last refreshThreads call)
         // this is implemented as both a hashmap<threadid,AndroidThread> and an array of AndroidThread objects
@@ -240,6 +244,7 @@ class AndroidDebugSession extends DebugSession {
         // app_src_root must end in a path-separator for correct validation of sub-paths
         this.app_src_root = ensure_path_end_slash(args.appSrcRoot);
         this.apk_fpn = args.apkFile;
+        this.manifest_fpn = args.manifestFile;
         if (typeof args.callStackDisplaySize === 'number' && args.callStackDisplaySize >= 0)
             this.callStackDisplaySize = args.callStackDisplaySize|0;
 
@@ -432,7 +437,7 @@ class AndroidDebugSession extends DebugSession {
             h.update(apk_file_data);
             done.result.content_hash = h.digest('hex');
             // read the manifest
-            fs.readFile(path.join(this.app_src_root,'AndroidManifest.xml'), 'utf8', (err,manifest) => {
+            this.readAndroidManifest((err, manifest) => {
                 if (err) return done.rejectWith(this, [new Error('Manifest read error. ' + err.message)]);
                 done.result.manifest = manifest;
                 try {
@@ -459,6 +464,64 @@ class AndroidDebugSession extends DebugSession {
             });
         });
         return done;
+    }
+
+    readAndroidManifest(cb) {
+        // Because of manifest merging and build-injected properties, the manifest compiled inside
+        // the APK is frequently different from the AndroidManifest.xml source file.
+        // We try to extract the manifest from 3 sources (in priority order):
+        // 1. The 'manifestFile' launch configuration property
+        // 2. The decoded manifest from the APK
+        // 3. The AndroidManifest.xml file from the root of the source tree.
+
+        const readAPKManifest = (cb) => {
+            D(`Reading APK Manifest`);
+            const apk_manifest_chunks = [];
+            function cb_once(err, manifest) {
+                cb && cb(err, manifest);
+                cb = null;
+            }
+            fs.createReadStream(this.apk_fpn)
+                .pipe(unzipper.ParseOne(/^AndroidManifest\.xml$/))
+                .on('data', chunk => {
+                    apk_manifest_chunks.push(chunk);
+                })
+                .once('error', err => {
+                    cb_once(err);
+                })
+                .once('end', () => {
+                    try {
+                        const manifest = decode_binary_xml(Buffer.concat(apk_manifest_chunks));
+                        D(`APK manifest read complete`);
+                        cb_once(null, manifest);
+                    } catch (err) {
+                        D(`APK manifest decode failed: ${err.message}`);
+                        cb_once(err);
+                    }
+                });
+        }
+
+        const readSourceManifest = (cb) => {
+            D(`Reading source manifest from ${this.app_src_root}`);
+            fs.readFile(path.join(this.app_src_root, 'AndroidManifest.xml'), 'utf8', cb);
+        }
+
+        // a value from the manifestFile overrides the default manifest extraction
+        // note: there's no validation that the file is a valid AndroidManifest.xml file
+        if (this.manifest_fpn) {
+            D(`Reading manifest from ${this.manifest_fpn}`);
+            fs.readFile(this.manifest_fpn, 'utf8', cb);
+            return;
+        }
+
+        readAPKManifest((err, manifest) => {
+            if (err) {
+                // if we fail to read the APK manifest, revert to the source manifest
+                readSourceManifest(cb)
+                return;
+            }
+            cb(err, manifest);
+        });
     }
     
     scanSourceSync(app_root) {
