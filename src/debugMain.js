@@ -470,7 +470,7 @@ class AndroidDebugSession extends DebugSession {
         // Because of manifest merging and build-injected properties, the manifest compiled inside
         // the APK is frequently different from the AndroidManifest.xml source file.
         // We try to extract the manifest from 3 sources (in priority order):
-        // 1. The 'androidManifest' launch configuration property
+        // 1. The 'manifestFile' launch configuration property
         // 2. The decoded manifest from the APK
         // 3. The AndroidManifest.xml file from the root of the source tree.
 
