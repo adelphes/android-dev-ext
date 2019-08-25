@@ -245,6 +245,7 @@ class AndroidDebugSession extends DebugSession {
         this.app_src_root = ensure_path_end_slash(args.appSrcRoot);
         this.apk_fpn = args.apkFile;
         this.manifest_fpn = args.manifestFile;
+        this.pmInstallArgs = args.pmInstallArgs;
         if (typeof args.callStackDisplaySize === 'number' && args.callStackDisplaySize >= 0)
             this.callStackDisplaySize = args.callStackDisplaySize|0;
 
@@ -397,16 +398,19 @@ class AndroidDebugSession extends DebugSession {
     copyAndInstallAPK() {
         // copy the file to the device
         this.LOG('Deploying current build...');
+        const device_apk_fpn = '/data/local/tmp/debug.apk';
         return this._device.adbclient.push_file({
-            filepathname:'/data/local/tmp/debug.apk',
+            filepathname:device_apk_fpn,
             filedata:this._apk_file_data,
             filemtime:new Date().getTime(),
         })
         .then(() => {
             // send the install command
             this.LOG('Installing...');
+            const command = `pm install ${Array.isArray(this.pmInstallArgs) ? this.pmInstallArgs.join(' ') : '-r'} ${device_apk_fpn}`;
+            D(command);
             return this._device.adbclient.shell_cmd({
-                command:'pm install -r /data/local/tmp/debug.apk',
+                command,
                 untilclosed:true,
             })
         })
@@ -415,6 +419,10 @@ class AndroidDebugSession extends DebugSession {
             // 	       pkg: x-y-z.apk
             //  Failure [INSTALL_FAILED_OLDER_SDK]
             var m = stdout.match(/Failure\s+\[([^\]]+)\]/g);
+            if (m) {
+                return $.Deferred().rejectWith(this, [new Error('Installation failed. ' + m[0])]);
+            }
+            m = stdout.match(/^java.lang.IllegalArgumentException:.+/m);
             if (m) {
                 return $.Deferred().rejectWith(this, [new Error('Installation failed. ' + m[0])]);
             }

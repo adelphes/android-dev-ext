@@ -52,7 +52,10 @@ The following settings are used to configure the debugger:
                 "staleBuild": "warn",
 
                 // Fully qualified path to the AndroidManifest.xml file compiled in the APK. Default: appSrcRoot/AndroidManifest.xml
-                "manifestFile": "${workspaceRoot}/app/src/main/AndroidManifest.xml"
+                "manifestFile": "${workspaceRoot}/app/src/main/AndroidManifest.xml",
+
+                // APK install arguments passed to the Android package manager. Run 'adb shell pm' to show valid arguments. Default: ["-r"]
+                "pmInstallArgs": ["-r"]
             }
         ]
     }

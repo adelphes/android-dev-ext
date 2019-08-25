@@ -89,6 +89,11 @@
                                 "description": "Overrides the default location of AndroidManifest.xml",
                                 "default": "${workspaceRoot}/app/src/main/AndroidManifest.xml"
                             },
+                            "pmInstallArgs": {
+                                "type": "array",
+                                "description":"APK install arguments passed to the Android package manager. Run 'adb shell pm' to show valid arguments. Default: [\"-r\"]",
+                                "default": ["-r"]
+                            },
                             "staleBuild": {
                                 "type": "string",
                                 "description": "Launch behaviour if source files have been saved after the APK was built. One of: [\"ignore\" \"warn\" \"stop\"]. Default: \"warn\"",
