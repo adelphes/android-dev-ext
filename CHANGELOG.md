@@ -1,5 +1,12 @@
 # Change Log
 
+### version 0.8.0
+* Try to extract Android manifest directly from APK
+* Added `manifestFile` launch configuration property
+* Allow `pm install` arguments to be customised as a launch configuration property
+* Document `launchActivity` launch configuration property
+* Fix critical security advisory https://www.npmjs.com/advisories/1118
+
 ### version 0.7.1
 * Added the [Buy Me A Coffee](https://www.buymeacoffee.com/adelphes) link to the README
 
