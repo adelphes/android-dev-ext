@@ -422,6 +422,8 @@ class AndroidDebugSession extends DebugSession {
             if (m) {
                 return $.Deferred().rejectWith(this, [new Error('Installation failed. ' + m[0])]);
             }
+            // now the 'pm install' command can have user-defined arguments, we must check that the command
+            // is not rejected because of bad values
             m = stdout.match(/^java.lang.IllegalArgumentException:.+/m);
             if (m) {
                 return $.Deferred().rejectWith(this, [new Error('Installation failed. ' + m[0])]);
