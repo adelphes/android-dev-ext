@@ -55,7 +55,10 @@ The following settings are used to configure the debugger:
                 "manifestFile": "${workspaceRoot}/app/src/main/AndroidManifest.xml",
 
                 // APK install arguments passed to the Android package manager. Run 'adb shell pm' to show valid arguments. Default: ["-r"]
-                "pmInstallArgs": ["-r"]
+                "pmInstallArgs": ["-r"],
+
+                // Manually specify the activity to run when the app is started.
+                "launchActivity": ".MainActivity"
             }
         ]
     }
