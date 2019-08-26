@@ -79,6 +79,11 @@
                                 "description": "Number of entries to display in call stack views (for locations outside of the project source). 0 shows the entire call stack. Default: 1",
                                 "default": 1
                             },
+                            "launchActivity": {
+                                "type": "string",
+                                "description": "Manually specify the activity to run when the app is started.",
+                                "default": ""
+                            },
                             "logcatPort": {
                                 "type": "integer",
                                 "description": "Port number to use for the internal logcat websocket link. Changes to this value only apply when the extension is restarted. Default: 7038",
@@ -107,7 +112,7 @@
                             "trace": {
                                 "type": "boolean",
                                 "description": "Set to true to output debugging logs for diagnostics",
-                                "default": "false"
+                                "default": false
                             }
                         }
                     }
