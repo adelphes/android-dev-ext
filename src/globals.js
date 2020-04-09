@@ -91,6 +91,6 @@ function variableRefToThreadId(variablesReference) {
 }
 
 
-Object.assign(exports, {
+module.exports = {
     JTYPES, exmsg_var_name, ensure_path_end_slash, is_subpath_of, decode_char, variableRefToThreadId, createJavaString, signatureToFullyQualifiedType
-});
+}

@@ -421,9 +421,9 @@ class AndroidDebugSession extends DebugSession {
             }
             // now the 'pm install' command can have user-defined arguments, we must check that the command
             // is not rejected because of bad values
-            m = stdout.match(/^java.lang.IllegalArgumentException:.+/m);
+            const m = stdout.match(/^java.lang.IllegalArgumentException:.+/m);
             if (m) {
-                return $.Deferred().rejectWith(this, [new Error('Installation failed. ' + m[0])]);
+                throw new Error('Installation failed. ' + m[0]);
             }
         })
     }
@@ -565,7 +565,7 @@ class AndroidDebugSession extends DebugSession {
                     continue;
                 }
                 // ignore folders not starting with a known top-level Android folder
-                if (!(/^(assets|res|src|main|java|kotlin)([\\/]|$)/.test(p))) continue;
+                if (!(/^(assets|res|src|main|java|kotlin)([\\/]|$)/.test(subpath))) continue;
                 // is this a package folder
                 const pkgmatch = subpath.match(/^(src|main|java|kotlin)[\\/](.+)/);
                 if (pkgmatch && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(pkgmatch[2].split(/[\\/]/).pop())) {
@@ -793,7 +793,7 @@ class AndroidDebugSession extends DebugSession {
 	}
 
     setExceptionBreakPointsRequest(response /*: SetExceptionBreakpointsResponse*/, args /*: SetExceptionBreakpointsArguments*/) {
-        this.dbgr.clearBreakOnExceptions({response,args})
+        this.dbgr.clearBreakOnExceptions()
             .then(() => {
                 let set_promise;
                 if (args.filters.includes('all')) {
@@ -1128,7 +1128,10 @@ class AndroidDebugSession extends DebugSession {
             case 'end':
                 const t = this._threads[e.threadid];
                 if (t) {
-                    t.stepTimeout && clearTimeout(t.stepTimeout) && (t.stepTimeout = null);
+                    if (t.stepTimeout) {
+                        clearTimeout(t.stepTimeout);
+                        t.stepTimeout = null;
+                    }
                     delete this._threads[e.threadid];
                     delete this._threads.array[t.vscode_threadid];
                     const event = new ThreadEvent();

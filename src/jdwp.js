@@ -319,7 +319,7 @@ function _JDWP() {
 					    case 'status': res[key]=this.decodeStatus(o); break;
 					    case 'location': res[key]=this.decodeLocation(o); break;
 					    case 'signature': res[key]=this.decodeTypeFromSignature(o); break;
-					    case 'codeindex': res[key]=this.decodeLong(o, true); break;
+					    case 'codeindex': res[key]=this.decodeLong(o); break;
 				    }
 				}
 			}
@@ -330,7 +330,7 @@ function _JDWP() {
 				type: o.data[o.idx++],
 				cid: this.decodeTRef(o),
 				mid: this.decodeMRef(o),
-				idx: this.decodeLong(o, true),
+				idx: this.decodeLong(o),
 			};
 		},
 		decodeTypeFromSignature : function(o) {
@@ -761,8 +761,8 @@ function _JDWP() {
 				},
 				function(o) {
 					const res = {};
-					res.start = DataCoder.decodeLong(o, true);
-					res.end = DataCoder.decodeLong(o, true);
+					res.start = DataCoder.decodeLong(o);
+					res.end = DataCoder.decodeLong(o);
 					res.lines = [];
 					let arrlen = DataCoder.decodeInt(o);
 					while (--arrlen >= 0) {

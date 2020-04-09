@@ -98,4 +98,4 @@ const NumberBaseConverter = {
     },
 };
 
-Object.assign(exports, NumberBaseConverter);
+module.exports = NumberBaseConverter;

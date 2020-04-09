@@ -325,7 +325,7 @@ class AndroidVariables {
                 // fall-through
             case !!(m = value.match(/^[+-]?[0-9]+([eE][+]?[0-9]+)?$/)):
                 // decimal integer
-                num = parseFloat(value, 10);    // parseInt() can't handle exponents
+                num = parseFloat(value);    // parseInt() can't handle exponents
                 switch(true) {
                     case (num >= -128 && num <= 127): data = {valuetype:'byte',value:num}; break;
                     case (num >= -32768 && num <= 32767): data = {valuetype:'short',value:num}; break;

@@ -24,7 +24,7 @@ class LogcatContent {
         this._refreshRate = 200;    // ms
         this._state = 'connecting';
         this._htmltemplate = '';
-        this._adbclient = new ADBClient(uri.query);
+        this._adbclient = new ADBClient(deviceid);
         this._initwait = LogcatContent.initWebSocketServer()
             .then(() => {
                 return this._adbclient.logcat({
@@ -74,7 +74,7 @@ class LogcatContent {
         });
     }
     sendClientMessage(msg) {
-        const clients = LogcatContent._wss.clients.filter(client => client._logcatid === this._logcatid);
+        const clients = [...LogcatContent._wss.clients].filter(client => client._logcatid === this._logcatid);
         clients.forEach(client => client.send(msg+'\n'));   // include a newline to try and persuade a buffer write
     }
     sendDisconnectMsg() {
@@ -108,7 +108,7 @@ class LogcatContent {
     }
     updateLogs() {
         // no point in formatting the data if there are no connected clients
-        const clients = LogcatContent._wss.clients.filter(client => client._logcatid === this._logcatid);
+        const clients = [...LogcatContent._wss.clients].filter(client => client._logcatid === this._logcatid);
         if (clients.length) {
             const lines = '<div class="logblock">' + this._htmllogs.join('') + '</div>';
             clients.forEach(client => client.send(lines));

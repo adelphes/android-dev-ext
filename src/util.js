@@ -57,7 +57,7 @@ var index_of_file_fdn = function (n) {
 	return -1;
 }
 
-var get_file_fd_from_fdn = function (n) {
+var get_file_fd_from_fdn = exports.get_file_fd_from_fdn = function (n) {
 	var idx = index_of_file_fdn(n);
 	if (idx < 0) return null;
 	return fdcache[idx];

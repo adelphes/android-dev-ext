@@ -304,9 +304,9 @@ Debugger.prototype = {
         return reply;
     },
 
-    ensureconnected: function (extra) {
+    ensureconnected: function () {
         // passing null as the jdwpid will cause a fail if the client is not connected (or connecting)
-        return this.connect(null, extra);
+        return this.connect(null);
     },
 
     status: function () {
@@ -598,7 +598,7 @@ Debugger.prototype = {
                 for (let cmlkey in this.breakpoints.enabled) {
                     const enabledbp = this.breakpoints.enabled[cmlkey].bp;
                     if (bpstoclear.indexOf(enabledbp) >= 0) {
-                        bp_clear_promises.push(this._clearbreakpointsevent([cmlkey], enabledbp));
+                        bp_clear_promises.push(this._clearbreakpointsevent([cmlkey]));
                     }
                 }
                 Promise.all(bp_clear_promises).then(() => this._changebpstate(bpstoclear, 'removed'));

@@ -10,12 +10,12 @@ function parse_device_list(data, extended) {
     lines.sort();
     const devicelist = [];
     if (extended) {
-        for (let i = 0; i < lines.length; i++) {
+        for (let i = 0, m; i < lines.length; i++) {
             try {
-                const m = JSON.parse(lines[i]);
-                if (!m) continue;
-                m.num = i;
+                m = JSON.parse(lines[i]);
             } catch (e) { continue; }
+            if (!m) continue;
+            m.num = i;
             devicelist.push(m);
         }
     } else {
@@ -47,7 +47,6 @@ class ADBClient {
             // if we fail, still resolve the promise, passing the error
             return err;
         }
-        return true;
     }
 
     async list_devices() {
