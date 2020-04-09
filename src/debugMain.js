@@ -12,13 +12,13 @@ const path = require('path');
 
 // our stuff
 const { ADBClient } = require('./adbclient');
+const ADBSocket = require('./sockets/adbsocket');
 const { Debugger } = require('./debugger');
 const { extractManifestFromAPK, parseManifest } = require('./manifest');
 const { AndroidThread } = require('./threads');
 const { D, onMessagePrint, isEmptyObject, readFile } = require('./util');
 const { AndroidVariables } = require('./variables');
 const { evaluate } = require('./expressions');
-const ws_proxy = require('./wsproxy').proxy.Server(6037, 5037);
 const { exmsg_var_name, signatureToFullyQualifiedType, ensure_path_end_slash,is_subpath_of,variableRefToThreadId } = require('./globals');
 
 class AndroidDebugSession extends DebugSession {
@@ -245,9 +245,10 @@ class AndroidDebugSession extends DebugSession {
         if (typeof args.callStackDisplaySize === 'number' && args.callStackDisplaySize >= 0)
             this.callStackDisplaySize = args.callStackDisplaySize|0;
 
-        // configure the ADB port - if it's undefined, it will set the default value.
-        // if it's not a valid port number, any connection request should neatly fail.
-        ws_proxy.setADBPort(args.adbPort);
+        // set the custom ADB port - this should be changed to pass it to each ADBClient instance
+        if (typeof args.adbPort === 'number' && args.adbPort >= 0 && args.adbPort <= 65535) {
+            ADBSocket.ADBPort = args.adbPort;
+        }
 
         try {
             // start by scanning the source folder for stuff we need to know about (packages, manifest, etc)
@@ -332,10 +333,9 @@ class AndroidDebugSession extends DebugSession {
     async checkADBStarted(autoStartADB) {
         const err = await new ADBClient().test_adb_connection();
         // if adb is not running, see if we can start it ourselves using ANDROID_HOME (and a sensible port number)
-        const adbport = ws_proxy.adbport;
-        if (err && autoStartADB && process.env.ANDROID_HOME && typeof adbport === 'number' && adbport > 0 && adbport < 65536) {
+        if (err && autoStartADB && process.env.ANDROID_HOME) {
             const adbpath = path.join(process.env.ANDROID_HOME, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');
-            const adbargs = ['-P',''+adbport,'start-server'];
+            const adbargs = ['-P',`${ADBSocket.ADBPort}`,'start-server'];
             try {
                 this.LOG([adbpath, ...adbargs].join(' '));
                 const stdout = require('child_process').execFileSync(adbpath, adbargs, {cwd:process.env.ANDROID_HOME, encoding:'utf8'});

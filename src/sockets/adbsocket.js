@@ -6,6 +6,12 @@ const AndroidSocket = require('./androidsocket');
  */
 class ADBSocket extends AndroidSocket {
 
+    /**
+     * The port number to run ADB on.
+     * The value can be overriden by the adbPort value in each configuration.
+     */
+    static ADBPort = 5037;
+
     constructor() {
         super('ADBSocket');
     }

@@ -1,7 +1,6 @@
 /*
     ADBClient: class to manage commands to ADB
 */
-const { atob } = require('./util');
 const JDWPSocket = require('./sockets/jdwpsocket');
 const ADBSocket = require('./sockets/adbsocket');
 
@@ -33,10 +32,16 @@ function parse_device_list(data, extended) {
 }
 
 class ADBClient {
-    constructor(deviceid) {
+
+    /**
+     * @param {string} [deviceid]
+     * @param {number} [adbPort] the port number to connect to ADB
+     */
+    constructor(deviceid, adbPort = ADBSocket.ADBPort) {
         this.deviceid = deviceid;
         this.adbsocket = null;
         this.jdwp_socket = null;
+        this.adbPort = adbPort;
     }
 
     async test_adb_connection() {
@@ -169,10 +174,9 @@ class ADBClient {
         return true;
     }
 
-    connect_to_adb(o) {
-        const port = (o && o.port) || 5037;
+    connect_to_adb() {
         this.adbsocket = new ADBSocket();
-        return this.adbsocket.connect(port, '127.0.0.1');
+        return this.adbsocket.connect(this.adbPort, '127.0.0.1');
     }
 
     disconnect_from_adb () {
