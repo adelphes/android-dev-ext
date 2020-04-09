@@ -6,19 +6,16 @@ const {
 
 // node and external modules
 const crypto = require('crypto');
-const dom = require('xmldom').DOMParser;
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const unzipper = require('unzipper');
-const xpath = require('xpath');
 
 // our stuff
 const { ADBClient } = require('./adbclient');
-const { decode_binary_xml } = require('./apkdecoder');
 const { Debugger } = require('./debugger');
+const { extractManifestFromAPK, parseManifest } = require('./manifest');
 const { AndroidThread } = require('./threads');
-const { D, onMessagePrint, isEmptyObject } = require('./util');
+const { D, onMessagePrint, isEmptyObject, readFile } = require('./util');
 const { AndroidVariables } = require('./variables');
 const { evaluate } = require('./expressions');
 const ws_proxy = require('./wsproxy').proxy.Server(6037, 5037);
@@ -46,6 +43,8 @@ class AndroidDebugSession extends DebugSession {
         this.src_packages = {};
         // the device we are debugging
         this._device = null;
+        // the API level of the device we are debugging
+        this.device_api_level = '';
         // the full file path name of the AndroidManifest.xml, taken from the manifestFile launch property
         this.manifest_fpn = '';
 
@@ -231,7 +230,7 @@ class AndroidDebugSession extends DebugSession {
             });
     }
 
-	launchRequest(response/*: DebugProtocol.LaunchResponse*/, args/*: LaunchRequestArguments*/) {
+	async launchRequest(response/*: DebugProtocol.LaunchResponse*/, args/*: LaunchRequestArguments*/) {
         if (args && args.trace) {
             this.trace = args.trace;
             onMessagePrint(this.LOG.bind(this));
@@ -265,131 +264,148 @@ class AndroidDebugSession extends DebugSession {
             return;
         }
 
-        const fail_launch = (msg) => Promise.reject(new Error(msg));
+        try {
+            this.LOG('Checking build')
+            this.apk_file_info = await this.getAPKFileInfo();
+            this.checkBuildIsUpToDate(args.staleBuild);
 
-        this.LOG('Checking build')
-        this.getAPKFileInfo()
-            .then(apk_file_info => {
-                this.apk_file_info = apk_file_info;
-                // check if any source file was modified after the apk
-                if (this.src_packages.last_src_modified >= this.apk_file_info.app_modified) {
-                    switch (args.staleBuild) {
-                        case 'ignore': break;
-                        case 'stop': return fail_launch('Build is not up-to-date');
-                        case 'warn': 
-                        default: this.WARN('Build is not up-to-date. Source files may not match execution when debugging.'); break;
-                    }
-                }
-                // check we have something to launch - we do this again later, but it's a bit better to do it before we start device comms
-                let launchActivity = args.launchActivity;
-                if (!launchActivity)
-                    if (!(launchActivity = this.apk_file_info.launcher))
-                        return fail_launch('No valid launch activity found in AndroidManifest.xml or launch.json');
+            // check we have something to launch - we do this again later, but it's a bit better to do it before we start device comms
+            let launchActivity = args.launchActivity;
+            if (!launchActivity)
+                if (!(launchActivity = this.apk_file_info.launcher))
+                    throw new Error('No valid launch activity found in AndroidManifest.xml or launch.json');
 
-                return new ADBClient().test_adb_connection()
-                    .then(err => {
-                        // if adb is not running, see if we can start it ourselves using ANDROID_HOME (and a sensible port number)
-                        const adbport = ws_proxy.adbport;
-                        if (err && args.autoStartADB!==false && process.env.ANDROID_HOME && typeof adbport === 'number' && adbport > 0 && adbport < 65536) {
-                            const adbpath = path.join(process.env.ANDROID_HOME, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');
-                            const adbargs = ['-P',''+adbport,'start-server'];
-                            try {
-                                this.LOG([adbpath, ...adbargs].join(' '));
-                                const stdout = require('child_process').execFileSync(adbpath, adbargs, {cwd:process.env.ANDROID_HOME, encoding:'utf8'});
-                                this.LOG(stdout);
-                            } catch (ex) {} // if we fail, it doesn't matter - the device query will fail and the user will have to work it out themselves
-                        }
-                    })
-            })
-            .then(() => this.findSuitableDevice(args.targetDevice))
-            .then(device => {
-                this._device = device;
-                this._device.adbclient = new ADBClient(this._device.serial);
-                // we've got our device - retrieve the hash of the installed app (or sha1 utility itself if the app is not installed)
-                const query_app_hash = `/system/bin/sha1sum $(pm path ${this.apk_file_info.package}|grep -o -e '/.*' || echo '/system/bin/sha1sum')`;
-                return this._device.adbclient.shell_cmd({command: query_app_hash});
-            })
-            .then(sha1sum_output => {
-                const installed_hash = sha1sum_output.match(/^[0-9a-fA-F]*/)[0].toLowerCase();
-                // does the installed apk hash match the content hash? if, so we don't need to install the app
-                if (installed_hash === this.apk_file_info.content_hash) {
-                    this.LOG('Current build already installed');
-                    return;
-                }
-                return this.copyAndInstallAPK();
-            })
-            .then(() => {
-                // when we reach here, the app should be installed and ready to be launched
-                // - before we continue, splunk the apk file data because node *still* hangs when evaluating large arrays
-                this._apk_file_data = null;
+            // make sure ADB exists and is started and look for a device to install on
+            await this.checkADBStarted(args.autoStartADB !== false);
+            this._device = await this.findSuitableDevice(args.targetDevice);
+            this._device.adbclient = new ADBClient(this._device.serial);
 
-                // get the API level of the device
-                return this._device.adbclient.shell_cmd({command:'getprop ro.build.version.sdk'});
-            })
-            .then(apilevel => {
-                apilevel = apilevel.trim();
+            // install the APK we are going to debug
+            await this.installAPK();
 
-                // look for the android sources folder appropriate for this device
-                if (process.env.ANDROID_HOME && apilevel) {
-                    const sources_path = path.join(process.env.ANDROID_HOME,'sources',`android-${apilevel}`);
-                    fs.stat(sources_path, (err,stat) => {
-                        if (!err && stat && stat.isDirectory())
-                            this._android_sources_path = sources_path;
-                    });
-                }
+            // when we reach here, the app should be installed and ready to be launched
+            // - we no longer need the APK file data
+            this._apk_file_data = null;
 
-                // start the launch
-                let launchActivity = args.launchActivity;
-                if (!launchActivity)
-                    if (!(launchActivity = this.apk_file_info.launcher))
-                        return fail_launch('No valid launch activity found in AndroidManifest.xml or launch.json');
-                const build = {
-                    pkgname:this.apk_file_info.package, 
-                    packages:Object.assign({}, this.src_packages.packages),
-                    launchActivity: launchActivity,
-                };
-                this.LOG(`Launching ${build.pkgname+'/'+launchActivity} on device ${this._device.serial} [API:${apilevel||'?'}]`);
-                return this.dbgr.startDebugSession(build, this._device.serial, launchActivity);
-            })
-            .then(() => {
-                // if we get this far, the debugger is connected and waiting for the resume command
-                // - set up some events
-                this.dbgr.on('bpstatechange', this, this.onBreakpointStateChange)
-                    .on('bphit', this, this.onBreakpointHit)
-                    .on('step', this, this.onStep)
-                    .on('exception', this, this.onException)
-                    .on('threadchange', this, this.onThreadChange)
-                    .on('disconnect', this, this.onDebuggerDisconnect);
-                // - tell the client we're initialised and ready for breakpoint info, etc
-                this.sendEvent(new InitializedEvent());
-                return new Promise(resolve => this.waitForConfigurationDone = resolve);
-            })
-            .then(() => {
-                // get the debugger to tell us about any thread creations/terminations
-                return this.dbgr.setThreadNotify();
-            })
-            .then(() => {
-                // config is done - we're all set and ready to go!
-                D('Continuing app start');
-                this.sendResponse(response);
-                return this.dbgr.resume();
-            })
-            .then(() => {
-                this.LOG('Application started');
-            })
-            .catch(e => {
-                // exceptions use message, adbclient uses msg
-                this.LOG('Launch failed: '+(e.message||e.msg||'No additional information is available'));
-                // more info for adb connect errors
-                if (/^ADB server is not running/.test(e.msg)) {
-                    this.LOG('Make sure the Android SDK Platform Tools are installed and run:');
-                    this.LOG('      adb start-server');
-                    this.LOG('If you are running ADB on a non-default port, also make sure the adbPort value in your launch.json is correct.');
-                }
-                // tell the client we're done
-                this.sendEvent(new TerminatedEvent(false));
+            // try and determine the relevant path for the API sources (based upon the API level of the connected device)
+            await this.configureAPISourcePath();
+
+            // launch the app
+            await this.startLaunchActivity(args.launchActivity);
+
+            // if we get this far, the debugger is connected and waiting for the resume command
+            // - set up some events
+            this.dbgr.on('bpstatechange', this, this.onBreakpointStateChange)
+                .on('bphit', this, this.onBreakpointHit)
+                .on('step', this, this.onStep)
+                .on('exception', this, this.onException)
+                .on('threadchange', this, this.onThreadChange)
+                .on('disconnect', this, this.onDebuggerDisconnect);
+
+            // - tell the client we're initialised and ready for breakpoint info, etc
+            this.sendEvent(new InitializedEvent());
+            await new Promise(resolve => this.waitForConfigurationDone = resolve);
+
+            // get the debugger to tell us about any thread creations/terminations
+            await this.dbgr.setThreadNotify();
+
+            // config is done - we're all set and ready to go!
+            D('Continuing app start');
+            this.sendResponse(response);
+            await this.dbgr.resume();
+            
+            this.LOG('Application started');
+        } catch(e) {
+            // exceptions use message, adbclient uses msg
+            this.LOG('Launch failed: '+(e.message||e.msg||'No additional information is available'));
+            // more info for adb connect errors
+            if (/^ADB server is not running/.test(e.msg)) {
+                this.LOG('Make sure the Android SDK Platform Tools are installed and run:');
+                this.LOG('      adb start-server');
+                this.LOG('If you are running ADB on a non-default port, also make sure the adbPort value in your launch.json is correct.');
+            }
+            // tell the client we're done
+            this.sendEvent(new TerminatedEvent(false));
+        }
+    }
+    
+    async checkADBStarted(autoStartADB) {
+        const err = await new ADBClient().test_adb_connection();
+        // if adb is not running, see if we can start it ourselves using ANDROID_HOME (and a sensible port number)
+        const adbport = ws_proxy.adbport;
+        if (err && autoStartADB && process.env.ANDROID_HOME && typeof adbport === 'number' && adbport > 0 && adbport < 65536) {
+            const adbpath = path.join(process.env.ANDROID_HOME, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');
+            const adbargs = ['-P',''+adbport,'start-server'];
+            try {
+                this.LOG([adbpath, ...adbargs].join(' '));
+                const stdout = require('child_process').execFileSync(adbpath, adbargs, {cwd:process.env.ANDROID_HOME, encoding:'utf8'});
+                this.LOG(stdout);
+            } catch (ex) {} // if we fail, it doesn't matter - the device query will fail and the user will have to work it out themselves
+        }
+    }
+
+    checkBuildIsUpToDate(staleBuild) {
+        // check if any source file was modified after the apk
+        if (this.src_packages.last_src_modified >= this.apk_file_info.app_modified) {
+            switch (staleBuild) {
+                case 'ignore': break;
+                case 'stop': throw new Error('Build is not up-to-date');
+                case 'warn': 
+                default: this.WARN('Build is not up-to-date. Source files may not match execution when debugging.'); break;
+            }
+        }
+    }
+
+    startLaunchActivity(launchActivity) {
+        if (!launchActivity)
+            if (!(launchActivity = this.apk_file_info.launcher))
+                throw new Error('No valid launch activity found in AndroidManifest.xml or launch.json');
+        const build = {
+            pkgname: this.apk_file_info.package, 
+            packages: Object.assign({}, this.src_packages.packages),
+            launchActivity,
+        };
+        this.LOG(`Launching ${build.pkgname+'/'+launchActivity} on device ${this._device.serial} [API:${this.device_api_level||'?'}]`);
+        return this.dbgr.startDebugSession(build, this._device.serial, launchActivity);
+    }
+
+    async configureAPISourcePath() {
+        const apilevel = await this.getDeviceAPILevel();
+
+        // look for the android sources folder appropriate for this device
+        if (process.env.ANDROID_HOME && apilevel) {
+            const sources_path = path.join(process.env.ANDROID_HOME,'sources',`android-${apilevel}`);
+            fs.stat(sources_path, (err,stat) => {
+                if (!err && stat && stat.isDirectory())
+                    this._android_sources_path = sources_path;
             });
-	}
+        }
+    }
+
+    async getDeviceAPILevel() {
+        const apilevel = await this._device.adbclient.shell_cmd({command:'getprop ro.build.version.sdk'});
+        this.device_api_level = apilevel.trim();
+        return this.device_api_level;
+    }
+    
+    async installAPK() {
+        const installed = await this.isAPKInstalled();
+        if (installed) {
+            this.LOG('Current build already installed');
+            return;
+        }
+        await this.copyAndInstallAPK();
+    }
+
+    async isAPKInstalled() {
+        // retrieve the hash of the installed app (or sha1 utility itself if the app is not installed)
+        const query_app_hash = `/system/bin/sha1sum $(pm path ${this.apk_file_info.package}|grep -o -e '/.*' || echo '/system/bin/sha1sum')`;
+        const sha1sum_output = await this._device.adbclient.shell_cmd({command: query_app_hash});
+        const installed_hash = sha1sum_output.match(/^[0-9a-fA-F]*/)[0].toLowerCase();
+
+        // does the installed apk hash match the content hash? if, so we don't need to install the app
+        return installed_hash === this.apk_file_info.content_hash;
+    }
 
     copyAndInstallAPK() {
         // copy the file to the device
@@ -428,111 +444,95 @@ class AndroidDebugSession extends DebugSession {
         })
     }
 
-    getAPKFileInfo() {
-        return new Promise((resolve, reject) => {
-            const result = { fpn:this.apk_fpn, app_modified:0, content_hash:'', manifest:'', package:'', activities:[], launcher:'' };
-            // read the APK
-            fs.readFile(this.apk_fpn, (err,apk_file_data) => {
-                if (err) return reject(new Error('APK read error. ' + err.message));
-                // debugging is painful when the APK file content is large, so keep the data in a separate field so node
-                // doesn't have to evaluate it when we're looking at the apk info
-                this._apk_file_data = apk_file_data;
-                // save the last modification time of the app
-                result.app_modified = fs.statSync(result.fpn).mtime.getTime();
-                // create a SHA-1 hash as a simple way to see if we need to install/update the app
-                const h = crypto.createHash('SHA1');
-                h.update(apk_file_data);
-                result.content_hash = h.digest('hex');
-                // read the manifest
-                this.readAndroidManifest((err, manifest) => {
-                    if (err) return reject(new Error('Manifest read error. ' + err.message));
-                    result.manifest = manifest;
-                    try {
-                        const doc = new dom().parseFromString(manifest);
-                        // extract the package name from the manifest
-                        const pkg_xpath = '/manifest/@package';
-                        result.package = xpath.select1(pkg_xpath, doc).value;
-                        const android_select = xpath.useNamespaces({"android": "http://schemas.android.com/apk/res/android"});
-                        
-                        // extract a list of all the (named) activities declared in the manifest
-                        const activity_xpath = '/manifest/application/activity/@android:name';
-                        const activity_nodes = android_select(activity_xpath, doc);
-                        if (activity_nodes) {
-                            result.activities = activity_nodes.map(n => n.value);
-                        }
+    async getAPKFileInfo() {
+        const result = {
+            /**
+             * the full file path to the APK
+             */
+            fpn: this.apk_fpn,
+            /**
+             * last modified time of the APK file (in ms)
+             */
+            app_modified: 0,
+            /**
+             * SHA-1 (hex) digest of the APK file
+             */
+            content_hash:'',
+            /**
+             * Contents of Android Manifest XML file
+             */
+            manifest:'',
+            /**
+             * Package name of the app - extracted from the manifest
+             */
+            package:'',
+            /**
+             * List of all named Activities - extracted from the manifest
+             */
+            activities:[],
+            /**
+             * The launcher Activity- extracted from the manifest
+             */
+            launcher:'',
+        };
+        // read the APK file contents
+        try {
+            // debugging is painful when the APK file content is large, so keep the data in a separate field so node
+            // doesn't have to evaluate it when we're looking at the apk info
+            this._apk_file_data = await readFile(this.apk_fpn);
+        } catch(err) {
+            throw new Error(`APK read error. ${err.message}`);
+        }
+        // save the last modification time of the app
+        result.app_modified = fs.statSync(result.fpn).mtime.getTime();
 
-                        // extract the default launcher activity
-                        const launcher_xpath = '/manifest/application/activity[intent-filter/action[@android:name="android.intent.action.MAIN"] and intent-filter/category[@android:name="android.intent.category.LAUNCHER"]]/@android:name';
-                        const launcher_nodes = android_select(launcher_xpath, doc);
-                        // should we warn if there's more than one?
-                        if (launcher_nodes && launcher_nodes.length >= 1) {
-                            result.launcher = launcher_nodes[0].value
-                        }
-                    } catch(err) {
-                        return reject(new Error('Manifest parse failed. ' + err.message));
-                    }
-                    resolve(result);
-                });
-            });
-        });
+        // create a SHA-1 hash as a simple way to see if we need to install/update the app
+        const h = crypto.createHash('SHA1');
+        h.update(this._apk_file_data);
+        result.content_hash = h.digest('hex');
+
+        // read the manifest
+        try {
+            result.manifest = await this.readAndroidManifest();
+        } catch (err) {
+            throw new Error(`Manifest read error. ${err.message}`);
+        }
+        // extract the parts we need from the manifest
+        try {
+            const manifest_data = parseManifest(result.manifest);
+            Object.assign(result, manifest_data);
+        } catch(err) {
+            throw new Error(`Manifest parse failed. ${err.message}`);
+        }
+        return result;
     }
 
-    readAndroidManifest(cb) {
+    async readAndroidManifest() {
         // Because of manifest merging and build-injected properties, the manifest compiled inside
         // the APK is frequently different from the AndroidManifest.xml source file.
         // We try to extract the manifest from 3 sources (in priority order):
         // 1. The 'manifestFile' launch configuration property
         // 2. The decoded manifest from the APK
         // 3. The AndroidManifest.xml file from the root of the source tree.
-
-        const readAPKManifest = (cb) => {
-            D(`Reading APK Manifest`);
-            const apk_manifest_chunks = [];
-            function cb_once(err, manifest) {
-                cb && cb(err, manifest);
-                cb = null;
-            }
-            fs.createReadStream(this.apk_fpn)
-                .pipe(unzipper.ParseOne(/^AndroidManifest\.xml$/))
-                .on('data', chunk => {
-                    apk_manifest_chunks.push(chunk);
-                })
-                .once('error', err => {
-                    cb_once(err);
-                })
-                .once('end', () => {
-                    try {
-                        const manifest = decode_binary_xml(Buffer.concat(apk_manifest_chunks));
-                        D(`APK manifest read complete`);
-                        cb_once(null, manifest);
-                    } catch (err) {
-                        D(`APK manifest decode failed: ${err.message}`);
-                        cb_once(err);
-                    }
-                });
-        }
-
-        const readSourceManifest = (cb) => {
-            D(`Reading source manifest from ${this.app_src_root}`);
-            fs.readFile(path.join(this.app_src_root, 'AndroidManifest.xml'), 'utf8', cb);
-        }
+        let manifest;
 
         // a value from the manifestFile overrides the default manifest extraction
         // note: there's no validation that the file is a valid AndroidManifest.xml file
         if (this.manifest_fpn) {
             D(`Reading manifest from ${this.manifest_fpn}`);
-            fs.readFile(this.manifest_fpn, 'utf8', cb);
-            return;
+            manifest = await readFile(this.manifest_fpn, 'utf8');
+            return manifest;
         }
-
-        readAPKManifest((err, manifest) => {
-            if (err) {
-                // if we fail to read the APK manifest, revert to the source manifest
-                readSourceManifest(cb)
-                return;
-            }
-            cb(err, manifest);
-        });
+    
+        try {
+            D(`Reading APK Manifest`);
+            manifest = await extractManifestFromAPK(this.apk_fpn);
+        } catch(err) {
+            // if we fail to read the APK manifest, revert to the source manifest
+            D(`Reading source manifest from ${this.app_src_root}`);
+            manifest = await readFile(path.join(this.app_src_root, 'AndroidManifest.xml'), 'utf8');
+        }
+        return manifest;
     }
     
     scanSourceSync(app_root) {

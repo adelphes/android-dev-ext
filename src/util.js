@@ -1,3 +1,4 @@
+const fs = require('fs');
 var nofn = function () { };
 const messagePrintCallbacks = new Set();
 var D = exports.D = (...args) => (console.log(...args), messagePrintCallbacks.forEach(cb => cb(...args)))
@@ -631,3 +632,17 @@ exports.btoa = function (arr) {
 exports.atob = function (base64) {
 	return Buffer.from(base64, 'base64').toString('binary');
 }
+
+/**
+ *
+ * @param {string} path 
+ * @param {*} [options] 
+ */
+function readFile(path, options) {
+	return new Promise((res, rej) => {
+		fs.readFile(path, options || {}, (err, data) => {
+			err ? rej(err) : res(data);
+		})
+	})
+}
+exports.readFile = readFile;
