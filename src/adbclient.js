@@ -136,7 +136,13 @@ class ADBClient {
         let logcatbuffer = Buffer.alloc(0);
         const next_logcat_lines = async () => {
             // read the next data from ADB
-            const next_data = await this.adbsocket.read_stdout(null);
+            let next_data;
+            try{
+                next_data = await this.adbsocket.read_stdout(null);
+            } catch(e) {
+                o.onclose();
+                return;
+            }
             logcatbuffer = Buffer.concat([logcatbuffer, next_data]);
             const last_newline_index = logcatbuffer.lastIndexOf(10) + 1;
             if (last_newline_index === 0) {
