@@ -75,6 +75,11 @@ class AndroidSocket extends EventEmitter {
         if (length === 'length+data' && this.readbuffer.byteLength >= 4) {
             length = actual_length = this.readbuffer.readUInt32BE(0);
         }
+        if (this.socket_ended) {
+            if (actual_length <= 0 || (this.readbuffer.byteLength < actual_length)) {
+                return Promise.reject(new Error(`${this.which} socket read failed. Socket closed.`));
+            }
+        }
         // do we have enough data in the buffer?
         if (this.readbuffer.byteLength >= actual_length) {
             //D(`got ${actual_length} bytes`);
@@ -84,9 +89,6 @@ class AndroidSocket extends EventEmitter {
                 data = data.toString(format);
             }
             return Promise.resolve(data);
-        }
-        if (this.socket_ended) {
-            return Promise.reject(new Error(`${this.which} socket read failed. Socket closed.`));
         }
         // wait for the data-changed event and then retry the read
         //D(`waiting for ${length} bytes`);
@@ -105,7 +107,7 @@ class AndroidSocket extends EventEmitter {
 
     /**
      * Writes a raw command to the socket
-     * @param {string} command 
+     * @param {string|Buffer} bytes 
      */
     write_bytes(bytes) {
         if (this.socket_ended) {
