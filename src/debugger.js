@@ -6,40 +6,57 @@ const _JDWP = require('./jdwp')._JDWP;
 const { ADBClient } = require('./adbclient');
 const { D } = require('./util');
 
-function Debugger() {
-    this.connection = null;
-    this.ons = {};
-    this.breakpoints = { all: [], enabled: {}, bysrcloc: {} };
-    this.exception_ids = [];
-    this.JDWP = new _JDWP();
-    this.session = null;
-    this.globals = Debugger.globals;
+class DebugSession {
+    constructor(build, deviceid) {
+        this.build = build;
+        this.deviceid = deviceid;
+        this.apilevel = 0;
+        this.adbclient = null;
+        this.stoppedlocation = null;
+        this.classes = {};
+        // classprepare filters
+        this.cpfilters = [];
+        this.preparedclasses = [];
+        this.stepids = {};    // hashmap<threadid,stepid>
+        this.threadsuspends = []; // hashmap<threadid, suspend-count>
+        this.invokes = {};        // hashmap<threadid, promise-callbacks>
+    }
 }
 
-Debugger.globals = {
-    portrange: { lowest: 31000, highest: 31099 },
-    inuseports: new Set(),
-    debuggers: {},
-    reserveport: function () {
-        // choose a random port to use each time
-        for (let i = 0; i < 10000; i++) {
-            const portidx = this.portrange.lowest + ((Math.random() * 100) | 0);
-            if (this.inuseports.has(portidx)) {
-                continue;   // try again
-            }
-            this.inuseports.add(portidx);
-            return portidx;
-        }
-        throw new Error('Failed to reserve debugger port');
-    },
-    freeport: function (port) {
-        this.inuseports.delete(port);
+class  Debugger {
+
+    constructor () {
+        this.connection = null;
+        this.ons = {};
+        this.breakpoints = { all: [], enabled: {}, bysrcloc: {} };
+        this.exception_ids = [];
+        this.JDWP = new _JDWP();
+        this.session = null;
+        this.globals = Debugger.globals;
     }
-};
 
-Debugger.prototype = {
+    static globals = {
+        portrange: { lowest: 31000, highest: 31099 },
+        inuseports: new Set(),
+        debuggers: {},
+        reserveport: function () {
+            // choose a random port to use each time
+            for (let i = 0; i < 10000; i++) {
+                const portidx = this.portrange.lowest + ((Math.random() * 100) | 0);
+                if (this.inuseports.has(portidx)) {
+                    continue;   // try again
+                }
+                this.inuseports.add(portidx);
+                return portidx;
+            }
+            throw new Error('Failed to reserve debugger port');
+        },
+        freeport: function (port) {
+            this.inuseports.delete(port);
+        }
+    };
 
-    on: function (which, context, data, fn) {
+    on(which, context, data, fn) {
         if (!fn && !data && typeof (context) === 'function') {
             fn = context; context = data = null;
         }
@@ -51,9 +68,9 @@ Debugger.prototype = {
             context: context, data: data, fn: fn
         });
         return this;
-    },
+    }
 
-    _trigger: function (which, e) {
+    _trigger(which, e) {
         let k = this.ons[which];
         if (!k || !k.length) return this;
         k = k.slice();
@@ -67,11 +84,11 @@ Debugger.prototype = {
             }
         }
         return this;
-    },
+    }
 
     startDebugSession(build, deviceid, launcherActivity) {
-        return this.newSession(build, deviceid)
-            .runapp('debug', launcherActivity, this)
+        this.session = new DebugSession(build, deviceid);
+        return this.runapp('debug', launcherActivity)
             .then(() => {
                 return this.getDebuggablePIDs(this.session.deviceid);
             })
@@ -81,7 +98,7 @@ Debugger.prototype = {
                 // after connect(), the caller must call resume() to begin
                 return this.connect(pid);
             })
-    },
+    }
 
     runapp(action, launcherActivity) {
         // older (<3) versions of Android only allow target components to be specified with -n
@@ -126,36 +143,18 @@ Debugger.prototype = {
                     .catch(reject);
             }
         });
-    },
-
-    newSession: function (build, deviceid) {
-        this.session = {
-            build: build,
-            deviceid: deviceid,
-            apilevel: 0,
-            adbclient: null,
-            stoppedlocation: null,
-            classes: {},
-            // classprepare filters
-            cpfilters: [],
-            preparedclasses: [],
-            stepids: {},    // hashmap<threadid,stepid>
-            threadsuspends: [], // hashmap<threadid, suspend-count>
-            invokes: {},        // hashmap<threadid, promise-callbacks>
-        }
-        return this;
-    },
+    }
 
     /* return a list of deviceids available for debugging */
-    list_devices: function () {
+    list_devices() {
         return new ADBClient().list_devices();
-    },
+    }
 
-    getDebuggablePIDs: function (deviceid) {
+    getDebuggablePIDs(deviceid) {
         return new ADBClient(deviceid).jdwp_list();
-    },
+    }
 
-    getDebuggableProcesses: function (deviceid) {
+    getDebuggableProcesses(deviceid) {
         const adbclient = new ADBClient(deviceid);
         const info = {
             debugger: this,
@@ -205,14 +204,14 @@ Debugger.prototype = {
                     return result;
                 })
             });
-    },
+    }
 
     /* attach to the debuggable pid
         Quite a lot happens in this - we setup port forwarding, complete the JDWP handshake,
         setup class loader notifications and call anyone waiting for us.
         If anything fails, we call disconnect() to return to a sense of normality.
     */
-    connect: function (jdwpid) {
+    connect(jdwpid) {
         switch (this.status()) {
             case 'connected':
                 // already connected - just resolve
@@ -285,9 +284,9 @@ Debugger.prototype = {
                 this.disconnect();
                 throw err;
             })
-    },
+    }
 
-    _onjdwpmessage: function (data) {
+    _onjdwpmessage(data) {
         // decodereply will resolve the promise associated with
         // any command this reply is in response to.
         const reply = this.JDWP.decodereply(this, data);
@@ -302,30 +301,30 @@ Debugger.prototype = {
             }
         }
         return reply;
-    },
+    }
 
-    ensureconnected: function () {
+    ensureconnected() {
         // passing null as the jdwpid will cause a fail if the client is not connected (or connecting)
         return this.connect(null);
-    },
+    }
 
-    status: function () {
+    status() {
         if (!this.connection) return "disconnected";
         if (this.connection.connected) return "connected";
         return "connecting";
-    },
+    }
 
-    forcestop: function () {
+    forcestop() {
         return this.forcestopapp(this.session.deviceid, this.session.build.pkgname);
-    },
+    }
 
-    forcestopapp: function (deviceid, pkgname) {
+    forcestopapp(deviceid, pkgname) {
         return new ADBClient(deviceid).shell_cmd({
             command: 'am force-stop ' + pkgname,
         });
-    },
+    }
 
-    disconnect: function () {
+    disconnect() {
         // disconnect is called from a variety of failure scenarios
         // so it must be fairly robust in how it undoes stuff
         const current_state = this.status();
@@ -370,18 +369,18 @@ Debugger.prototype = {
                 this.session = null;
                 return info.current_state;
             });
-    },
+    }
 
-    allthreads: function () {
+    allthreads() {
         return this.ensureconnected()
             .then(() => {
                 return this.session.adbclient.jdwp_command({
                     cmd: this.JDWP.Commands.allthreads(),
                 });
             });
-    },
+    }
 
-    threadinfos: function (thread_ids) {
+    threadinfos(thread_ids) {
         if (!Array.isArray(thread_ids))
             thread_ids = [thread_ids];
         const threadinfos = [];
@@ -408,9 +407,9 @@ Debugger.prototype = {
                 .then(() => (idx++ , next()))
         }
         return this.ensureconnected().then(() => next());
-    },
+    }
 
-    suspend: function () {
+    suspend() {
         return this.ensureconnected()
             .then(() => {
                 this._trigger('suspending');
@@ -421,9 +420,9 @@ Debugger.prototype = {
             .then(() => {
                 this._trigger('suspended');
             });
-    },
+    }
 
-    suspendthread: function (threadid) {
+    suspendthread(threadid) {
         return this.ensureconnected()
             .then(() => {
                 this.session.threadsuspends[threadid] = (this.session.threadsuspends[threadid] | 0) + 1;
@@ -431,9 +430,9 @@ Debugger.prototype = {
                     cmd: this.JDWP.Commands.suspendthread(threadid),
                 });
             })
-    },
+    }
 
-    _resume: function (triggers) {
+    _resume(triggers) {
         return this.ensureconnected()
             .then(() => {
                 if (triggers) this._trigger('resuming');
@@ -445,17 +444,17 @@ Debugger.prototype = {
             .then(() => {
                 if (triggers) this._trigger('resumed');
             });
-    },
+    }
 
-    resume: function () {
+    resume() {
         return this._resume(true);
-    },
+    }
 
-    _resumesilent: function () {
+    _resumesilent() {
         return this._resume(false);
-    },
+    }
 
-    resumethread: function (threadid) {
+    resumethread(threadid) {
         return this.ensureconnected()
             .then(() => {
                 this.session.threadsuspends[threadid] = (this.session.threadsuspends[threadid] | 0) - 1;
@@ -463,41 +462,41 @@ Debugger.prototype = {
                     cmd: this.JDWP.Commands.resumethread(threadid),
                 });
             })
-    },
+    }
 
-    step: function (steptype, threadid) {
+    step(steptype, threadid) {
         return this.ensureconnected()
             .then(() => {
                 this._trigger('stepping');
                 return this._setupstepevent(steptype, threadid);
             })
             .then(() => this.resumethread(threadid))
-    },
+    }
 
-    _splitsrcfpn: function (srcfpn) {
+    _splitsrcfpn(srcfpn) {
         const m = srcfpn.match(/^\/([^/]+(?:\/[^/]+)*)?\/([^./]+)\.(java|kt)$/);
         return {
             pkg: m[1].replace(/\/+/g, '.'),
             type: m[2],
             qtype: m[1] + '/' + m[2],
         }
-    },
+    }
 
-    getbreakpoint: function (srcfpn, line) {
+    getbreakpoint(srcfpn, line) {
         const cls = this._splitsrcfpn(srcfpn);
         const bp = this.breakpoints.bysrcloc[cls.qtype + ':' + line];
         return bp;
-    },
+    }
 
-    getbreakpoints: function (filterfn) {
+    getbreakpoints(filterfn) {
         return this.breakpoints.all.filter(filterfn);
-    },
+    }
 
-    getallbreakpoints: function () {
+    getallbreakpoints() {
         return this.breakpoints.all.slice();
-    },
+    }
 
-    setbreakpoint: function (srcfpn, line, conditions) {
+    setbreakpoint(srcfpn, line, conditions) {
         const cls = this._splitsrcfpn(srcfpn);
         const bid = cls.qtype + ':' + line;
         let newbp = this.breakpoints.bysrcloc[bid];
@@ -557,16 +556,16 @@ Debugger.prototype = {
         }
 
         return Promise.resolve(newbp);
-    },
+    }
 
-    clearbreakpoint: function (srcfpn, line) {
+    clearbreakpoint(srcfpn, line) {
         const cls = this._splitsrcfpn(srcfpn);
         const bp = this.breakpoints.bysrcloc[cls.qtype + ':' + line];
         if (!bp) return null;
         return this._clearbreakpoints([bp])[0];
-    },
+    }
 
-    clearbreakpoints: function (bps) {
+    clearbreakpoints(bps) {
         if (typeof (bps) === 'function') {
             // argument is a filter function
             return this.clearbreakpoints(this.getbreakpoints(bps));
@@ -583,9 +582,9 @@ Debugger.prototype = {
             bpstoclear.push(bp);
         });
         return this._clearbreakpoints(bpstoclear);
-    },
+    }
 
-    _clearbreakpoints: function (bpstoclear) {
+    _clearbreakpoints(bpstoclear) {
         if (!bpstoclear || !bpstoclear.length) return [];
         bpstoclear.forEach(bp => {
             delete this.breakpoints.bysrcloc[bp.qtype + ':' + bp.linenum];
@@ -611,9 +610,9 @@ Debugger.prototype = {
         }
 
         return bpstoclear;
-    },
+    }
 
-    getframes: function (threadid) {
+    getframes(threadid) {
         return this.session.adbclient.jdwp_command({
             cmd: this.JDWP.Commands.Frames(threadid),
         }).then(frames => {
@@ -627,9 +626,9 @@ Debugger.prototype = {
                     return frames;
                 });
         })
-    },
+    }
 
-    getlocals: function (threadid, frame) {
+    getlocals(threadid, frame) {
         const method = this._findmethod(this.session.classes, frame.location.cid, frame.location.mid);
         if (!method) {
             return Promise.resolve([]);
@@ -683,9 +682,9 @@ Debugger.prototype = {
                     res[i].data.slotinfo = slots[i];
                 return res;
             });
-    },
+    }
 
-    setlocalvalue: function (localvar, data) {
+    setlocalvalue(localvar, data) {
         return this.ensureconnected()
             .then(() => this.session.adbclient.jdwp_command({
                 cmd: this.JDWP.Commands.SetStackValue(localvar.data.frame.threadid, localvar.data.frame.frameid, localvar.data.slotinfo.slot, data),
@@ -702,26 +701,26 @@ Debugger.prototype = {
                 );
             })
             .then(res => res[0]);
-    },
+    }
 
-    getsupertype: function (local) {
+    getsupertype(local) {
         if (local.type.signature === 'Ljava/lang/Object;')
             throw new Error('java.lang.Object has no super type');
 
         return this.gettypedebuginfo(local.type.signature)
             .then(dbgtype => this._ensuresuper(dbgtype[local.type.signature]))
             .then(typeinfo => typeinfo.super)
-    },
+    }
 
-    getsuperinstance: function (local) {
+    getsuperinstance(local) {
         return this.getsupertype(local)
             .then(supertypeinfo => {
                 const castobj = Object.assign({}, local, { type: supertypeinfo });
                 return castobj;
             });
-    },
+    }
 
-    createstring: function (string) {
+    createstring(string) {
         return this.ensureconnected()
             .then(() => this.session.adbclient.jdwp_command({
                 cmd: this.JDWP.Commands.CreateStringObject(string),
@@ -731,9 +730,9 @@ Debugger.prototype = {
                 return this._mapvalues('literal', keys, [strobjref], null);
             })
             .then(vars => vars[0])
-    },
+    }
 
-    setstringvalue: function (variable, string) {
+    setstringvalue(variable, string) {
         return this.createstring(string)
             .then(string_variable => {
                 const value = {
@@ -742,9 +741,9 @@ Debugger.prototype = {
                 };
                 return this.setvalue(variable, value);
             })
-    },
+    }
 
-    setvalue: function (variable, data) {
+    setvalue(variable, data) {
         if (data.stringliteral) {
             return this.setstringvalue(variable, data.value);
         }
@@ -757,9 +756,9 @@ Debugger.prototype = {
                 return this.setarrayvalues(variable.data.arrobj, parseInt(variable.name), 1, data)
                     .then(res => res[0]);
         }
-    },
+    }
 
-    setfieldvalue: function (fieldvar, data) {
+    setfieldvalue(fieldvar, data) {
         return this.ensureconnected()
             .then(() => this.session.adbclient.jdwp_command({
                 cmd: this.JDWP.Commands.SetFieldValue(fieldvar.data.objvar.value, fieldvar.data.field, data),
@@ -769,9 +768,9 @@ Debugger.prototype = {
             }))
             .then(fieldvalues => this._mapvalues('field', [fieldvar.data.field], fieldvalues, fieldvar.data))
             .then(res => res[0])
-    },
+    }
 
-    getfieldvalues: function (objvar) {
+    getfieldvalues(objvar) {
         return this.gettypedebuginfo(objvar.type.signature)
             .then(dbgtype => this._ensurefields(dbgtype[objvar.type.signature]))
             .then(typeinfo => {
@@ -812,9 +811,9 @@ Debugger.prototype = {
                         return res;
                     });
             })
-    },
+    }
 
-    getFieldValue: function (instance, fieldname, includeInherited) {
+    getFieldValue(instance, fieldname, includeInherited) {
         const fqtname = `${instance.type.package}.${instance.type.typename}`;
         const findfield = instance => {
             return this.getfieldvalues(instance)
@@ -832,9 +831,9 @@ Debugger.prototype = {
                 });
         }
         return findfield(instance);
-    },
+    }
 
-    getExceptionLocal: function (ex_ref_value) {
+    getExceptionLocal(ex_ref_value) {
         return this.session.adbclient.jdwp_command({
             cmd: this.JDWP.Commands.GetObjectType(ex_ref_value),
         })
@@ -847,9 +846,9 @@ Debugger.prototype = {
                     .then(() => this._mapvalues('exception', [{ name: '{ex}', type }], [ex_ref_value], {}))
                     .then(res => res[0])
             );
-    },
+    }
 
-    invokeMethod: function (objectid, threadid, type_signature, method_name, method_sig, args) {
+    invokeMethod(objectid, threadid, type_signature, method_name, method_sig, args) {
         const x = {
             objectid, threadid, type_signature, method_name, method_sig, args,
             return_type_signature: method_sig.match(/\)(.*)/)[1],
@@ -862,9 +861,9 @@ Debugger.prototype = {
             if (invokes.push(x) === 1)
                 this._doInvokeMethod(x);
         });
-    },
+    }
 
-    _doInvokeMethod: function (x) {
+    _doInvokeMethod(x) {
         this.gettypedebuginfo(x.return_type_signature)
             .then(dbgtypes => {
                 x.return_type = dbgtypes[x.return_type_signature].type;
@@ -883,7 +882,7 @@ Debugger.prototype = {
                     }
                     // search the supertype
                     if (typeinfo.type.signature === 'Ljava/lang/Object;') {
-                        throw new Error(`No such method: ${this.x.method_name} ${this.x.method_sig}`);
+                        throw new Error(`No such method: ${x.method_name} ${x.method_sig}`);
                     }
                     return this._ensuresuper(typeinfo)
                         .then(typeinfo => this.gettypedebuginfo(typeinfo.super.signature))
@@ -915,11 +914,11 @@ Debugger.prototype = {
                 if (invokes.length)
                     this._doInvokeMethod(invokes[0]);
             })
-    },
+    }
 
     invokeToString(objectid, threadid, type_signature) {
         return this.invokeMethod(objectid, threadid, type_signature || 'Ljava/lang/Object;', 'toString', '()Ljava/lang/String;', []);
-    },
+    }
 
     findNamedMethods(type_signature, name, method_signature) {
         const ismatch = function (x, y) {
@@ -954,15 +953,15 @@ Debugger.prototype = {
                 };
                 return find_methods(typeinfo, []);
             });
-    },
+    }
 
-    getstringchars: function (stringref) {
+    getstringchars(stringref) {
         return this.session.adbclient.jdwp_command({
             cmd: this.JDWP.Commands.GetStringValue(stringref),
         });
-    },
+    }
 
-    _getstringlen: function (stringref) {
+    _getstringlen(stringref) {
         return this.gettypedebuginfo('Ljava/lang/String;')
             .then(dbgtype => {
                 return this._ensurefields(dbgtype['Ljava/lang/String;']);
@@ -978,9 +977,9 @@ Debugger.prototype = {
                 const len = (countfields && countfields.length === 1) ? countfields[0] : -1;
                 return len;
             });
-    },
+    }
 
-    getarrayvalues: function (local, start, count) {
+    getarrayvalues(local, start, count) {
         let type;
         return this.gettypedebuginfo(local.type.elementtype.signature)
             .then(dbgtype => {
@@ -1000,9 +999,9 @@ Debugger.prototype = {
                 }
                 return this._mapvalues('arrelem', keys, values, { arrobj: local });
             });
-    },
+    }
 
-    setarrayvalues: function (arrvar, start, count, data) {
+    setarrayvalues(arrvar, start, count, data) {
         return this.ensureconnected()
             .then(() => this.session.adbclient.jdwp_command({
                 cmd: this.JDWP.Commands.SetArrayElements(arrvar.value, start, count, data),
@@ -1021,9 +1020,9 @@ Debugger.prototype = {
                 }
                return this._mapvalues('arrelem', keys, values, { arrobj: arrvar });
             });
-    },
+    }
 
-    _mapvalues: function (vtype, keys, values, data) {
+    _mapvalues(vtype, keys, values, data) {
         const res = [];
         const arrayfields = [];
         const stringfields = [];
@@ -1089,9 +1088,9 @@ Debugger.prototype = {
         });
 
         return Promise.all(defs).then(() => res);
-    },
+    }
 
-    gettypedebuginfo: function (signature) {
+    gettypedebuginfo(signature) {
 
         const info = {
             signature,
@@ -1152,9 +1151,9 @@ Debugger.prototype = {
         }
 
         return p;
-    },
+    }
 
-    _ensuresuper: function (typeinfo) {
+    _ensuresuper(typeinfo) {
         if (typeinfo.super || typeinfo.super === null) {
             if (typeinfo.super && (typeinfo.super instanceof Promise))
                 return typeinfo.super;
@@ -1179,9 +1178,9 @@ Debugger.prototype = {
                 typeinfo.super = supertype;
                 return typeinfo;
             });
-    },
+    }
 
-    _ensurefields: function (typeinfo) {
+    _ensurefields(typeinfo) {
         if (typeinfo.fields) {
             if (typeinfo.fields instanceof Promise)
                 return typeinfo.fields;
@@ -1195,9 +1194,9 @@ Debugger.prototype = {
                 typeinfo.fields = fields;
                 return typeinfo;
             });
-    },
+    }
 
-    _ensuremethods: function (typeinfo) {
+    _ensuremethods(typeinfo) {
         if (typeinfo.methods) {
             if (typeinfo.methods instanceof Promise)
                 return typeinfo.methods;
@@ -1219,9 +1218,9 @@ Debugger.prototype = {
                 });
                 return typeinfo;
             });
-    },
+    }
 
-    _ensuremethodvars: function (methodinfo) {
+    _ensuremethodvars(methodinfo) {
         if (methodinfo.vartable) {
             if (methodinfo.vartable instanceof Promise)
                 return methodinfo.vartable;
@@ -1235,9 +1234,9 @@ Debugger.prototype = {
                 methodinfo.vartable = vartable;
                 return methodinfo;
             });
-    },
+    }
 
-    _ensuremethodlines: function (methodinfo) {
+    _ensuremethodlines(methodinfo) {
         if (methodinfo.linetable) {
             if (methodinfo.linetable instanceof Promise)
                 return methodinfo.linetable;
@@ -1264,9 +1263,9 @@ Debugger.prototype = {
                 methodinfo.linetable = linetable;
                 return methodinfo;
             });
-    },
+    }
 
-    _setupclassprepareevent: function (filter, onprepare) {
+    _setupclassprepareevent(filter, onprepare) {
         const onevent = {
             data: {
                 onprepare,
@@ -1278,9 +1277,9 @@ Debugger.prototype = {
         return this.session.adbclient.jdwp_command({
             cmd: this.JDWP.Commands.OnClassPrepare(filter, onevent),
         });
-    },
+    }
 
-    _clearLastStepRequest: function (threadid) {
+    _clearLastStepRequest(threadid) {
         if (!this.session || !this.session.stepids[threadid])
             return Promise.resolve();
 
@@ -1290,9 +1289,9 @@ Debugger.prototype = {
         return this.session.adbclient.jdwp_command({
             cmd: this.JDWP.Commands.ClearStep(stepid),
         });
-    },
+    }
 
-    _setupstepevent: function (steptype, threadid) {
+    _setupstepevent(steptype, threadid) {
         const onevent = {
             data: {
                 dbgr: this,
@@ -1324,9 +1323,9 @@ Debugger.prototype = {
             if (this.session && res && res.id)
                 this.session.stepids[threadid] = res.id;
         });
-    },
+    }
 
-    _setupbreakpointsevent: function (locations) {
+    _setupbreakpointsevent(locations) {
         const onevent = {
             data: {
                 dbgr: this,
@@ -1391,9 +1390,9 @@ Debugger.prototype = {
                 }
                 this._changebpstate(bparr, 'enabled');
             });
-    },
+    }
 
-    _clearbreakpointsevent: function (cmlarr) {
+    _clearbreakpointsevent(cmlarr) {
         const bparr = [];
         const clearbpcmds = [];
 
@@ -1411,9 +1410,9 @@ Debugger.prototype = {
             .then(() => {
                 this._changebpstate(bparr, 'notloaded');
             });
-    },
+    }
 
-    _changebpstate: function (bparr, newstate) {
+    _changebpstate(bparr, newstate) {
         if (!bparr || !bparr.length || !newstate) {
             return;
         }
@@ -1425,9 +1424,9 @@ Debugger.prototype = {
             breakpoints: bparr.slice(),
             newstate: newstate,
         });
-    },
+    }
 
-    _initbreakpoints: function () {
+    _initbreakpoints() {
         // reset any current associations
         this.breakpoints.enabled = {};
         // set all the breakpoints to the notloaded state
@@ -1438,9 +1437,9 @@ Debugger.prototype = {
         const class_prepare_promises = this.breakpoints.all.map(bp => this._ensureClassPrepareForPackage(bp.pkg));
 
         return Promise.all(class_prepare_promises);
-    },
+    }
 
-    _ensureClassPrepareForPackage: function (pkg) {
+    _ensureClassPrepareForPackage(pkg) {
         let filter = pkg + '.*';
         if (this.session.cpfilters.includes(filter))
             return Promise.resolve(); // already setup
@@ -1478,9 +1477,9 @@ Debugger.prototype = {
                     return this._resumesilent();
                 });
         });
-    },
+    }
 
-    clearBreakOnExceptions: function () {
+    clearBreakOnExceptions() {
         return new Promise((resolve, reject) => {
             const next = () => {
                 if (!this.exception_ids.length) {
@@ -1495,9 +1494,9 @@ Debugger.prototype = {
             }
             next();
         });
-    },
+    }
 
-    setBreakOnExceptions: function (which) {
+    setBreakOnExceptions(which) {
         const onevent = {
             data: {
             },
@@ -1567,9 +1566,9 @@ Debugger.prototype = {
             };
             o.next();
         });
-    },
+    }
 
-    setThreadNotify: function () {
+    setThreadNotify() {
         const onevent = {
             data: {},
             fn: (e) => {
@@ -1586,9 +1585,9 @@ Debugger.prototype = {
             .then(() => this.session.adbclient.jdwp_command({
                 cmd: this.JDWP.Commands.ThreadEndNotify(onevent),
             }))
-    },
+    }
 
-    _loadclzinfo: function (signature) {
+    _loadclzinfo(signature) {
         return this.gettypedebuginfo(signature)
             .then((classes) => {
                 const p = [];
@@ -1606,9 +1605,9 @@ Debugger.prototype = {
                 }
                 return Promise.all(p).then(() => classes);
             });
-    },
+    }
 
-    _findbplocation: function (classes, bp) {
+    _findbplocation(classes, bp) {
         // search the classes for a method containing the line
         for (let i in classes) {
             if (!bp.sigpattern.test(classes[i].type.signature))
@@ -1628,9 +1627,9 @@ Debugger.prototype = {
             }
         }
         return null;
-    },
+    }
 
-    line_idx_to_source_location: function (method, idx) {
+    line_idx_to_source_location(method, idx) {
         if (!method || !method.linetable || !method.linetable.lines || !method.linetable.lines.length)
             return null;
         const m = method.owningclass.type.signature.match(/^L([^;$]+)[$a-zA-Z0-9_]*;$/);
@@ -1660,9 +1659,9 @@ Debugger.prototype = {
             linenum: lines[lines.length - 1].linenum,
             exact: false,
         };
-    },
+    }
 
-    _findcmllocation: function (classes, loc) {
+    _findcmllocation(classes, loc) {
         // search the classes for a method containing the line
         return this._findmethodasync(classes, loc)
             .then(method => {
@@ -1674,9 +1673,9 @@ Debugger.prototype = {
                         return srcloc;
                     });
             });
-    },
+    }
 
-    _findmethodasync: function (classes, location) {
+    _findmethodasync(classes, location) {
         // some locations are null (which causes the jdwp command to fail)
         if (/^0+$/.test(location.cid)) {
             return Promise.resolve(null);
@@ -1703,9 +1702,9 @@ Debugger.prototype = {
                 const m = this._findmethod(classes, location.cid, location.mid);
                 return m;
             });
-    },
+    }
 
-    _findmethod: function (classes, classid, methodid) {
+    _findmethod(classes, classid, methodid) {
         for (let clzname in classes) {
             if (classes[clzname]._isdeferred)
                 continue;
@@ -1718,13 +1717,14 @@ Debugger.prototype = {
             }
         }
         return null;
-    },
+    }
 
-    _finitbreakpoints: function () {
+    _finitbreakpoints() {
         this._changebpstate(this.breakpoints.all, 'set');
         this.breakpoints.enabled = {};
-    },
+    }
+}
 
-};
-
-exports.Debugger = Debugger;
+module.exports = {
+    Debugger,
+}
