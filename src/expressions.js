@@ -314,6 +314,7 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
                         }
                         else if (JTYPES.isInteger(lhs_local.type) && JTYPES.isInteger(rhs_local.type)) {
                             // both are (non-long) integer types
+                            /** @type {number|boolean} */
                             let a = numberify(lhs_local), b = numberify(rhs_local);
                             switch (expr.operator) {
                                 case '+': a += b; break;
@@ -340,6 +341,7 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
                             return { vtype: 'literal', name: '', hasnullvalue: false, type: JTYPES.int, value: '' + a, valid: true };
                         }
                         else if (JTYPES.isNumber(lhs_local.type) && JTYPES.isNumber(rhs_local.type)) {
+                            /** @type {number|boolean} */
                             let a = numberify(lhs_local), b = numberify(rhs_local);
                             switch (expr.operator) {
                                 case '+': a += b; break;
@@ -485,12 +487,12 @@ exports.evaluate = function(expression, thread, locals, vars, dbgr) {
                         if (!matching_methods[0])
                             return reject_evaluation(`Error: incompatible parameters for method '${m.member}'`);
                         // convert the parameters to exact debugger-compatible values
-                        paramValues = paramValues.map(p => {
+                        const debuggerParamValues = paramValues.map(p => {
                             if (p.type.signature.length === 1)
                                 return { type: p.type.typename, value: p.value};
                             return { type: 'oref', value: p.value };
                         })
-                        return dbgr.invokeMethod(obj_local.value, thread.threadid, obj_local.type.signature, m.member, matching_methods[0].genericsig || matching_methods[0].sig, paramValues);
+                        return dbgr.invokeMethod(obj_local.value, thread.threadid, obj_local.type.signature, m.member, matching_methods[0].genericsig || matching_methods[0].sig, debuggerParamValues);
                     });
         });
     }

@@ -777,10 +777,10 @@ class AndroidDebugSession extends DebugSession {
                 _setup_breakpoints: _setup_breakpoints,
                 _next() {
                     if (!this._queue.length) return;  // done
-                    this._setup_breakpoints(this._queue[0]).then(javabp_arr => {
+                    const next_bp = this._queue[0];
+                    this._setup_breakpoints(next_bp).then(javabp_arr => {
                         // send back the VS Breakpoint instances
-                        const response = this._queue[0].response;
-                        sendBPResponse(response, javabp_arr.map(javabp => javabp.vsbp));
+                        sendBPResponse(next_bp.response, javabp_arr.map(javabp => javabp.vsbp));
                         // .. and do the next one
                         this._queue.shift();
                         this._next();
@@ -1117,9 +1117,8 @@ class AndroidDebugSession extends DebugSession {
             case 'start':
                 this.dbgr.threadinfos([e.threadid])
                     .then((threadinfos) => {
-                        const ti = threadinfos[0], t = this.getThread(ti.threadid), event = new ThreadEvent();
+                        const ti = threadinfos[0], t = this.getThread(ti.threadid), event = new ThreadEvent('started', t.vscode_threadid);
                         t.name = ti.name;
-                        event.body = { reason:'started', threadId: t.vscode_threadid };
                         this.sendEvent(event);
                     })
                     .catch(err => err)
@@ -1134,8 +1133,7 @@ class AndroidDebugSession extends DebugSession {
                     }
                     delete this._threads[e.threadid];
                     delete this._threads.array[t.vscode_threadid];
-                    const event = new ThreadEvent();
-                    event.body = { reason:'exited', threadId: t.vscode_threadid };
+                    const event = new ThreadEvent('exited', t.vscode_threadid);
                     this.sendEvent(event);
                     this.checkPendingThreadBreaks();    // in case we were stepping this thread
                 }

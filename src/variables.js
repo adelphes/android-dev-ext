@@ -330,7 +330,7 @@ class AndroidVariables {
                     case (num >= -128 && num <= 127): data = {valuetype:'byte',value:num}; break;
                     case (num >= -32768 && num <= 32767): data = {valuetype:'short',value:num}; break;
                     case (num >= -2147483648 && num <= 2147483647): data = {valuetype:'int',value:num}; break;
-                    case /inf/i.test(num): return failSetVariableRequest(`Value '${value}' exceeds the maximum number range.`);
+                    case /inf/i.test(`${num}`): return failSetVariableRequest(`Value '${value}' exceeds the maximum number range.`);
                     case /^[FD]$/.test(destvar.type.signature): data = {valuetype:'float',value:num}; break;
                     default:
                         // long (or larger) - need to use the arbitrary precision class
@@ -465,4 +465,6 @@ class AndroidVariables {
     }
 }
 
-exports.AndroidVariables = AndroidVariables;
+module.exports = {
+    AndroidVariables,
+}

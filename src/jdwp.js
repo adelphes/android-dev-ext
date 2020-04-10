@@ -1,7 +1,30 @@
-const { btoa,D,E,getutf8bytes,fromutf8bytes,intToHex } = require('./util');
+const { D,E,intToHex } = require('./util');
 /*
     JDWP - The Java Debug Wire Protocol
 */
+
+/**
+ * @typedef LocMod
+ * @property {7} modkind
+ * @property {*} loc
+ * @property {() => void} encode
+ * 
+ * @typedef HitMod
+ * @property {1} modkind
+ * @property {number} count
+ * @property {() => void} encode
+ * 
+ * @typedef ExOnlyMod
+ * @property {8} modkind
+ * @property {*} reftypeid
+ * @property {boolean} caught
+ * @property {boolean} uncaught
+
+ * @typedef ClassMatchMod
+ * @property {5} modkind
+ * @property {string} pattern
+ **/
+
 function _JDWP() {
 	let gCommandId = 0;
 	const gCommandList = [];
@@ -44,9 +67,6 @@ function _JDWP() {
 			}
 			return s;
 		},
-		tob64 : function() {
-			return btoa(this.toRawString());
-		}
 	};
 
 	function Reply(s) {
@@ -145,7 +165,7 @@ function _JDWP() {
 			if (utf8len > 10000) {
 				utf8len = 10000;	// just to prevent hangs if the decoding is wrong
 			}
-			const res = fromutf8bytes(o.data.slice(o.idx, o.idx+utf8len));
+			const res = Buffer.from(o.data.slice(o.idx, o.idx + utf8len)).toString();
 			o.idx += utf8len;
 			return res;
 		},
@@ -203,7 +223,7 @@ function _JDWP() {
 			}
 
 			for (let bit of significandBin) {
-			  significand += val * bit;
+			  significand += val * parseInt(bit,2);
 			  val = val / 2;
 			}
 
@@ -408,7 +428,7 @@ function _JDWP() {
 			this.encodeShort(res, typeof c === 'string' ? c.charCodeAt(0) : c);
 		},
 		encodeString : function(res, s) {
-			const utf8bytes = getutf8bytes(s);
+			const utf8bytes = Buffer.from(s, 'utf8');
 			this.encodeInt(res, utf8bytes.length);
 			for (let i = 0; i < utf8bytes.length; i++)
 				res.push(utf8bytes[i]);
@@ -1070,6 +1090,9 @@ function _JDWP() {
 		},
 		SetBreakpoint:function(ci, mi, idx, hitcount, onevent) {
 			// a wrapper around SetEventRequest
+			 /**
+			 * @type {(LocMod|HitMod)[]}
+			 */
 			const mods = [{
 			    modkind: 7, // location
 			    loc: {
@@ -1156,6 +1179,7 @@ function _JDWP() {
 		},
 		SetExceptionBreak:function(pattern, caught, uncaught, onevent) {
 			// a wrapper around SetEventRequest
+			/** @type {(ExOnlyMod|ClassMatchMod)[]} */
 			const mods = [{
 				modkind:8,	// exceptiononly
 				reftypeid: DataCoder.nullRefValue(),	// exception class
@@ -1268,4 +1292,6 @@ function _JDWP() {
 	};
 }
 
-exports._JDWP = _JDWP;
+module.exports = {
+	_JDWP,
+}

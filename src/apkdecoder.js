@@ -193,13 +193,14 @@ function decode_binary_xml(buf) {
             }
             case 0x0102: {
                 // begin node
-                const node = {};
+                const node = {
+                    nodes: [],
+                };
                 idx += decode_spec(buf, BEGIN_NODE_SPEC, node, node, idx);
                 node.namespaces = namespaces.slice();
                 node.namespaces.forEach(ns => {
                     if (!ns.node) ns.node = node;
                 });
-                node.nodes = [];
                 node_stack[0].nodes.push(node);
                 node_stack.unshift(node);
                 break;
