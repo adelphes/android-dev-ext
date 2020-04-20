@@ -139,21 +139,15 @@ class AndroidDebugSession extends DebugSession {
 
     /**
      * @param {string} msg 
+     * @param {boolean} silent
      */
-    failRequest(msg, response) {
+    failRequest(msg, response, silent = false) {
         // yeah, it can happen sometimes...
-        msg && this.WARN(msg);
-        if (response) {
-            response.success = false;
-            this.sendResponse(response);
+        if (silent) {
+            D(msg); // just log it in debug - don't output it to the client
+        } else if (msg) {
+            this.WARN(msg);
         }
-    }
-
-    /**
-     * @param {string} msg 
-     */
-    cancelRequest(msg, response) {
-        D(msg); // just log it in debug - don't output it to the client
         if (response) {
             response.success = false;
             this.sendResponse(response);
@@ -185,7 +179,7 @@ class AndroidDebugSession extends DebugSession {
      */
     cancelRequestThreadNotSuspended(requestName, threadId, response) {
         // now that vscode can resume threads before the locals,callstack,etc are retrieved, we only need to cancel the request
-        this.cancelRequest(`${requestName} cancelled. Thread ${threadId} is not suspended`, response);
+        this.failRequest(`${requestName} cancelled. Thread ${threadId} is not suspended`, response, true);
     }
 
     /**
