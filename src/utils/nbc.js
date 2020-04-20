@@ -98,4 +98,6 @@ const NumberBaseConverter = {
     },
 };
 
-module.exports = NumberBaseConverter;
+module.exports = {
+    NumberBaseConverter,
+}

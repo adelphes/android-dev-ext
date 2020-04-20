@@ -3,29 +3,16 @@ const dom = require('xmldom').DOMParser;
 const unzipper = require('unzipper');
 const xpath = require('xpath');
 
-const { decode_binary_xml } = require('./apkdecoder');
+const { decode_binary_xml } = require('./apk-decoder');
 
 /**
  * Extracts and decodes the compiled AndroidManifest.xml from an APK
  * @param {string} apk_fpn file path to APK
  * @returns {Promise<string>}
  */
-function extractManifestFromAPK(apk_fpn) {
-    return new Promise((resolve, reject) => {
-        extractFileFromAPK(apk_fpn, /^AndroidManifest\.xml$/, onExtractComplete);
-
-        function onExtractComplete(err, data) {
-            let manifest;
-            if (!err) {
-                try {
-                    manifest = decode_binary_xml(data);
-                } catch (e) {
-                    err = e;
-                }
-            }
-            err ? reject(err) : resolve(manifest);
-        }
-    });
+async function extractManifestFromAPK(apk_fpn) {
+    const data = await extractFileFromAPK(apk_fpn, /^AndroidManifest\.xml$/);
+    return decode_binary_xml(data);
 }
 
 
@@ -33,25 +20,26 @@ function extractManifestFromAPK(apk_fpn) {
  * Extracts a single file from an APK
  * @param {string} apk_fpn 
  * @param {RegExp} file_match 
- * @param {(err,data) => void} cb 
  */
-function extractFileFromAPK(apk_fpn, file_match, cb) {
-    const file_chunks = [];
-    let cb_once = (err, data) => {
-        cb_once = () => {};
-        cb(err, data)
-    }
-    fs.createReadStream(apk_fpn)
-        .pipe(unzipper.ParseOne(file_match))
-        .on('data', chunk => {
-            file_chunks.push(chunk);
-        })
-        .once('error', err => {
-            cb_once(err);
-        })
-        .once('end', () => {
-            cb_once(null, Buffer.concat(file_chunks));
-        });
+function extractFileFromAPK(apk_fpn, file_match) {
+    return new Promise((resolve, reject) => {
+        const file_chunks = [];
+        let cb_once = (err, data) => {
+            cb_once = () => {};
+            err ? reject(err) : resolve(data);
+        }
+        fs.createReadStream(apk_fpn)
+            .pipe(unzipper.ParseOne(file_match))
+            .on('data', chunk => {
+                file_chunks.push(chunk);
+            })
+            .once('error', err => {
+                cb_once(err);
+            })
+            .once('end', () => {
+                cb_once(null, Buffer.concat(file_chunks));
+            });
+    })
 }
 
 

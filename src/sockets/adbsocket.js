@@ -80,12 +80,8 @@ class ADBSocket extends AndroidSocket {
     }
 
     /**
-     * 
-     * @param {Object} file file parameters
-     * @param {Buffer} file.data file content
-     * @param {number} file.pathname file path name
-     * @param {number} file.perms file permissions
-     * @param {number} file.mtime file modify time
+     * Copies a file to the device, setting the file time and permissions
+     * @param {ADBFileTransferParams} file file parameters
      */
     async transfer_file(file) {
         await this.cmd_and_status('sync:');
@@ -117,32 +113,30 @@ class ADBSocket extends AndroidSocket {
         return true;
     }
 
-    write_file_data(data) {
-        return new Promise(resolve => {
-            const dtinfo = {
-                transferred: 0,
-                transferring: 0,
-                chunk_size: 10240,
-            };
+    /**
+     * @param {Buffer} data 
+     */
+    async write_file_data(data) {
+        const dtinfo = {
+            transferred: 0,
+            transferring: 0,
+            chunk_size: 10240,
+        };
 
-            const write_next_chunk = () => {
-                dtinfo.transferred += dtinfo.transferring;
-                const remaining = data.byteLength - dtinfo.transferred;
-                if (remaining <= 0 || isNaN(remaining)) {
-                    return resolve(dtinfo.transferred);
-                }
-                const datalen = Math.min(remaining, dtinfo.chunk_size);
-
-                const cmd = Buffer.concat([Buffer.from(`DATA\0\0\0\0`,'latin1'), data.slice(dtinfo.transferred, dtinfo.transferred + datalen)]);
-                cmd.writeUInt32LE(datalen, 4);
-
-                dtinfo.transferring = datalen;
-                console.log(`remaining ${remaining}`);
-
-                this.write_bytes(cmd).then(() => write_next_chunk());
+        for (;;) {
+            dtinfo.transferred += dtinfo.transferring;
+            const remaining = data.byteLength - dtinfo.transferred;
+            if (remaining <= 0 || isNaN(remaining)) {
+                return dtinfo.transferred;
             }
-            write_next_chunk();
-        });
+            const datalen = Math.min(remaining, dtinfo.chunk_size);
+
+            const cmd = Buffer.concat([Buffer.from(`DATA\0\0\0\0`), data.slice(dtinfo.transferred, dtinfo.transferred + datalen)]);
+            cmd.writeUInt32LE(datalen, 4);
+
+            dtinfo.transferring = datalen;
+            await this.write_bytes(cmd);
+        }
     }
 }
 

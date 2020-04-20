@@ -7,7 +7,7 @@ const WebSocketServer = require('ws').Server;
 // our stuff
 const { ADBClient } = require('./adbclient');
 const { AndroidContentProvider } = require('./contentprovider');
-const { D } = require('./util');
+const { D } = require('./utils/print');
 
 /**
  * WebSocketServer instance
@@ -70,7 +70,7 @@ class LogcatContent {
             // create the WebSocket server instance
             await initWebSocketServer();
             // register handlers for logcat
-            await this._adbclient.logcat({
+            await this._adbclient.startLogcatMonitor({
                 onlog: this.onLogcatContent.bind(this),
                 onclose: this.onLogcatDisconnect.bind(this),
             });
@@ -100,7 +100,7 @@ class LogcatContent {
         const prevlogs = {_logs: this._logs, _htmllogs: this._htmllogs, _oldhtmllogs: this._oldhtmllogs };
         this._logs = []; this._htmllogs = []; this._oldhtmllogs = [];
         try {
-            await this._adbclient.logcat({
+            await this._adbclient.startLogcatMonitor({
                 onlog: this.onLogcatContent.bind(this),
                 onclose: this.onLogcatDisconnect.bind(this),
             })

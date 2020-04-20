@@ -37,7 +37,6 @@ class AndroidSocket extends EventEmitter {
                         })
                         .once('end', () => {
                             this.socket_ended = true;
-                            this.emit('data-changed');
                             this.emit('socket-ended');
                             if (!this.socket_disconnecting) {
                                 this.socket_disconnecting = this.socket_error ? Promise.reject(this.socket_error) : Promise.resolve();
@@ -61,6 +60,11 @@ class AndroidSocket extends EventEmitter {
         return this.socket_disconnecting;
     }
 
+    /**
+     * 
+     * @param {number|'length+data'|undefined} length 
+     * @param {string} [format] 
+     */
     async read_bytes(length, format) {
         //D(`reading ${length} bytes`);
         let actual_length = length;
@@ -70,14 +74,14 @@ class AndroidSocket extends EventEmitter {
             }
         }
         if (actual_length < 0) {
-            return Promise.reject(new Error(`${this.which} socket read failed. Attempt to read ${actual_length} bytes.`));
+            throw new Error(`${this.which} socket read failed. Attempt to read ${actual_length} bytes.`);
         }
         if (length === 'length+data' && this.readbuffer.byteLength >= 4) {
             length = actual_length = this.readbuffer.readUInt32BE(0);
         }
         if (this.socket_ended) {
             if (actual_length <= 0 || (this.readbuffer.byteLength < actual_length)) {
-                return Promise.reject(new Error(`${this.which} socket read failed. Socket closed.`));
+                this.check_socket_active('read');
             }
         }
         // do we have enough data in the buffer?
@@ -90,10 +94,27 @@ class AndroidSocket extends EventEmitter {
             }
             return Promise.resolve(data);
         }
-        // wait for the data-changed event and then retry the read
-        //D(`waiting for ${length} bytes`);
-        await new Promise(resolve => this.once('data-changed', resolve));
+        // wait for the socket to update and then retry the read
+        await this.wait_for_socket_data();
         return this.read_bytes(length, format);
+    }
+
+    wait_for_socket_data() {
+        return new Promise((resolve, reject) => {
+            let done = 0;
+            let onDataChanged = () => {
+                if ((done += 1) !== 1) return;
+                this.off('socket-ended', onSocketEnded);
+                resolve();
+            }
+            let onSocketEnded = () => {
+                if ((done += 1) !== 1) return;
+                this.off('data-changed', onDataChanged);
+                reject(new Error(`${this.which} socket read failed. Socket closed.`));
+            }
+            this.once('data-changed', onDataChanged);
+            this.once('socket-ended', onSocketEnded);
+        });
     }
 
     async read_le_length_data(format) {
@@ -110,10 +131,8 @@ class AndroidSocket extends EventEmitter {
      * @param {string|Buffer} bytes 
      */
     write_bytes(bytes) {
-        if (this.socket_ended) {
-            return Promise.reject(new Error(`${this.which} socket write failed. Socket closed.`));
-        }
         return new Promise((resolve, reject) => {
+            this.check_socket_active('write');
             try {
                 const flushed = this.socket.write(bytes, () => {
                     flushed ? resolve() : this.socket.once('drain', resolve);
@@ -123,6 +142,17 @@ class AndroidSocket extends EventEmitter {
                 reject(new Error(`${this.which} socket write failed. ${e.message}`));
             }
         });
+    }
+
+    /**
+     * 
+     * @param {'read'|'write'} action 
+     */
+    check_socket_active(action) {
+        if (this.socket_ended) {
+            throw new Error(`${this.which} socket ${action} failed. Socket closed.`);
+        }
+
     }
 }
 

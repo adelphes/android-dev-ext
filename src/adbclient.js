@@ -4,7 +4,12 @@
 const JDWPSocket = require('./sockets/jdwpsocket');
 const ADBSocket = require('./sockets/adbsocket');
 
-function parse_device_list(data, extended) {
+/**
+ * 
+ * @param {string} data 
+ * @param {boolean} [extended] 
+ */
+function parse_device_list(data, extended = false) {
     var lines = data.trim().split(/\r\n?|\n/);
     lines.sort();
     const devicelist = [];
@@ -62,6 +67,9 @@ class ADBClient {
         return devicelist;
     }
 
+    /**
+     * Return a list of debuggable pids from the device
+     */
     async jdwp_list() {
         await this.connect_to_adb();
         await this.adbsocket.cmd_and_status(`host:transport:${this.deviceid}`);
@@ -70,15 +78,20 @@ class ADBClient {
         return stdout.trim().split(/\r?\n|\r/);
     }
 
+    /**
+     * Setup ADB port-forwarding from a local port to a JDWP process
+     * @param {{localport:number, jdwp:number}} o 
+     */
     async jdwp_forward(o) {
-        // localport:1234
-        // jdwp:1234
         await this.connect_to_adb();
         await this.adbsocket.cmd_and_status(`host-serial:${this.deviceid}:forward:tcp:${o.localport};jdwp:${o.jdwp}`);
         await this.disconnect_from_adb();
         return true;
     }
 
+    /**
+     * remove all port-forwarding configs
+     */
     async forward_remove_all() {
         await this.connect_to_adb();
         await this.adbsocket.cmd_and_status('host:killforward-all');
@@ -86,32 +99,42 @@ class ADBClient {
         return true;
     }
 
+    /**
+     * Connect to the JDWP debugging client and perform the handshake
+     * @param {{localport:number, onreply:()=>void, ondisconnect:()=>void}} o 
+     */
     async jdwp_connect(o) {
-        // {localport:1234, onreply:fn()}
-        // note that upon success, this method does not close the connection
-        this.jdwp_socket = new JDWPSocket();
+        // note that upon success, this method does not close the connection (it must be left open for
+        // future commands to be sent over the jdwp socket)
+        this.jdwp_socket = new JDWPSocket(o.onreply, o.ondisconnect);
         await this.jdwp_socket.connect(o.localport)
-        await this.jdwp_socket.perform_handshake(o.onreply);
+        await this.jdwp_socket.start();
         return true;
     }
 
+    /**
+     * Send a JDWP command to the device
+     * @param {{cmd}} o 
+     */
     async jdwp_command(o) {
-        // cmd: JDWP.Command
-        
-        // send the raw command over the socket - the reply
-        // is received via the JDWP monitor
+        // send the raw command over the socket - the reply is received via the JDWP monitor
         const reply = await this.jdwp_socket.cmd_and_reply(o.cmd);
         return reply.decoded;
     }
 
+    /**
+     * Disconnect the JDWP socket
+     */
     async jdwp_disconnect() {
         await this.jdwp_socket.disconnect();
         return true;
     }
 
+    /**
+     * Run a shell command on the connected device
+     * @param {{command:string}} o 
+     */
     async shell_cmd(o) {
-        // command='ls /'
-        // untilclosed=true
         await this.connect_to_adb();
         await this.adbsocket.cmd_and_status(`host:transport:${this.deviceid}`);
         const stdout = await this.adbsocket.cmd_and_read_stdout(`shell:${o.command}`);
@@ -119,7 +142,12 @@ class ADBClient {
         return stdout;
     }
 
-    async logcat(o) {
+    /**
+     * Starts the Logcat monitor.
+     * Logcat lines are passed back via onlog callback. If the device disconnects, onclose is called.
+     * @param {{onlog:(e)=>void, onclose:()=>void}} o 
+     */
+    async startLogcatMonitor(o) {
         // onlog:function(e)
         // onclose:function(e)
         await this.connect_to_adb();
@@ -164,15 +192,14 @@ class ADBClient {
         next_logcat_lines();
     }
 
-    endlogcat() {
+    endLogcatMonitor() {
         return this.adbsocket.disconnect();
     }
 
+    /**
+     * @param {ADBFileTransferParams} o 
+     */
     async push_file(o) {
-        // filepathname='/data/local/tmp/fname'
-        // filedata:<arraybuffer>
-        // filemtime:12345678
-        // fileperms: 0o100664
         await this.connect_to_adb();
         await this.adbsocket.cmd_and_status(`host:transport:${this.deviceid}`);
         await this.adbsocket.transfer_file(o);
@@ -180,9 +207,12 @@ class ADBClient {
         return true;
     }
 
-    connect_to_adb() {
+    /**
+     * @param {string} [hostname] 
+     */
+    connect_to_adb(hostname = '127.0.0.1') {
         this.adbsocket = new ADBSocket();
-        return this.adbsocket.connect(this.adbPort, '127.0.0.1');
+        return this.adbsocket.connect(this.adbPort, hostname);
     }
 
     disconnect_from_adb () {
