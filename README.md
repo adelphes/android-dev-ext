@@ -34,31 +34,61 @@ The following settings are used to configure the debugger:
         "version": "0.2.0",
         "configurations": [
             {
-                // configuration type, request  and name. "launch" is used to deploy the app to your device and start a debugging session
+                // configuration type, request  and name. "launch" is used to deploy the app
+                // to your device and start a debugging session.
                 "type": "android",
                 "request": "launch",
                 "name": "Launch App",
 
-                // Location of the App source files. This value must point to the root of your App source tree (containing AndroidManifest.xml)
+                // Location of the App source files. This value must point to the root of
+                // your App source tree (containing AndroidManifest.xml).
                 "appSrcRoot": "${workspaceRoot}/app/src/main",
 
-                // Fully qualified path to the built APK (Android Application Package)
+                // Fully qualified path to the built APK (Android Application Package).
                 "apkFile": "${workspaceRoot}/app/build/outputs/apk/app-debug.apk",
 
-                // Port number to connect to the local ADB (Android Debug Bridge) instance. Default: 5037
+                // Port number to connect to the local ADB (Android Debug Bridge) instance.
+                // Default: 5037
                 "adbPort": 5037,
 
-                // Launch behaviour if source files have been saved after the APK was built. One of: [ ignore warn stop ]. Default: warn
+                // Automatically launch 'adb start-server' if not already started.
+                // Default: true
+                "autoStartADB": true,
+
+                // Launch behaviour if source files have been saved after the APK was built.
+                // One of: [ ignore warn stop ]. Default: warn
                 "staleBuild": "warn",
 
-                // Fully qualified path to the AndroidManifest.xml file compiled in the APK. Default: appSrcRoot/AndroidManifest.xml
+                // Target Device ID (as indicated by 'adb devices').
+                // Use this to specify which device is used for deployment
+                // when multiple devices are connected.
+                "targetDevice": "",
+
+                // Fully qualified path to the AndroidManifest.xml file compiled into the APK.
+                // Default: "${appSrcRoot}/AndroidManifest.xml"
                 "manifestFile": "${workspaceRoot}/app/src/main/AndroidManifest.xml",
 
-                // APK install arguments passed to the Android package manager. Run 'adb shell pm' to show valid arguments. Default: ["-r"]
+                // Custom arguments passed to the Android package manager to install the app.
+                // Run 'adb shell pm' to show valid arguments. Default: ["-r"]
                 "pmInstallArgs": ["-r"],
 
-                // Manually specify the activity to run when the app is started.
-                "launchActivity": ".MainActivity"
+                // Custom arguments passed to the Android application manager to start the app.
+                // Run `adb shell am` to show valid arguments.
+                // Note that `-D` is required to enable debugging.
+                "amStartArgs": [
+                    "-D",
+                    "--activity-brought-to-front",
+                    "-a android.intent.action.MAIN",
+                    "-c android.intent.category.LAUNCHER",
+                    "-n package.name/launch.activity"
+                ],
+
+                // Manually specify the activity to run when the app is started. This option is
+                // mutually exclusive with "amStartArgs".
+                "launchActivity": ".MainActivity",
+
+                // Set to true to output debugging logs for diagnostics.
+                "trace": false
             }
         ]
     }
