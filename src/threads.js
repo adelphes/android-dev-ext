@@ -1,23 +1,78 @@
-'use strict'
+const { Debugger } = require('./debugger');
+const { DebuggerException, DebuggerFrameInfo, SourceLocation } = require('./debugger-types');
+const { DebuggerStackFrame } = require('./stack-frame');
+const { VariableManager } = require('./variable-manager');
 
-const { AndroidVariables } = require('./variables');
-const $ = require('./jq-promise');
+// vscode doesn't like thread id reuse (the Android runtime is OK with it)
+let nextVSCodeThreadId = 0;
+
+/**
+ * Scales used to build VSCVariableReferences.
+ * Each reference contains a thread id, frame id and variable index.
+ * eg. VariableReference 1005000000 has thread:1 and frame:5
+ * 
+ * The variable index is the bottom 1M values.
+ * - A 0 value is used for locals scope
+ * - A 1 value is used for exception scope
+ * - Values above 10 are used for variables
+ */
+const var_ref_thread_scale = 1e9;
+const var_ref_frame_scale = 1e6;
+const var_ref_global_frame = 999e6;
+
+class ThreadPauseInfo {
+
+    /**
+     * @param {string} reason 
+     * @param {SourceLocation} location 
+     * @param {DebuggerException} last_exception 
+     */
+    constructor(reason, location, last_exception) {
+        this.when = Date.now();   // when
+        this.reasons = [reason];  // why
+        this.location = location;   // where
+        this.last_exception = last_exception;
+        /**
+         * @type {Map<VSCVariableReference,DebuggerStackFrame>}
+         */
+        this.stack_frames = new Map();
+
+        /**
+         * instance used to manage variables created for expressions evaluated in the global context
+         * @type {VariableManager}
+         */
+        this.global_vars = null;
+
+        this.stoppedEvent = null;  // event we (eventually) send to vscode
+    }
+
+    /**
+     * @param {number} frameId 
+     */
+    getLocals(frameId) {
+        return this.stack_frames.get(frameId).locals;
+    }
+}
 
 /*
     Class used to manage a single thread reported by JDWP
 */
 class AndroidThread {
-    constructor(session, threadid, vscode_threadid) {
-        // the AndroidDebugSession instance
-        this.session = session;
+    /**
+     * 
+     * @param {Debugger} dbgr 
+     * @param {string} name
+     * @param {JavaThreadID} threadid 
+     */
+    constructor(dbgr, name, threadid) {
         // the Android debugger instance
-        this.dbgr = session.dbgr;
+        this.dbgr = dbgr;
         // the java thread id (hex string)
         this.threadid = threadid;
         // the vscode thread id (number)
-        this.vscode_threadid = vscode_threadid;
+        this.vscode_threadid = (nextVSCodeThreadId += 1);
         // the (Java) name of the thread
-        this.name = null;
+        this.name = name;
         // the thread break info
         this.paused = null;
         // the timeout during a step which, if it expires, we allow other threads to break
@@ -28,102 +83,101 @@ class AndroidThread {
         return new Error(`Thread ${this.vscode_threadid} not suspended`);
     }
 
-    addStackFrameVariable(frame, level) {
-        if (!this.paused) throw this.threadNotSuspendedError();
-        var frameId = (this.vscode_threadid * 1e9) + (level * 1e6);
-        var stack_frame_var = {
-            frame, frameId,
-            locals: null,
+    /**
+     * @param {DebuggerFrameInfo} frame 
+     * @param {number} call_stack_level 
+     */
+    createStackFrameVariable(frame, call_stack_level) {
+        if (!this.paused) {
+            throw this.threadNotSuspendedError();
         }
-        return this.paused.stack_frame_vars[frameId] = stack_frame_var;
+        const frameId = AndroidThread.makeFrameVariableReference(this.vscode_threadid, call_stack_level) ;
+        const stack_frame = new DebuggerStackFrame(this.dbgr, frame, frameId);
+        this.paused.stack_frames.set(frameId, stack_frame);
+        return stack_frame;
     }
 
-    allocateExceptionScopeReference(frameId) {
-        if (!this.paused) return;
-        if (!this.paused.last_exception) return;
-        this.paused.last_exception.frameId = frameId;
-        this.paused.last_exception.scopeRef = frameId + 1;
-    }
-
-    getVariables(variablesReference) {
-        if (!this.paused)
-            return $.Deferred().rejectWith(this, [this.threadNotSuspendedError()]);
-
-        // is this reference a stack frame
-        var stack_frame_var = this.paused.stack_frame_vars[variablesReference];
-        if (stack_frame_var) {
-            // frame locals request
-            return this._ensureLocals(stack_frame_var).then(varref => this.paused.stack_frame_vars[varref].locals.getVariables(varref));
+    /**
+     * Retrieve the variable manager used to maintain variableReferences for
+     * expressions evaluated in the global context for this thread.
+     */
+    getGlobalVariableManager() {
+        if (!this.paused) {
+            throw this.threadNotSuspendedError();
         }
-
-        // is this refrence an exception scope
-        if (this.paused.last_exception && variablesReference === this.paused.last_exception.scopeRef) {
-            var stack_frame_var = this.paused.stack_frame_vars[this.paused.last_exception.frameId];
-            return this._ensureLocals(stack_frame_var).then(varref => this.paused.stack_frame_vars[varref].locals.getVariables(this.paused.last_exception.scopeRef));
+        if (!this.paused.global_vars) {
+            const globalFrameId = AndroidThread.makeGlobalVariableReference(this.vscode_threadid) ;
+            this.paused.global_vars = new VariableManager(globalFrameId);
         }
-
-        // work out which stack frame this reference is for
-        var frameId = Math.trunc(variablesReference/1e6) * 1e6;
-        var stack_frame_var = this.paused.stack_frame_vars[frameId];
-
-        return stack_frame_var.locals.getVariables(variablesReference);
+        return this.paused.global_vars;
     }
 
-    _ensureLocals(varinfo) {
-        if (!this.paused)
-            return $.Deferred().rejectWith(this, [this.threadNotSuspendedError()]);
-
-        // evaluate can call this using frameId as the argument
-        if (typeof varinfo === 'number')
-            return this._ensureLocals(this.paused.stack_frame_vars[varinfo]);
-
-        // if we're currently processing it (or we've finished), just return the promise
-        if (this.paused.locals_done[varinfo.frameId]) 
-            return this.paused.locals_done[varinfo.frameId];
-
-        // create a new promise
-        var def = this.paused.locals_done[varinfo.frameId] = $.Deferred();
-
-        this.dbgr.getlocals(this.threadid, varinfo.frame, {def:def,varinfo:varinfo})
-            .then((locals,x) => {
-                // make sure we are still paused...
-                if (!this.paused)
-                    throw this.threadNotSuspendedError();
-
-                // sort the locals by name, except for 'this' which always goes first
-                locals.sort((a,b) => {
-                    if (a.name === b.name) return 0;
-                    if (a.name === 'this') return -1;
-                    if (b.name === 'this') return +1;
-                    return a.name.localeCompare(b.name);
-                })
-                
-                // create a new local variable with the results and resolve the promise
-                var varinfo = x.varinfo;
-                varinfo.cached = locals;
-                x.varinfo.locals = new AndroidVariables(this.session, x.varinfo.frameId + 2); // 0 = stack frame, 1 = exception, 2... others
-                x.varinfo.locals.setVariable(varinfo.frameId, varinfo);
-
-                var last_exception = this.paused.last_exception;
-                if (last_exception) {
-                    x.varinfo.locals.setVariable(last_exception.scopeRef, last_exception);
-                }
-
-                x.def.resolveWith(this, [varinfo.frameId]);
-            })
-            .fail(e => {
-                x.def.rejectWith(this, [e]);
-            })
-        return def;
+    /**
+     * set a new VSCode thread ID for this thread
+     */
+    allocateNewThreadID() {
+        this.vscode_threadid = (nextVSCodeThreadId += 1);
     }
 
-    setVariableValue(args) {
-        var frameId = Math.trunc(args.variablesReference/1e6) * 1e6;
-        var stack_frame_var = this.paused.stack_frame_vars[frameId];
-        return this._ensureLocals(stack_frame_var).then(varref => {
-            return this.paused.stack_frame_vars[varref].locals.setVariableValue(args);
-        });
+    clearStepTimeout() {
+        if (this.stepTimeout) {
+            clearTimeout(this.stepTimeout);
+            this.stepTimeout = null;
+        }
+    }
+
+    /**
+     * @param {VSCVariableReference} variablesReference 
+     */
+    findStackFrame(variablesReference) {
+        if (!this.paused) {
+            return null;
+        }
+        const stack_frame_ref = AndroidThread.variableRefToFrameId(variablesReference);
+        return this.paused.stack_frames.get(stack_frame_ref);
+    }
+
+    /**
+     * @param {string} reason 
+     * @param {SourceLocation} location 
+     * @param {DebuggerException} last_exception 
+     */
+    setPaused(reason, location, last_exception) {
+        this.paused = new ThreadPauseInfo(reason, location, last_exception);
+        this.clearStepTimeout();
+    }
+
+    /**
+     * @param {VSCThreadID} vscode_threadid 
+     * @param {number} call_stack_level 
+     * @returns {VSCVariableReference}
+     */
+    static makeFrameVariableReference(vscode_threadid, call_stack_level) {
+        return (vscode_threadid * var_ref_thread_scale) + (call_stack_level * var_ref_frame_scale)
+    }
+
+    static makeGlobalVariableReference(vscode_threadid) {
+        return (vscode_threadid * var_ref_thread_scale) + var_ref_global_frame;
+    }
+
+    /**
+     * Convert a variable reference ID to a VSCode thread ID
+     * @param {VSCVariableReference} variablesReference 
+     */
+    static variableRefToThreadId(variablesReference) {
+        return Math.trunc(variablesReference / var_ref_thread_scale);
+    }
+
+    /**
+     * Convert a variable reference ID to a frame ID
+     * @param {VSCVariableReference} variablesReference 
+     */
+    static variableRefToFrameId(variablesReference) {
+        return Math.trunc(variablesReference / var_ref_frame_scale) * var_ref_frame_scale;
     }
 }
 
-exports.AndroidThread = AndroidThread;
+
+module.exports = {
+    AndroidThread,
+}

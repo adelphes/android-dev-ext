@@ -1,11 +1,11 @@
-'use strict'
-// vscode stuff
-const { workspace, EventEmitter, Uri } = require('vscode');
+const vscode = require('vscode');
+const { workspace, EventEmitter, Uri } = vscode;
 
-class AndroidContentProvider /*extends TextDocumentContentProvider*/ {
+class AndroidContentProvider {
 
     constructor() {
-        this._docs = {};    // hashmap<url, LogcatContent>
+        /** @type {Map<Uri,*>} */
+        this._docs = new Map();    // Map<uri, LogcatContent>
         this._onDidChange = new EventEmitter();
     }
 
@@ -27,13 +27,15 @@ class AndroidContentProvider /*extends TextDocumentContentProvider*/ {
      * [document](TextDocument). Resources allocated should be released when
      * the corresponding document has been [closed](#workspace.onDidCloseTextDocument).
      *
-     * @param uri An uri which scheme matches the scheme this provider was [registered](#workspace.registerTextDocumentContentProvider) for.
-     * @param token A cancellation token.
-     * @return A string or a thenable that resolves to such.
+     * @param {Uri} uri An uri which scheme matches the scheme this provider was [registered](#workspace.registerTextDocumentContentProvider) for.
+     * @param {vscode.CancellationToken} token A cancellation token.
+     * @return {string|Thenable<string>} A string or a thenable that resolves to such.
      */
-    provideTextDocumentContent(uri/*: Uri*/, token/*: CancellationToken*/)/*: string | Thenable<string>;*/ {
-        var doc = this._docs[uri];
-        if (doc) return this._docs[uri].content;
+    provideTextDocumentContent(uri, token) {
+        const doc = this._docs.get(uri);
+        if (doc) {
+            return doc.content();
+        }
         switch (uri.authority) {
             // android-dev-ext://logcat/read?<deviceid>
             case 'logcat': return this.provideLogcatDocumentContent(uri);
@@ -41,38 +43,51 @@ class AndroidContentProvider /*extends TextDocumentContentProvider*/ {
         throw new Error('Document Uri not recognised');
     }
 
+    /**
+     * @param {Uri} uri
+     */
     provideLogcatDocumentContent(uri) {
         // LogcatContent depends upon AndroidContentProvider, so we must delay-load this
         const { LogcatContent } = require('./logcat');
-        var doc = this._docs[uri] = new LogcatContent(uri.query);
-        return doc.content;
+        const doc = new LogcatContent(uri.query);
+        this._docs.set(uri, doc);
+        return doc.content();
     }
 }
 
-// the statics
 AndroidContentProvider.SCHEME = 'android-dev-ext';
+
 AndroidContentProvider.register = (ctx, workspace) => {
-    var provider = new AndroidContentProvider();
-    var registration = workspace.registerTextDocumentContentProvider(AndroidContentProvider.SCHEME, provider);
-    ctx.subscriptions.push(registration);
-    ctx.subscriptions.push(provider);
+    const provider = new AndroidContentProvider();
+    const registration = workspace.registerTextDocumentContentProvider(AndroidContentProvider.SCHEME, provider);
+    ctx.subscriptions.push(registration, provider);
 }
+
 AndroidContentProvider.getReadLogcatUri = (deviceId) => {
-    var uri = Uri.parse(`${AndroidContentProvider.SCHEME}://logcat/logcat-${deviceId}.txt`);
+    const uri = Uri.parse(`${AndroidContentProvider.SCHEME}://logcat/logcat-${deviceId}.txt`);
     return uri.with({
         query: deviceId
     });
 }
+
 AndroidContentProvider.getLaunchConfigSetting = (name, defvalue) => {
     // there's surely got to be a better way than this...
-    var configs = workspace.getConfiguration('launch.configurations');
-    for (var i=0,config; config=configs.get(''+i); i++) {
-        if (config.type!=='android') continue;
-        if (config.request!=='launch') continue;
-        if (config[name]) return config[name];
+    const configs = workspace.getConfiguration('launch.configurations');
+    for (let i = 0, config; config = configs.get(`${i}`); i++) {
+        if (config.type!=='android') {
+            continue;
+        }
+        if (config.request!=='launch') {
+            continue;
+        }
+        if (Object.prototype.hasOwnProperty.call(config, name)) {
+            return config[name];
+        }
         break;
     }
     return defvalue;
 }
 
-exports.AndroidContentProvider = AndroidContentProvider;
+module.exports = {
+    AndroidContentProvider,
+}

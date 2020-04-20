@@ -2,12 +2,12 @@
     "name": "android-dev-ext",
     "displayName": "Android",
     "description": "Android debugging support for VS Code",
-    "version": "0.8.0",
+    "version": "1.0.0",
     "publisher": "adelphes",
     "preview": true,
     "license": "MIT",
     "engines": {
-        "vscode": "^1.8.0"
+        "vscode": "^1.24.0"
     },
     "categories": [
         "Debuggers"
@@ -148,15 +148,14 @@
         ]
     },
     "scripts": {
-        "prepare": "node ./node_modules/vscode/bin/install",
         "test": "node ./node_modules/vscode/bin/test"
     },
     "dependencies": {
         "long": "^4.0.0",
-        "unzipper": "^0.10.4",
+        "unzipper": "^0.10.10",
         "uuid": "^3.3.2",
-        "vscode-debugadapter": "^1.32.0",
-        "vscode-debugprotocol": "^1.32.0",
+        "vscode-debugadapter": "^1.40.0",
+        "vscode-debugprotocol": "^1.40.0",
         "ws": "^7.1.2",
         "xmldom": "^0.1.27",
         "xpath": "^0.0.27"
@@ -164,9 +163,9 @@
     "devDependencies": {
         "@types/mocha": "^5.2.5",
         "@types/node": "^10.12.5",
+        "@types/vscode": "1.24.0",
         "eslint": "^5.9.0",
         "mocha": "^5.2.0",
-        "typescript": "^3.1.6",
-        "vscode": "^1.1.26"
+        "typescript": "^3.8.3"
     }
 }
