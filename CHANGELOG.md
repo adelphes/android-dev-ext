@@ -1,5 +1,9 @@
 # Change Log
 
+### version 1.0.0
+* Update extension to support minimum version of node v10
+* refactoring and improvement of type-checking using jsdocs
+
 ### version 0.8.0
 * Try to extract Android manifest directly from APK
 * Added `manifestFile` launch configuration property
