@@ -9,13 +9,14 @@ class BuildInfo {
      * @param {string} pkgname 
      * @param {Map<string,PackageInfo>} packages 
      * @param {string} launchActivity 
+     * @param {string[]} amCommandArgs custom arguments passed to `am start`
      */
-    constructor(pkgname, packages, launchActivity) {
+    constructor(pkgname, packages, launchActivity, amCommandArgs) {
         this.pkgname = pkgname;
         this.packages = packages;
         this.launchActivity = launchActivity;
         /** the arguments passed to `am start` */
-        this.startCommandArgs = [
+        this.startCommandArgs = amCommandArgs || [
             '-D',   // enable debugging
             '--activity-brought-to-front',
             '-a android.intent.action.MAIN',

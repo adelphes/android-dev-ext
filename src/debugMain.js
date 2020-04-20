@@ -54,6 +54,18 @@ class AndroidDebugSession extends DebugSession {
         this.manifest_fpn = '';
 
         /**
+         * array of custom arguments to pass to `pm install`
+         * @type {string[]}
+         */
+        this.pm_install_args = null;
+
+        /**
+         * array of custom arguments to pass to `am start`
+         * @type {string[]}
+         */
+        this.am_start_args = null;
+
+        /**
          * the threads (from the last refreshThreads() call)
          * @type {AndroidThread[]}
          */
@@ -263,9 +275,17 @@ class AndroidDebugSession extends DebugSession {
         this.app_src_root = ensure_path_end_slash(args.appSrcRoot);
         this.apk_fpn = args.apkFile;
         this.manifest_fpn = args.manifestFile;
-        this.pmInstallArgs = args.pmInstallArgs;
+        this.pm_install_args = args.pmInstallArgs;
+        this.am_start_args = args.amStartArgs;
         if (typeof args.callStackDisplaySize === 'number' && args.callStackDisplaySize >= 0)
             this.callStackDisplaySize = args.callStackDisplaySize|0;
+
+        // we don't allow both amStartArgs and launchActivity to be specified (the launch activity must be included in amStartArgs)
+        if (args.amStartArgs && args.launchActivity) {
+            this.LOG('amStartArgs and launchActivity options cannot both be specified in the launch configuration.');
+            this.sendEvent(new TerminatedEvent(false));
+            return;
+        }
 
         // set the custom ADB port - this should be changed to pass it to each ADBClient instance
         if (typeof args.adbPort === 'number' && args.adbPort >= 0 && args.adbPort <= 65535) {
@@ -378,16 +398,24 @@ class AndroidDebugSession extends DebugSession {
         }
     }
 
-    startLaunchActivity(launchActivity) {
+    async startLaunchActivity(launchActivity) {
         if (!launchActivity) {
-            if (!(launchActivity = this.apk_file_info.manifest.launcher)) {
-                throw new Error('No valid launch activity found in AndroidManifest.xml or launch.json');
+            // we're allowed no launchActivity if we have a custom am start command
+            if (!this.am_start_args) {
+                if (!(launchActivity = this.apk_file_info.manifest.launcher)) {
+                    throw new Error('No valid launch activity found in AndroidManifest.xml or launch.json');
+                }
             }
         }
 
-        const build = new BuildInfo(this.apk_file_info.manifest.package, new Map(this.src_packages.packages), launchActivity);
-        this.LOG(`Launching ${build.pkgname}/${launchActivity} on device ${this._device.serial} [API:${this.device_api_level||'?'}]`);
-        return this.dbgr.startDebugSession(build, this._device.serial);
+        const build = new BuildInfo(this.apk_file_info.manifest.package, new Map(this.src_packages.packages), launchActivity, this.am_start_args);
+
+        this.LOG(`Launching on device ${this._device.serial} [API:${this.device_api_level||'?'}]`);
+        if (this.am_start_args) {
+            this.LOG(`Using custom launch arguments '${this.am_start_args.join(' ')}'`);
+        }
+        const am_stdout = await this.dbgr.startDebugSession(build, this._device.serial);
+        this.LOG(am_stdout);
     }
 
     async configureAPISourcePath() {
@@ -440,7 +468,8 @@ class AndroidDebugSession extends DebugSession {
         })
         // send the install command
         this.LOG('Installing...');
-        const command = `pm install ${Array.isArray(this.pmInstallArgs) ? this.pmInstallArgs.join(' ') : '-r'} ${device_apk_fpn}`;
+        const pm_install_args = Array.isArray(this.pm_install_args) ? this.pm_install_args.join(' ') : '-r';
+        const command = `pm install ${pm_install_args} ${device_apk_fpn}`;
         D(command);
         const stdout = await this._device.adbclient.shell_cmd({
             command,
