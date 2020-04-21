@@ -157,47 +157,8 @@ class  Debugger extends EventEmitter {
      * @param {string} deviceid 
      * @param {number} timeout_ms
      */
-    static async getDebuggableProcesses(deviceid, timeout_ms) {
-        const adbclient = new ADBClient(deviceid);
-        const named_pids = (await adbclient.jdwp_list(timeout_ms))
-            .map(pid => ({
-                pid,
-                name: '',
-            }))
-        if (!named_pids.length)
-            return [];
-
-        // retrieve the ps list from the device
-        const stdout = await adbclient.shell_cmd({
-            command: 'ps',
-        });
-        // output should look something like...
-        // USER     PID   PPID  VSIZE  RSS     WCHAN    PC        NAME
-        // u0_a153   32721 1452  1506500 37916 ffffffff 00000000 S com.example.somepkg
-        // but we cope with variations so long as PID and NAME exist
-        const lines = stdout.split(/\r?\n|\r/g);
-        const hdrs = (lines.shift() || '').trim().toUpperCase().split(/\s+/);
-        const pidindex = hdrs.indexOf('PID');
-        const nameindex = hdrs.indexOf('NAME');
-        if (pidindex < 0 || nameindex < 0) {
-            // if we can't find the indexes, just return the list of pids with empty names
-            return named_pids;
-        }
-
-        // scan the list looking for pids to match names with...
-        for (let i = 0; i < lines.length; i++) {
-            const entries = lines[i].trim().replace(/ [S] /, ' ').split(/\s+/);
-            if (entries.length !== hdrs.length) {
-                continue;
-            }
-            const pid = parseInt(entries[pidindex], 10);
-            const named_pid = named_pids.find(x => x.pid === pid);
-            if (named_pid) {
-                named_pid.name = entries[nameindex];
-            }
-        }
-
-        return named_pids;
+    static getDebuggableProcesses(deviceid, timeout_ms) {
+        return new ADBClient(deviceid).named_jdwp_list(timeout_ms);
     }
 
     /**

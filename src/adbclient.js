@@ -79,6 +79,7 @@ class ADBClient {
     async jdwp_list(timeout_ms) {
         await this.connect_to_adb();
         await this.adbsocket.cmd_and_status(`host:transport:${this.deviceid}`);
+        /** @type {string} */
         let stdout;
         try {
             stdout = await this.adbsocket.cmd_and_read_stdout('jdwp', timeout_ms);
@@ -89,6 +90,42 @@ class ADBClient {
         await this.disconnect_from_adb();
         // do not sort the pid list - the debugger needs to pick the last one in the list.
         return stdout.trim().split(/\s+/).filter(x => x).map(s => parseInt(s, 10));
+    }
+
+    async named_jdwp_list(timeout_ms) {
+        const named_pids = (await this.jdwp_list(timeout_ms))
+            .map(pid => ({
+                pid,
+                name: '',
+            }))
+        if (!named_pids.length)
+            return [];
+
+        // retrieve the ps list from the device
+        // the command can be a bit slow, so keep reading until closed
+        const stdout = await this.shell_cmd({
+            command: `ps -o PID,CMD ${named_pids.map(np => np.pid).join(' ')}`,
+            untilclosed: true,
+        });
+        // output should look something like...
+        // PID CMD
+        // 32721 com.example.somepkg
+        const lines = stdout.split(/\r?\n|\r/g);
+
+        // scan the list looking for pids to match names with...
+        for (let i = 0; i < lines.length; i++) {
+            let entries = lines[i].trim().split(/\s+/);
+            if (entries.length !== 2) {
+                continue;
+            }
+            const pid = parseInt(entries[0], 10);
+            const named_pid = named_pids.find(x => x.pid === pid);
+            if (named_pid) {
+                named_pid.name = entries[1];
+            }
+        }
+
+        return named_pids;
     }
 
     /**
@@ -145,13 +182,14 @@ class ADBClient {
 
     /**
      * Run a shell command on the connected device
-     * @param {{command:string}} o 
+     * @param {{command:string, untilclosed?:boolean}} o 
      * @param {number} [timeout_ms]
+     * @returns {Promise<string>}
      */
     async shell_cmd(o, timeout_ms) {
         await this.connect_to_adb();
         await this.adbsocket.cmd_and_status(`host:transport:${this.deviceid}`);
-        const stdout = await this.adbsocket.cmd_and_read_stdout(`shell:${o.command}`, timeout_ms);
+        const stdout = await this.adbsocket.cmd_and_read_stdout(`shell:${o.command}`, timeout_ms, o.untilclosed);
         await this.disconnect_from_adb();
         return stdout;
     }

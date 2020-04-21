@@ -6,34 +6,51 @@ const { ADBClient } = require('./adbclient');
  * @param {{serial:string}[]} devices 
  */
 async function showDevicePicker(vscode, devices) {
-    const prefix = 'Attach: Device ';
-    const menu_options = devices.map(d => prefix + d.serial);
-    let chosen_option = await vscode.window.showQuickPick(menu_options);
-    if (!chosen_option) {
-        return; // user cancelled
-    }
-    chosen_option = chosen_option.slice(prefix.length);
-    const found = devices.find(d => d.serial === chosen_option);
-    if (!found) {
-        vscode.window.showInformationMessage('Attach failed. The device is disconnected.');
-        return null;
-    }
-    return found;
+    const sorted_devices = devices.sort((a,b) => a.serial.localeCompare(b.serial, undefined, {sensitivity: 'base'}));
+
+    /** @type {import('vscode').QuickPickItem[]} */
+    const quick_pick_items = sorted_devices
+        .map(device => ({
+            label: `${device.serial}`,
+        }));
+
+    /** @type {import('vscode').QuickPickOptions} */
+    const quick_pick_options = {
+        canPickMany: false,
+        placeHolder: 'Choose an Android device',
+    };
+
+    const chosen_option = await vscode.window.showQuickPick(quick_pick_items, quick_pick_options);
+    return sorted_devices[quick_pick_items.indexOf(chosen_option)] || null;
 }
 
 /**
  * @param {import('vscode')} vscode 
- * @param {number[]} pids 
+ * @param {{pid:number,name:string}[]} pids 
  */
 async function showPIDPicker(vscode, pids) {
-    const prefix = 'Android attach: ';
-    const menu_options = pids.sort((a,b) => a-b).map(pid => `${prefix}${pid}`);
-    let chosen_option = await vscode.window.showQuickPick(menu_options);
-    if (!chosen_option) {
-        return null; // user cancelled
-    }
-    const pid = chosen_option.slice(prefix.length);
-    return parseInt(pid, 10);
+    // sort by name, then by PID
+    const sorted_pids = pids.slice().sort((a,b) => {
+        const cmp = a.name.localeCompare(b.name, undefined, {sensitivity:'base'});
+        return cmp || (a.pid - b.pid);
+    });
+
+    /** @type {import('vscode').QuickPickItem[]} */
+    const device_pick_items = sorted_pids
+        .map(x => ({
+            label: `${x.pid}`,
+            description: x.name,
+        }));
+
+    /** @type {import('vscode').QuickPickOptions} */
+    const device_pick_options = {
+        matchOnDescription: true,
+        canPickMany: false,
+        placeHolder: 'Choose the Android process to attach to',
+    };
+
+    const chosen_option = await vscode.window.showQuickPick(device_pick_items, device_pick_options);
+    return sorted_pids[device_pick_items.indexOf(chosen_option)] || null;
 }
 
 /**
@@ -48,14 +65,14 @@ async function selectAndroidProcessID(vscode) {
     }
     const err = await new ADBClient().test_adb_connection()
     if (err) {
-        vscode.window.showInformationMessage('Attach failed. ADB is not running');
+        vscode.window.showWarningMessage('Attach failed. ADB is not running.');
         return res;
     }
     const devices = await new ADBClient().list_devices();
     let device;
     switch(devices.length) {
         case 0: 
-            vscode.window.showInformationMessage('Attach failed. No Android devices are connected');
+            vscode.window.showWarningMessage('Attach failed. No Android devices are connected.');
             return res;
         case 1:
             device = devices[0]; // only one device - just use it
@@ -70,9 +87,9 @@ async function selectAndroidProcessID(vscode) {
             break;
     }
 
-    let pids = await new ADBClient(device.serial).jdwp_list(5000);
-    if (pids.length === 0) {
-        vscode.window.showInformationMessage(
+    let named_pids = await new ADBClient(device.serial).named_jdwp_list(5000);
+    if (named_pids.length === 0) {
+        vscode.window.showWarningMessage(
             'Attach failed. No debuggable processes are running on the device.'
             + `${os.EOL}${os.EOL}`
             + `To allow a debugger to attach, the app must have the "android:debuggable=true" attribute present in AndroidManifest.xml and be running on the device.`
@@ -83,14 +100,14 @@ async function selectAndroidProcessID(vscode) {
     }
 
     // always show the pid picker - even if there's only one
-    const pid = await showPIDPicker(vscode, pids);
-    if (pid === null) {
+    const named_pid = await showPIDPicker(vscode, named_pids);
+    if (named_pid === null) {
         // user cancelled picker
         res.status = 'cancelled';
         return res;
     }
 
-    res.pid = pid;
+    res.pid = named_pid.pid;
     res.serial = device.serial;
     res.status = 'ok';
 
