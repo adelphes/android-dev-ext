@@ -75,13 +75,33 @@ class  Debugger extends EventEmitter {
      * @param {string} deviceid
      */
     async startDebugSession(build, deviceid) {
+        if (this.status() !== 'disconnected') {
+            throw new Error('startDebugSession: session already active');
+        }
         this.session = new DebugSession(build, deviceid);
         await Debugger.runApp(deviceid, build.startCommandArgs, build.postLaunchPause);
 
         // retrieve the list of debuggable processes
-        const pids = await this.getDebuggablePIDs(this.session.deviceid);
+        const pids = await Debugger.getDebuggablePIDs(this.session.deviceid, 10e3);
+        if (pids.length === 0) {
+            throw new Error(`startDebugSession: No debuggable processes after app launch.`);
+        }
         // choose the last pid in the list
         const pid = pids[pids.length - 1];
+        // after connect(), the caller must call resume() to begin
+        await this.connect(pid);
+    }
+
+    /**
+     * @param {BuildInfo} build
+     * @param {number} pid process ID to connect to
+     * @param {string} deviceid device ID to connect to
+     */
+    async attachToProcess(build, pid, deviceid) {
+        if (this.status() !== 'disconnected') {
+            throw new Error('attachToProcess: session already active')
+        }
+        this.session = new DebugSession(build, deviceid);
         // after connect(), the caller must call resume() to begin
         await this.connect(pid);
     }
@@ -124,21 +144,29 @@ class  Debugger extends EventEmitter {
 
     /**
      * Retrieve a list of debuggable process IDs from a device
+     * @param {string} deviceid
+     * @param {number} timeout_ms
      */
-    getDebuggablePIDs(deviceid) {
-        return new ADBClient(deviceid).jdwp_list();
+    static getDebuggablePIDs(deviceid, timeout_ms) {
+        return new ADBClient(deviceid).jdwp_list(timeout_ms);
     }
 
-    async getDebuggableProcesses(deviceid) {
+    /**
+     * Retrieve a list of debuggable process IDs with process names from a device.
+     * For Android, the process name is usually the package name.
+     * @param {string} deviceid 
+     * @param {number} timeout_ms
+     */
+    static async getDebuggableProcesses(deviceid, timeout_ms) {
         const adbclient = new ADBClient(deviceid);
-        const info = {
-            debugger: this,
-            jdwps: null,
-        };
-        const jdwps = await info.adbclient.jdwp_list();
-        if (!jdwps.length)
-            return null;
-        info.jdwps = jdwps;
+        const named_pids = (await adbclient.jdwp_list(timeout_ms))
+            .map(pid => ({
+                pid,
+                name: '',
+            }))
+        if (!named_pids.length)
+            return [];
+
         // retrieve the ps list from the device
         const stdout = await adbclient.shell_cmd({
             command: 'ps',
@@ -151,27 +179,25 @@ class  Debugger extends EventEmitter {
         const hdrs = (lines.shift() || '').trim().toUpperCase().split(/\s+/);
         const pidindex = hdrs.indexOf('PID');
         const nameindex = hdrs.indexOf('NAME');
-        if (pidindex < 0 || nameindex < 0)
-            return [];
-        const result = [];
-        // scan the list looking for matching pids...
+        if (pidindex < 0 || nameindex < 0) {
+            // if we can't find the indexes, just return the list of pids with empty names
+            return named_pids;
+        }
+
+        // scan the list looking for pids to match names with...
         for (let i = 0; i < lines.length; i++) {
             const entries = lines[i].trim().replace(/ [S] /, ' ').split(/\s+/);
             if (entries.length !== hdrs.length) {
                 continue;
             }
-            const jdwpidx = info.jdwps.indexOf(entries[pidindex]);
-            if (jdwpidx < 0) {
-                continue;
+            const pid = parseInt(entries[pidindex], 10);
+            const named_pid = named_pids.find(x => x.pid === pid);
+            if (named_pid) {
+                named_pid.name = entries[nameindex];
             }
-            // we found a match
-            const entry = {
-                jdwp: entries[pidindex],
-                name: entries[nameindex],
-            };
-            result.push(entry);
         }
-        return result;
+
+        return named_pids;
     }
 
     /**
@@ -334,17 +360,20 @@ class  Debugger extends EventEmitter {
 
         // reset the breakpoint states
         this.resetBreakpoints();
-        this.emit('disconnect');
+
+        // clear the session
+        const adbclient = this.session.adbclient;
+        this.session = null;
 
         // perform the JDWP disconnect
         if (connection.connected) {
-            await this.session.adbclient.jdwp_disconnect();
+            await adbclient.jdwp_disconnect();
         }
 
         // undo the portforwarding
         // todo: replace remove_all with remove_port
         if (connection.portforwarding) {
-            await new ADBClient(this.session.deviceid).forward_remove_all();
+            await adbclient.forward_remove_all();
         }
 
         // mark the port as freed
@@ -352,8 +381,7 @@ class  Debugger extends EventEmitter {
             Debugger.portManager.freeport(connection.localport);
         }
 
-        // clear the session
-        this.session = null;
+        this.emit('disconnect');
         return previous_state;
     }
 
