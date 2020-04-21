@@ -84,6 +84,9 @@ class AndroidDebugSession extends DebugSession {
         // trace flag for printing diagnostic messages to the client Output Window
         this.trace = false;
 
+        // set to true if we've connected to the device
+        this.debuggerAttached = false;
+
         /**
          * @type {'launch'|'attach'}
          */
@@ -346,6 +349,8 @@ class AndroidDebugSession extends DebugSession {
             // try and attach to the specified pid
             await this.dbgr.attachToProcess(build, processId, this._device.serial);
 
+            this.debuggerAttached = true;
+
             // if we get this far, the debugger is connected and waiting for the resume command
             // - set up some events...
             this.dbgr.on('bpstatechange', e => this.onBreakpointStateChange(e))
@@ -452,6 +457,8 @@ class AndroidDebugSession extends DebugSession {
 
             // launch the app
             await this.startLaunchActivity(args.launchActivity);
+
+            this.debuggerAttached = true;
 
             // if we get this far, the debugger is connected and waiting for the resume command
             // - set up some events...
@@ -653,15 +660,17 @@ class AndroidDebugSession extends DebugSession {
     async disconnectRequest(response/*, args*/) {
         D('disconnectRequest');
         this._isDisconnecting = true;
-        try {
-            if (this.debug_mode === 'launch') {
-                await this.dbgr.forceStop();
-                this.LOG(`Debugger stopped`);
-            } else {
-                await this.dbgr.disconnect();
-                this.LOG(`Debugger detached`);
+        if (this.debuggerAttached) {
+            try {
+                if (this.debug_mode === 'launch') {
+                    await this.dbgr.forceStop();
+                    this.LOG(`Debugger stopped`);
+                } else {
+                    await this.dbgr.disconnect();
+                    this.LOG(`Debugger detached`);
+                }
+            } catch (e) {
             }
-        } catch (e) {
         }
         this.sendResponse(response);
     }
