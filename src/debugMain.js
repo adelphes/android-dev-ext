@@ -33,13 +33,6 @@ class AndroidDebugSession extends DebugSession {
 
         // the base folder of the app (where AndroidManifest.xml and source files should be)
         this.app_src_root = '<no appSrcRoot>';
-        // the filepathname of the built apk
-        this.apk_fpn = '';
-        /**
-         * the file info, hash and manifest data of the apk
-         * @type {APKFileInfo}
-        */
-        this.apk_file_info = null;
         // packages we found in the source tree
         this.src_packages = {
             last_src_modified: 0,
@@ -50,8 +43,17 @@ class AndroidDebugSession extends DebugSession {
         this._device = null;
         // the API level of the device we are debugging
         this.device_api_level = '';
+
+
         // the full file path name of the AndroidManifest.xml, taken from the manifestFile launch property
         this.manifest_fpn = '';
+        // the filepathname of the built apk
+        this.apk_fpn = '';
+        /**
+         * the file info, hash and manifest data of the apk
+         * @type {APKFileInfo}
+        */
+        this.apk_file_info = null;
 
         /**
          * the threads (from the last refreshThreads() call)
@@ -81,6 +83,11 @@ class AndroidDebugSession extends DebugSession {
 
         // trace flag for printing diagnostic messages to the client Output Window
         this.trace = false;
+
+        /**
+         * @type {'launch'|'attach'}
+         */
+        this.debug_mode = null;
 
 		// this debugger uses one-based lines and columns
 		this.setDebuggerLinesStartAt1(true);
@@ -252,13 +259,143 @@ class AndroidDebugSession extends DebugSession {
         })
     }
 
-	async launchRequest(response/*: DebugProtocol.LaunchResponse*/, args/*: LaunchRequestArguments*/) {
+    /**
+     * @param {*} obj 
+     */
+    extractPidAndTargetDevice(obj) {
+        let x, pid, serial = '', status;
+        try {
+            x = JSON.parse(`${obj}`);
+        } catch {
+            return null;
+        }
+        if (typeof x === 'number') {
+            pid = x;
+        } else if (typeof x === 'object') {
+            // object passed from PickAndroidProcess in the extension
+            ({ pid, serial, status } = x);
+            if (status !== 'ok') {
+                return null;
+            }
+        }
+        if (typeof pid !== "number") {
+            return null;
+        }
+        return {
+            processId: pid,
+            targetDevice: `${serial}`,
+        }
+    }
+
+	async attachRequest(response, args) {
+        this.debug_mode = 'attach';
         if (args && args.trace) {
             this.trace = args.trace;
             onMessagePrint(this.LOG.bind(this));
         }
+        D(`Attach: ${JSON.stringify(args)}`);
 
-        D(`Launching: ${JSON.stringify(args)}`);
+        if (!args.processId) {
+            this.LOG(`Missing "processId" property in launch.json`);
+            this.sendEvent(new TerminatedEvent(false));
+            return;
+        }
+
+        // the processId passed in args can be:
+        // - a fixed id defined in launch.json (should be a string, but we allow a number),
+        // - a JSON object returned from the process picker (contains the target device and process ID),
+        let attach_info = this.extractPidAndTargetDevice(args.processId);
+        if (!attach_info) {
+            this.sendEvent(new TerminatedEvent(false));
+            return;
+        }
+
+        try {
+            // app_src_root must end in a path-separator for correct validation of sub-paths
+            this.app_src_root = ensure_path_end_slash(args.appSrcRoot);
+            // start by scanning the source folder for stuff we need to know about (packages, manifest, etc)
+            this.src_packages = PackageInfo.scanSourceSync(this.app_src_root);
+            // warn if we couldn't find any packages (-> no source -> cannot debug anything)
+            if (this.src_packages.packages.size === 0)
+                this.WARN('No source files found. Check the "appSrcRoot" setting in launch.json');
+
+        } catch(err) {
+            // wow, we really didn't make it very far...
+            this.LOG(err.message);
+            this.LOG('Check the "appSrcRoot" entries in launch.json');
+            this.sendEvent(new TerminatedEvent(false));
+            return;
+        }
+
+        try {
+            let { processId, targetDevice } = attach_info;
+            if (!targetDevice) {
+                targetDevice = args.targetDevice;
+            }
+            // make sure ADB exists and is started and look for a connected device
+            await this.checkADBStarted(args.autoStartADB !== false);
+            this._device = await this.findSuitableDevice(targetDevice, args.trace);
+            this._device.adbclient = new ADBClient(this._device.serial);
+
+            // try and determine the relevant path for the API sources (based upon the API level of the connected device)
+            await this.configureAPISourcePath();
+
+            const build = new BuildInfo(null, new Map(this.src_packages.packages), null);
+            this.LOG(`Attaching to pid ${processId} on device ${this._device.serial} [API:${this.device_api_level||'?'}]`);
+
+            // try and attach to the specified pid
+            await this.dbgr.attachToProcess(build, processId, this._device.serial);
+
+            // if we get this far, the debugger is connected and waiting for the resume command
+            // - set up some events...
+            this.dbgr.on('bpstatechange', e => this.onBreakpointStateChange(e))
+                .on('bphit', e => this.onBreakpointHit(e))
+                .on('step', e => this.onStep(e))
+                .on('exception', e => this.onException(e))
+                .on('threadchange', e => this.onThreadChange(e))
+                .on('disconnect', () => this.onDebuggerDisconnect());
+
+            // - tell the client we're initialised and ready for breakpoint info, etc
+            this.sendEvent(new InitializedEvent());
+            await new Promise(resolve => this.waitForConfigurationDone = resolve);
+
+            // get the debugger to tell us about any thread creations/terminations
+            await this.dbgr.setThreadNotify();
+
+            // config is done - we're all set and ready to go!
+            this.sendResponse(response);
+
+            this.LOG(`Debugger attached`);
+            await this.dbgr.resume();
+            
+        } catch(e) {
+            //this.performDisconnect();
+            // exceptions use message, adbclient uses msg
+            this.LOG('Attach failed: '+(e.message||e.msg||'No additional information is available'));
+            // more info for adb connect errors
+            if (/^ADB server is not running/.test(e.msg)) {
+                this.LOG('Make sure the Android SDK Platform Tools are installed and run:');
+                this.LOG('      adb start-server');
+                this.LOG('If you are running ADB on a non-default port, also make sure the adbPort value in your launch.json is correct.');
+            }
+            // tell the client we're done
+            this.sendEvent(new TerminatedEvent(false));
+        }
+    }
+
+        /**
+     * The entry point to the debugger
+     * @param {*} response 
+     * @param {*} args 
+     */
+	async launchRequest(response/*: DebugProtocol.LaunchResponse*/, args/*: LaunchRequestArguments*/) {
+        this.debug_mode = 'launch';
+        if (args && args.trace) {
+            this.trace = args.trace;
+            onMessagePrint(this.LOG.bind(this));
+        }
+        D(`Launch: ${JSON.stringify(args)}`);
+
         // app_src_root must end in a path-separator for correct validation of sub-paths
         this.app_src_root = ensure_path_end_slash(args.appSrcRoot);
         this.apk_fpn = args.apkFile;
@@ -300,7 +437,7 @@ class AndroidDebugSession extends DebugSession {
 
             // make sure ADB exists and is started and look for a device to install on
             await this.checkADBStarted(args.autoStartADB !== false);
-            this._device = await this.findSuitableDevice(args.targetDevice);
+            this._device = await this.findSuitableDevice(args.targetDevice, true);
             this._device.adbclient = new ADBClient(this._device.serial);
 
             // install the APK we are going to debug
@@ -462,11 +599,13 @@ class AndroidDebugSession extends DebugSession {
 
     /**
      * @param {string} target_deviceid 
+     * @param {boolean} show_progress
      */
-    async findSuitableDevice(target_deviceid) {
-        this.LOG('Searching for devices...');
+    async findSuitableDevice(target_deviceid, show_progress) {
+        show_progress && this.LOG('Searching for devices...');
         const devices = await this.dbgr.listConnectedDevices()
-        this.LOG(`Found ${devices.length} device${devices.length===1?'':'s'}`);
+        show_progress && this.LOG(`Found ${devices.length} device${devices.length===1?'':'s'}`);
+
         let reject;
         if (devices.length === 0) {
             reject = 'No devices are connected';
@@ -515,9 +654,13 @@ class AndroidDebugSession extends DebugSession {
         D('disconnectRequest');
         this._isDisconnecting = true;
         try {
-            await this.dbgr.forceStop();
-            await this.dbgr.disconnect();
-            this.LOG(`Debugger stopped`);
+            if (this.debug_mode === 'launch') {
+                await this.dbgr.forceStop();
+                this.LOG(`Debugger stopped`);
+            } else {
+                await this.dbgr.disconnect();
+                this.LOG(`Debugger detached`);
+            }
         } catch (e) {
         }
         this.sendResponse(response);
