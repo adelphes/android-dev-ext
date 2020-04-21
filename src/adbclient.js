@@ -68,14 +68,27 @@ class ADBClient {
     }
 
     /**
-     * Return a list of debuggable pids from the device
+     * Return a list of debuggable pids from the device.
+     * 
+     * The `adb jdwp` command never terminates - it just posts each debuggable PID
+     * as it comes online. Normally we just perform a single read of stdout
+     * and terminate the connection, but if there are no pids available, the command
+     * will wait forever.
+     * @param {number} [timeout_ms] time to wait before we abort reading (and return an empty list).
      */
-    async jdwp_list() {
+    async jdwp_list(timeout_ms) {
         await this.connect_to_adb();
         await this.adbsocket.cmd_and_status(`host:transport:${this.deviceid}`);
-        const stdout = await this.adbsocket.cmd_and_read_stdout('jdwp');
+        let stdout;
+        try {
+            stdout = await this.adbsocket.cmd_and_read_stdout('jdwp', timeout_ms);
+        } catch {
+            // timeout or socket closed
+            stdout = '';
+        }
         await this.disconnect_from_adb();
-        return stdout.trim().split(/\r?\n|\r/);
+        // do not sort the pid list - the debugger needs to pick the last one in the list.
+        return stdout.trim().split(/\s+/).filter(x => x).map(s => parseInt(s, 10));
     }
 
     /**
@@ -133,11 +146,12 @@ class ADBClient {
     /**
      * Run a shell command on the connected device
      * @param {{command:string}} o 
+     * @param {number} [timeout_ms]
      */
-    async shell_cmd(o) {
+    async shell_cmd(o, timeout_ms) {
         await this.connect_to_adb();
         await this.adbsocket.cmd_and_status(`host:transport:${this.deviceid}`);
-        const stdout = await this.adbsocket.cmd_and_read_stdout(`shell:${o.command}`);
+        const stdout = await this.adbsocket.cmd_and_read_stdout(`shell:${o.command}`, timeout_ms);
         await this.disconnect_from_adb();
         return stdout;
     }

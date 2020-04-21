@@ -73,10 +73,11 @@ class ADBSocket extends AndroidSocket {
     /**
      * Sends an ADB command, checks the returned status and then reads raw data from the socket
      * @param {string} command 
+     * @param {number} timeout_ms
      */
-    async cmd_and_read_stdout(command) {
+    async cmd_and_read_stdout(command, timeout_ms) {
         await this.cmd_and_status(command);
-        return this.read_stdout();
+        return this.read_stdout('latin1', timeout_ms);
     }
 
     /**
