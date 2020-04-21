@@ -18,7 +18,8 @@
         "theme": "dark"
     },
     "activationEvents": [
-        "onCommand:android-dev-ext.view_logcat"
+        "onCommand:android-dev-ext.view_logcat",
+        "onCommand:PickAndroidProcess"
     ],
     "repository": {
         "type": "git",
@@ -30,6 +31,10 @@
             {
                 "command": "android-dev-ext.view_logcat",
                 "title": "Android: View Logcat"
+            },
+            {
+                "command": "PickAndroidProcess",
+                "title": "Android: Attach to process"
             }
         ],
         "breakpoints": [
@@ -117,21 +122,63 @@
                                 "default": false
                             }
                         }
+                    },
+                    "attach": {
+                        "required": [
+                            "appSrcRoot",
+                            "adbPort",
+                            "processId"
+                        ],
+                        "properties": {
+                            "appSrcRoot": {
+                                "type": "string",
+                                "description": "Location of the App source files. This value must point to the root of your App source tree (containing AndroidManifest.xml)",
+                                "default": "${workspaceRoot}/app/src/main"
+                            },
+                            "adbPort": {
+                                "type": "integer",
+                                "description": "Port number to connect to the local ADB (Android Debug Bridge) instance. Default: 5037",
+                                "default": 5037
+                            },
+                            "processId": {
+                                "type": "string",
+                                "description": "PID of process to attach to. This can be set to \"${command:PickAndroidProcess}\" to display a list of debuggable PIDs to choose from during launch.",
+                                "default": "${command:PickAndroidProcess}"
+                            },
+                            "targetDevice": {
+                                "type": "string",
+                                "description": "Target Device ID (as indicated by 'adb devices'). Use this to specify which device is used when multiple devices are connected.",
+                                "default": ""
+                            },
+                            "trace": {
+                                "type": "boolean",
+                                "description": "Set to true to output debugging logs for diagnostics",
+                                "default": false
+                            }
+                        }
                     }
                 },
                 "initialConfigurations": [
                     {
                         "type": "android",
-                        "name": "Android",
                         "request": "launch",
+                        "name": "Android launch",
                         "appSrcRoot": "${workspaceRoot}/app/src/main",
                         "apkFile": "${workspaceRoot}/app/build/outputs/apk/debug/app-debug.apk",
                         "adbPort": 5037
+                    },
+                    {
+                        "type": "android",
+                        "request": "attach",
+                        "name": "Android attach",
+                        "appSrcRoot": "${workspaceRoot}/app/src/main",
+                        "adbPort": 5037,
+                        "processId": "${command:PickProcess}"
                     }
                 ],
                 "configurationSnippets": [
                     {
-                        "label": "Android: Launch Configuration",
+                        "label": "Android: Launch Application",
                         "description": "A new configuration for launching an Android app debugging session",
                         "body": {
                             "type": "android",
@@ -140,6 +187,18 @@
                             "appSrcRoot": "^\"\\${workspaceRoot}/app/src/main\"",
                             "apkFile": "^\"\\${workspaceRoot}/app/build/outputs/apk/debug/app-debug.apk\"",
                             "adbPort": 5037
+                        }
+                    },
+                    {
+                        "label": "Android: Attach to Process",
+                        "description": "A new configuration for attaching to a running Android app process",
+                        "body": {
+                            "type": "android",
+                            "request": "attach",
+                            "name": "${2:Attach to Application}",
+                            "appSrcRoot": "^\"\\${workspaceRoot}/app/src/main\"",
+                            "adbPort": 5037,
+                            "processId": "^\"\\${command:PickProcess}\""
                         }
                     }
                 ],
