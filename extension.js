@@ -22,7 +22,7 @@ function activate(context) {
         vscode.commands.registerCommand('PickAndroidProcess', async () => {
             const o = await selectAndroidProcessID(vscode);
             // the debugger requires a string value to be returned
-            return (o && typeof o === 'object') ? JSON.stringify(o) : '';
+            return JSON.stringify(o);
         }),
     ];
 
