@@ -142,7 +142,7 @@
                             },
                             "processId": {
                                 "type": "string",
-                                "description": "PID of process to attach to. This can be set to \"${command:PickAndroidProcess}\" to display a list of debuggable PIDs to choose from during launch.",
+                                "description": "PID of process to attach to.\n\"${command:PickAndroidProcess}\" will display a list of debuggable PIDs to choose from during launch.",
                                 "default": "${command:PickAndroidProcess}"
                             },
                             "targetDevice": {
@@ -173,7 +173,7 @@
                         "name": "Android attach",
                         "appSrcRoot": "${workspaceRoot}/app/src/main",
                         "adbPort": 5037,
-                        "processId": "${command:PickProcess}"
+                        "processId": "${command:PickAndroidProcess}"
                     }
                 ],
                 "configurationSnippets": [
@@ -195,10 +195,10 @@
                         "body": {
                             "type": "android",
                             "request": "attach",
-                            "name": "${2:Attach to Application}",
+                            "name": "${2:Attach to App}",
                             "appSrcRoot": "^\"\\${workspaceRoot}/app/src/main\"",
                             "adbPort": 5037,
-                            "processId": "^\"\\${command:PickProcess}\""
+                            "processId": "^\"\\${command:PickAndroidProcess}\""
                         }
                     }
                 ],
