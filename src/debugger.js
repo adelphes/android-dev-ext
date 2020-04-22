@@ -211,6 +211,7 @@ class  Debugger extends EventEmitter {
 
     async performConnectionTasks() {
         // setup port forwarding
+        // note that this call generally succeeds - even if the JDWP pid is invalid
         await new ADBClient(this.session.deviceid).jdwp_forward({
             localport: this.connection.localport,
             jdwp: this.connection.jdwp,
@@ -220,13 +221,21 @@ class  Debugger extends EventEmitter {
         // after this, the client keeps an open connection until
         // jdwp_disconnect() is called
         this.session.adbclient = new ADBClient(this.session.deviceid);
-        await this.session.adbclient.jdwp_connect({
-            localport: this.connection.localport,
-            onreply: data => this._onJDWPMessage(data),
-            ondisconnect: () => this._onJDWPDisconnect(),
-        });
+        try {
+            // if the JDWP pid is invalid (doesn't exist, not debuggable, etc) ,this
+            // is where it will fail...
+            await this.session.adbclient.jdwp_connect({
+                localport: this.connection.localport,
+                onreply: data => this._onJDWPMessage(data),
+                ondisconnect: () => this._onJDWPDisconnect(),
+            });
+        } catch (e) {
+            // provide a slightly more meaningful message than a socket error
+            throw new Error(`A debugger connection to pid ${this.connection.jdwp} could not be established. ${e.message}`)
+        }
         // handshake has completed
         this.connection.connected = true;
+
         // call suspend first - we shouldn't really need to do this (as the debugger
         // is already suspended and will not resume until we tell it), but if we
         // don't do this, it logs a complaint...

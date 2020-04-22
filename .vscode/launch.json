@@ -14,7 +14,7 @@
             ]
         },
 		{
-			"name": "Server",
+			"name": "Debugger Server",
 			"type": "node",
 			"request": "launch",
 			"cwd": "${workspaceRoot}",
@@ -35,8 +35,8 @@
     ],
 	"compounds": [
 		{
-			"name": "Extension + Server",
-			"configurations": [ "Launch Extension", "Server" ]
+			"name": "Extension + Debugger",
+			"configurations": [ "Launch Extension", "Debugger Server" ]
 		}
 	]
 }

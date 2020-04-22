@@ -270,7 +270,6 @@ class AndroidDebugSession extends DebugSession {
         try {
             x = JSON.parse(`${obj}`);
         } catch {
-            return null;
         }
         if (typeof x === 'number') {
             pid = x;
@@ -281,7 +280,8 @@ class AndroidDebugSession extends DebugSession {
                 return null;
             }
         }
-        if (typeof pid !== "number") {
+        if (typeof pid !== "number" || (pid < 0)) {
+            this.LOG(`Attach failed: "processId" property in launch.json is not valid`);
             return null;
         }
         return {
@@ -299,7 +299,7 @@ class AndroidDebugSession extends DebugSession {
         D(`Attach: ${JSON.stringify(args)}`);
 
         if (!args.processId) {
-            this.LOG(`Missing "processId" property in launch.json`);
+            this.LOG(`Attach failed: Missing "processId" property in launch.json`);
             this.sendEvent(new TerminatedEvent(false));
             return;
         }

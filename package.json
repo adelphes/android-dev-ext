@@ -179,7 +179,7 @@
                         "body": {
                             "type": "android",
                             "request": "launch",
-                            "name": "${2:Launch App}",
+                            "name": "${2:Android Launch}",
                             "appSrcRoot": "^\"\\${workspaceRoot}/app/src/main\"",
                             "apkFile": "^\"\\${workspaceRoot}/app/build/outputs/apk/debug/app-debug.apk\"",
                             "adbPort": 5037
@@ -191,7 +191,7 @@
                         "body": {
                             "type": "android",
                             "request": "attach",
-                            "name": "${2:Attach to App}",
+                            "name": "${2:Android Attach}",
                             "appSrcRoot": "^\"\\${workspaceRoot}/app/src/main\"",
                             "adbPort": 5037,
                             "processId": "^\"\\${command:PickAndroidProcess}\""
