@@ -31,10 +31,6 @@
             {
                 "command": "android-dev-ext.view_logcat",
                 "title": "Android: View Logcat"
-            },
-            {
-                "command": "PickAndroidProcess",
-                "title": "Android: Attach to process"
             }
         ],
         "breakpoints": [
