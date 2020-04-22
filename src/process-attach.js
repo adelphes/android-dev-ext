@@ -29,11 +29,8 @@ async function showDevicePicker(vscode, devices) {
  * @param {{pid:number,name:string}[]} pids 
  */
 async function showPIDPicker(vscode, pids) {
-    // sort by name, then by PID
-    const sorted_pids = pids.slice().sort((a,b) => {
-        const cmp = a.name.localeCompare(b.name, undefined, {sensitivity:'base'});
-        return cmp || (a.pid - b.pid);
-    });
+    // sort by PID (the user can type the package name to search)
+    const sorted_pids = pids.slice().sort((a,b) => a.pid - b.pid);
 
     /** @type {import('vscode').QuickPickItem[]} */
     const device_pick_items = sorted_pids
