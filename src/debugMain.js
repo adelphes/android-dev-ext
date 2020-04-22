@@ -758,10 +758,10 @@ class AndroidDebugSession extends DebugSession {
         const bp_queue_len = this._set_breakpoints_queue.push({args,response,relative_fpn});
         if (bp_queue_len === 1) {
             do {
-                const next_bp = this._set_breakpoints_queue[0];
-                const javabp_arr = await this._setup_breakpoints(next_bp);
+                const { args, relative_fpn, response } = this._set_breakpoints_queue[0];
+                const javabp_arr = await this.setupBreakpointsInFile(args.breakpoints, relative_fpn);
                 // send back the VS Breakpoint instances
-                sendBPResponse(next_bp.response, javabp_arr.map(javabp => javabp.vsbp));
+                sendBPResponse(response, javabp_arr.map(javabp => javabp.vsbp));
                 // .. and do the next one
                 this._set_breakpoints_queue.shift();
             } while (this._set_breakpoints_queue.length);
@@ -769,43 +769,42 @@ class AndroidDebugSession extends DebugSession {
 	}
 
     /**
-     * @param {*} o 
-     * @param {number} idx 
-     * @param {*[]} javabp_arr 
+     * 
+     * @param {*[]} breakpoints 
+     * @param {string} relative_fpn 
      */
-    async _setup_breakpoints(o, idx = 0, javabp_arr = []) {
-        const src_bp = o.args.breakpoints[idx];
-        if (!src_bp) {
-            // end of list
-            return javabp_arr;
-        }
-        const dbgline = this.convertClientLineToDebugger(src_bp.line);
-        const options = new BreakpointOptions(); 
-        if (src_bp.hitCondition) {
-            // the hit condition is an expression that requires evaluation
-            // until we get more comprehensive evaluation support, just allow integer literals
-            const m = src_bp.hitCondition.match(/^\s*(?:0x([0-9a-f]+)|0b([01]+)|0*(\d+([e]\+?\d+)?))\s*$/i);
-            if (m) {
-                const hitcount = m[3] ? parseFloat(m[3]) : m[2] ? parseInt(m[2],2) : parseInt(m[1],16);
-                if ((hitcount > 0) && (hitcount <= 0x7fffffff)) {
-                    options.hitcount = hitcount;
+    async setupBreakpointsInFile(breakpoints, relative_fpn) {
+        const java_breakpoints = [];
+        for (let idx = 0; idx < breakpoints.length; idx++) {
+            const src_bp = breakpoints[idx];
+            const dbgline = this.convertClientLineToDebugger(src_bp.line);
+            const options = new BreakpointOptions(); 
+            if (src_bp.hitCondition) {
+                // the hit condition is an expression that requires evaluation
+                // until we get more comprehensive evaluation support, just allow integer literals
+                const m = src_bp.hitCondition.match(/^\s*(?:0x([0-9a-f]+)|0b([01]+)|0*(\d+([e]\+?\d+)?))\s*$/i);
+                if (m) {
+                    const hitcount = m[3] ? parseFloat(m[3]) : m[2] ? parseInt(m[2],2) : parseInt(m[1],16);
+                    if ((hitcount > 0) && (hitcount <= 0x7fffffff)) {
+                        options.hitcount = hitcount;
+                    }
                 }
             }
+            const javabp = await this.dbgr.setBreakpoint(relative_fpn, dbgline, options);
+            if (!javabp.vsbp) {
+                // state is one of: set,notloaded,enabled,removed
+                const verified = !!javabp.state.match(/set|enabled/);
+                const bp = new Breakpoint(verified, this.convertDebuggerLineToClient(dbgline));
+                // the breakpoint *must* have an id field or it won't update properly
+                bp['id'] = ++this._breakpointId;
+                if (javabp.state === 'notloaded')
+                    bp['message'] = 'The runtime hasn\'t loaded this code location';
+                javabp.vsbp = bp;
+            }
+            javabp.vsbp.order = idx;
+            java_breakpoints.push(javabp);
         }
-        const javabp = await this.dbgr.setBreakpoint(o.relative_fpn, dbgline, options);
-        if (!javabp.vsbp) {
-            // state is one of: set,notloaded,enabled,removed
-            const verified = !!javabp.state.match(/set|enabled/);
-            const bp = new Breakpoint(verified, this.convertDebuggerLineToClient(dbgline));
-            // the breakpoint *must* have an id field or it won't update properly
-            bp['id'] = ++this._breakpointId;
-            if (javabp.state === 'notloaded')
-                bp['message'] = 'The runtime hasn\'t loaded this code location';
-            javabp.vsbp = bp;
-        }
-        javabp.vsbp.order = idx;
-        javabp_arr.push(javabp);
-        return this._setup_breakpoints(o, ++idx, javabp_arr);
+        return java_breakpoints;
     };
 
     async setExceptionBreakPointsRequest(response /*: SetExceptionBreakpointsResponse*/, args /*: SetExceptionBreakpointsArguments*/) {
