@@ -101,24 +101,23 @@ class ADBClient {
         if (!named_pids.length)
             return [];
 
-        // retrieve the ps list from the device
-        // the command can be a bit slow, so keep reading until closed
+        // retrieve the list of process names from the device
+        const command = `for pid in ${named_pids.map(np => np.pid).join(' ')}; do cat /proc/$pid/cmdline;echo " $pid"; done`;
         const stdout = await this.shell_cmd({
-            command: `ps -o PID,CMD ${named_pids.map(np => np.pid).join(' ')}`,
+            command,
             untilclosed: true,
         });
         // output should look something like...
-        // PID CMD
-        // 32721 com.example.somepkg
-        const lines = stdout.split(/\r?\n|\r/g);
+        // com.example.somepkg 32721
+        const lines = stdout.replace(/\0+/g,'').split(/\r?\n|\r/g);
 
         // scan the list looking for pids to match names with...
         for (let i = 0; i < lines.length; i++) {
-            let entries = lines[i].trim().split(/\s+/);
-            if (entries.length !== 2) {
+            let entries = lines[i].match(/^\s*(.*)\s+(\d+)$/);
+            if (!entries) {
                 continue;
             }
-            const pid = parseInt(entries[0], 10);
+            const pid = parseInt(entries[2], 10);
             const named_pid = named_pids.find(x => x.pid === pid);
             if (named_pid) {
                 named_pid.name = entries[1];
