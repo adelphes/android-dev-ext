@@ -1534,7 +1534,7 @@ class JDWP {
 					const res = [];
 					let arrlen = DataCoder.decodeInt(o);
 					while (--arrlen >= 0) {
-						res.push(DataCoder.decodeList(o, [{reftype:'reftype'},{typeid:'tref'},{type:'signature'},{genericSignature:'string'},{status:'status'}]));
+						res.push(DataCoder.decodeList(o, [{reftype:'reftype'},{typeid:'tref'},{signature:'string'},{genericSignature:'string'},{status:'status'}]));
 					}
 					return res;
 				}

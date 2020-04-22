@@ -104,7 +104,7 @@ class  Debugger extends EventEmitter {
         this.session = new DebugSession(build, deviceid);
         // after connect(), the caller must call resume() to begin
         await this.connect(pid);
-    }
+}
 
     /**
      * @param {string} deviceid Device ID to connect to
@@ -242,6 +242,12 @@ class  Debugger extends EventEmitter {
         // set the class loader event notifier so we can enable breakpoints when the
         // runtime loads the classes
         await this.initClassPrepareForBreakpoints();
+
+        // some types have already been loaded (so we won't receive class-prepare notifications).
+        // we can't map breakpoint source locations to already-loaded anonymous types, so we just retrieve
+        // a list of all classes for now.
+        const all_classes = await this.getAllClasses();
+        this.session.loadedClasses = new Set(all_classes.map(x => x.signature));
     }
 
     /**
@@ -525,17 +531,12 @@ class  Debugger extends EventEmitter {
      */
     async initialiseBreakpoint(bp) {
         // try and load the class - if the runtime hasn't loaded it yet, this will just return a TypeNotAvailable instance
-        let classes = [await this.loadClassInfo(`L${bp.qtype};`)];
+        let classes = await Promise.all(
+            [...this.session.loadedClasses]
+                .filter(signature => bp.sigpattern.test(signature))
+                .map(signature => this.loadClassInfo(signature))
+        );
         let bploc = Debugger.findBreakpointLocation(classes, bp);
-        if (!bploc) {
-            // the required location may be inside a nested class (anonymous or named)
-            // Since Android doesn't support the NestedTypes JDWP call (ffs), all we can do here
-            // is look for existing (cached) loaded types matching inner type signatures
-            classes = this.session.classList
-                .filter(c => bp.sigpattern.test(c.type.signature));
-            // try again
-            bploc = Debugger.findBreakpointLocation(classes, bp);
-        }
         if (!bploc) {
             // we couldn't identify a matching location - either the class is not yet loaded or the
             // location doesn't correspond to any code. In case it's the former, make sure we are notified
@@ -1478,10 +1479,10 @@ class  Debugger extends EventEmitter {
         // if the class prepare events have overlapping packages (mypackage.*, mypackage.another.*), we will get
         // multiple notifications (which duplicates breakpoints, etc)
         const signature = prepared_class.type.signature;
-        if (this.session.preparedClasses.has(signature)) {
+        if (this.session.loadedClasses.has(signature)) {
             return; // we already know about this
         }
-        this.session.preparedClasses.add(signature);
+        this.session.loadedClasses.add(signature);
         D('Prepared: ' + signature);
         if (!/^L(.*);$/.test(signature)) {
             // unrecognised type signature - ignore it
