@@ -7,6 +7,7 @@ const WebSocketServer = require('ws').Server;
 // our stuff
 const { ADBClient } = require('./adbclient');
 const { AndroidContentProvider } = require('./contentprovider');
+const { checkADBStarted } = require('./utils/android');
 const { D } = require('./utils/print');
 
 /**
@@ -292,28 +293,10 @@ function onWebSocketClientConnection(client, req) {
     client._socket && typeof(client._socket.setNoDelay)==='function' && client._socket.setNoDelay(true);
 }
 
-function getADBPort() {
-    const defaultPort = 5037;
-    const adbPort = AndroidContentProvider.getLaunchConfigSetting('adbPort', defaultPort);
-    if (typeof adbPort === 'number' && adbPort === (adbPort|0))
-        return adbPort;
-    return defaultPort;
-}
-
 function openLogcatWindow(vscode) {
-    new ADBClient().test_adb_connection()
-    .then(err => {
-        // if adb is not running, see if we can start it ourselves using ANDROID_HOME (and a sensible port number)
-        const adbport = getADBPort();
-        const autoStartADB = AndroidContentProvider.getLaunchConfigSetting('autoStartADB', true);
-        if (err && autoStartADB!==false && process.env.ANDROID_HOME && typeof adbport === 'number' && adbport > 0 && adbport < 65536) {
-            const adbpath = path.join(process.env.ANDROID_HOME, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');
-            const adbargs = ['-P',''+adbport,'start-server'];
-            try {
-                /*const stdout = */require('child_process').execFileSync(adbpath, adbargs, {cwd:process.env.ANDROID_HOME, encoding:'utf8'});
-            } catch (ex) {} // if we fail, it doesn't matter - the device query will fail and the user will have to work it out themselves
-        }
-    })
+    // if adb is not running, see if we can start it ourselves
+    const autoStartADB = AndroidContentProvider.getLaunchConfigSetting('autoStartADB', true);
+    checkADBStarted(autoStartADB)
     .then(() => new ADBClient().list_devices())
     .then(devices => {
         switch(devices.length) {

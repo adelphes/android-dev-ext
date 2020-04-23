@@ -35,6 +35,23 @@ function W(...args) {
 	callMessagePrintCallbacks(args);
 }
 
+let printLogToClient;
+function initLogToClient(fn) {
+	printLogToClient = fn;
+}
+
+/**
+ * Print a log message
+ * @param {*} msg 
+ */
+function LOG(msg) {
+	if (printLogToClient) {
+		printLogToClient(msg);
+	} else {
+		D(msg);
+	}
+}
+
 /**
  * Adds a callback to be called when any message is output
  * @param {Function} cb 
@@ -45,7 +62,9 @@ function onMessagePrint(cb) {
 
 module.exports = {
     D,
-    E,
+	E,
+	initLogToClient,
+	LOG,
     W,
     onMessagePrint,
 }

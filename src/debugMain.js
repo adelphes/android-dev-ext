@@ -4,7 +4,6 @@ const {
     Thread, StackFrame, Scope, Source, Breakpoint } = require('vscode-debugadapter');
 
 // node and external modules
-const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
@@ -17,7 +16,8 @@ const { evaluate } = require('./expression/evaluate');
 const { PackageInfo } = require('./package-searcher');
 const ADBSocket = require('./sockets/adbsocket');
 const { AndroidThread } = require('./threads');
-const { D, onMessagePrint } = require('./utils/print');
+const { checkADBStarted, getAndroidSourcesFolder } = require('./utils/android');
+const { D, initLogToClient, onMessagePrint } = require('./utils/print');
 const { hasValidSourceFileExtension } = require('./utils/source-file');
 const { VariableManager } = require('./variable-manager');
 
@@ -94,7 +94,10 @@ class AndroidDebugSession extends DebugSession {
 
 		// this debugger uses one-based lines and columns
 		this.setDebuggerLinesStartAt1(true);
-		this.setDebuggerColumnsStartAt1(true);
+        this.setDebuggerColumnsStartAt1(true);
+
+        // override the log function to output to the client Debug Console
+        initLogToClient(this.LOG.bind(this));
     }
 
 	/**
@@ -336,7 +339,7 @@ class AndroidDebugSession extends DebugSession {
                 targetDevice = args.targetDevice;
             }
             // make sure ADB exists and is started and look for a connected device
-            await this.checkADBStarted(args.autoStartADB !== false);
+            await checkADBStarted(args.autoStartADB !== false);
             this._device = await this.findSuitableDevice(targetDevice, args.trace);
             this._device.adbclient = new ADBClient(this._device.serial);
 
@@ -441,7 +444,7 @@ class AndroidDebugSession extends DebugSession {
                     throw new Error('No valid launch activity found in AndroidManifest.xml or launch.json');
 
             // make sure ADB exists and is started and look for a device to install on
-            await this.checkADBStarted(args.autoStartADB !== false);
+            await checkADBStarted(args.autoStartADB !== false);
             this._device = await this.findSuitableDevice(args.targetDevice, true);
             this._device.adbclient = new ADBClient(this._device.serial);
 
@@ -496,20 +499,6 @@ class AndroidDebugSession extends DebugSession {
         }
     }
     
-    async checkADBStarted(autoStartADB) {
-        const err = await new ADBClient().test_adb_connection();
-        // if adb is not running, see if we can start it ourselves using ANDROID_HOME (and a sensible port number)
-        if (err && autoStartADB && process.env.ANDROID_HOME) {
-            const adbpath = path.join(process.env.ANDROID_HOME, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');
-            const adbargs = ['-P',`${ADBSocket.ADBPort}`,'start-server'];
-            try {
-                this.LOG([adbpath, ...adbargs].join(' '));
-                const stdout = require('child_process').execFileSync(adbpath, adbargs, {cwd:process.env.ANDROID_HOME, encoding:'utf8'});
-                this.LOG(stdout);
-            } catch (ex) {} // if we fail, it doesn't matter - the device query will fail and the user will have to work it out themselves
-        }
-    }
-
     checkBuildIsUpToDate(staleBuild) {
         // check if any source file was modified after the apk
         if (this.src_packages.last_src_modified >= this.apk_file_info.app_modified) {
@@ -538,13 +527,7 @@ class AndroidDebugSession extends DebugSession {
         const apilevel = await this.getDeviceAPILevel();
 
         // look for the android sources folder appropriate for this device
-        if (process.env.ANDROID_HOME && apilevel) {
-            const sources_path = path.join(process.env.ANDROID_HOME,'sources',`android-${apilevel}`);
-            fs.stat(sources_path, (err,stat) => {
-                if (!err && stat && stat.isDirectory())
-                    this._android_sources_path = sources_path;
-            });
-        }
+        this._android_sources_path = getAndroidSourcesFolder(apilevel, true);
     }
 
     async getDeviceAPILevel() {
@@ -969,13 +952,7 @@ class AndroidDebugSession extends DebugSession {
 `;
         // don't actually attempt to load the file here - just recheck to see if the sources
         // path is valid yet.
-        if (process.env.ANDROID_HOME && this.device_api_level) {
-            const sources_path = path.join(process.env.ANDROID_HOME,'sources','android-'+this.device_api_level);
-            fs.stat(sources_path, (err,stat) => {
-                if (!err && stat && stat.isDirectory())
-                    this._android_sources_path = sources_path;
-            });
-        }
+        this._android_sources_path = getAndroidSourcesFolder(this.device_api_level, true);
 
         response.body = { content };
         this.sendResponse(response);
