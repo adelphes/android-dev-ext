@@ -29,7 +29,7 @@ const {
     TypeNotAvailable,
 } = require('./debugger-types');
 
-class  Debugger extends EventEmitter {
+class Debugger extends EventEmitter {
 
     constructor () {
         super();
@@ -76,7 +76,7 @@ class  Debugger extends EventEmitter {
      */
     async startDebugSession(build, deviceid) {
         this.session = new DebugSession(build, deviceid);
-        await Debugger.runApp(deviceid, build.startCommandArgs, build.postLaunchPause);
+        const stdout = await Debugger.runApp(deviceid, build.startCommandArgs, build.postLaunchPause);
 
         // retrieve the list of debuggable processes
         const pids = await this.getDebuggablePIDs(this.session.deviceid);
@@ -84,6 +84,7 @@ class  Debugger extends EventEmitter {
         const pid = pids[pids.length - 1];
         // after connect(), the caller must call resume() to begin
         await this.connect(pid);
+        return stdout;
     }
 
     /**
@@ -94,7 +95,7 @@ class  Debugger extends EventEmitter {
     static async runApp(deviceid, launch_cmd_args, post_launch_pause = 1000) {
         // older (<3) versions of Android only allow target components to be specified with -n
         const shell_cmd = {
-            command: 'am start ' + launch_cmd_args.join(' '),
+            command: `am start ${launch_cmd_args.join(' ')}`,
         };
         let retries = 10
         for (;;) {
@@ -104,12 +105,14 @@ class  Debugger extends EventEmitter {
             await sleep(post_launch_pause);
             // failures:
             //  Error: Activity not started...
-            const m = stdout.match(/Error:.*/g);
+            // /system/bin/sh: syntax error: unexpected EOF - this happens with invalid am command arguments
+            const m = stdout.match(/Error:.*|syntax error:/gi);
             if (!m) {
-                break;
+                // return the stdout from am (it shows the fully qualified component name)
+                return stdout.toString().trim();
             }
             else if (retries <= 0){
-                throw new Error(m[0]);
+                throw new Error(stdout.toString().trim());
             }
             retries -= 1;
         }

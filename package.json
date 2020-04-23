@@ -54,6 +54,17 @@
                             "adbPort"
                         ],
                         "properties": {
+                            "amStartArgs": {
+                                "type": "array",
+                                "description": "Custom arguments to pass to the Android application manager to start the app. Run `adb shell am` to show valid arguments. Note that `-D` is required to enable debugging.\r\nBe careful using this option - you must specify the correct parameters or the app will not start.\r\n\r\nThis option is incompatible with the `launchActivity` option.",
+                                "default": [
+                                    "-D",
+                                    "--activity-brought-to-front",
+                                    "-a android.intent.action.MAIN",
+                                    "-c android.intent.category.LAUNCHER",
+                                    "-n package.name/launch.activity"
+                                ]
+                            },
                             "appSrcRoot": {
                                 "type": "string",
                                 "description": "Location of the App source files. This value must point to the root of your App source tree (containing AndroidManifest.xml)",
