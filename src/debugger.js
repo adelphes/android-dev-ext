@@ -82,12 +82,29 @@ class Debugger extends EventEmitter {
         const stdout = await Debugger.runApp(deviceid, build.startCommandArgs, build.postLaunchPause);
 
         // retrieve the list of debuggable processes
-        const pids = await Debugger.getDebuggablePIDs(this.session.deviceid, 10e3);
-        if (pids.length === 0) {
+        const named_pids = await Debugger.getDebuggableProcesses(deviceid, 10e3);
+        if (named_pids.length === 0) {
             throw new Error(`startDebugSession: No debuggable processes after app launch.`);
         }
-        // choose the last pid in the list
-        const pid = pids[pids.length - 1];
+        // we assume the newly launched app is the last pid in the list, but try and
+        // validate using the process names
+        const matched_named_pids = build.pkgname ? named_pids.filter(np => np.name === build.pkgname) : [];
+        let pid;
+        switch (matched_named_pids.length) {
+            case 0:
+                // no name match - warn, but choose the last entry anyway
+                D('No process name match - choosing last jdwp pid');
+                pid = named_pids[named_pids.length - 1].pid;
+                break;
+            case 1:
+                pid = matched_named_pids[0].pid;
+                break;
+            default:
+                // more than one choice - warn, but choose we'll use the last one anyway
+                D('Multiple process names match - choosing last matching entry');
+                pid = matched_named_pids[matched_named_pids.length - 1].pid;
+                break;
+        }
         // after connect(), the caller must call resume() to begin
         await this.connect(pid);
         return stdout;
