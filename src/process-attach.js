@@ -1,28 +1,6 @@
 const os = require('os');
 const { ADBClient } = require('./adbclient');
-
-/**
- * @param {import('vscode')} vscode 
- * @param {{serial:string}[]} devices 
- */
-async function showDevicePicker(vscode, devices) {
-    const sorted_devices = devices.sort((a,b) => a.serial.localeCompare(b.serial, undefined, {sensitivity: 'base'}));
-
-    /** @type {import('vscode').QuickPickItem[]} */
-    const quick_pick_items = sorted_devices
-        .map(device => ({
-            label: `${device.serial}`,
-        }));
-
-    /** @type {import('vscode').QuickPickOptions} */
-    const quick_pick_options = {
-        canPickMany: false,
-        placeHolder: 'Choose an Android device',
-    };
-
-    const chosen_option = await vscode.window.showQuickPick(quick_pick_items, quick_pick_options);
-    return sorted_devices[quick_pick_items.indexOf(chosen_option)] || null;
-}
+const { selectTargetDevice } = require('./utils/device');
 
 /**
  * @param {import('vscode')} vscode 
@@ -65,23 +43,12 @@ async function selectAndroidProcessID(vscode) {
         vscode.window.showWarningMessage('Attach failed. ADB is not running.');
         return res;
     }
-    const devices = await new ADBClient().list_devices();
-    let device;
-    switch(devices.length) {
-        case 0: 
-            vscode.window.showWarningMessage('Attach failed. No Android devices are connected.');
-            return res;
-        case 1:
-            device = devices[0]; // only one device - just use it
-            break;
-        default:
-            device = await showDevicePicker(vscode, devices);
-            if (!device) {
-                // user cancelled picker
-                res.status = 'cancelled';
-                return res;
-            }
-            break;
+
+    const device = await selectTargetDevice(vscode, 'Attach');
+    if (!device) {
+        // user cancelled picker
+        res.status = 'cancelled';
+        return res;
     }
 
     let named_pids = await new ADBClient(device.serial).named_jdwp_list(5000);
