@@ -19,6 +19,7 @@
     },
     "activationEvents": [
         "onCommand:android-dev-ext.view_logcat",
+        "onCommand:PickAndroidDevice",
         "onCommand:PickAndroidProcess"
     ],
     "repository": {
@@ -121,7 +122,7 @@
                             "targetDevice": {
                                 "type": "string",
                                 "description": "Target Device ID (as indicated by 'adb devices'). Use this to specify which device is used for deployment when multiple devices are connected.",
-                                "default": ""
+                                "default": "${command:PickAndroidDevice}"
                             },
                             "trace": {
                                 "type": "boolean",
@@ -155,7 +156,7 @@
                             "targetDevice": {
                                 "type": "string",
                                 "description": "Target Device ID (as indicated by 'adb devices'). Use this to specify which device is used when multiple devices are connected.",
-                                "default": ""
+                                "default": "${command:PickAndroidDevice}"
                             },
                             "trace": {
                                 "type": "boolean",
