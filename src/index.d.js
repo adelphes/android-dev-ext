@@ -108,6 +108,7 @@
  * @typedef {number} JDWPRequestID
  * @typedef {JDWPRequestID} StepID
  * @typedef {'caught'|'uncaught'|'both'} ExceptionBreakMode
+ * @typedef {'ignore'|'warn'|'stop'} StaleBuildSetting
  * 
  */
 

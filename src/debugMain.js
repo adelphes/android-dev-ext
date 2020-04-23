@@ -11,7 +11,7 @@ const path = require('path');
 const { ADBClient } = require('./adbclient');
 const { APKFileInfo } = require('./apk-file-info');
 const { Debugger } = require('./debugger');
-const { BreakpointOptions, BuildInfo, DebuggerException, DebuggerValue, JavaBreakpointEvent, JavaClassType, JavaExceptionEvent, SourceLocation } = require('./debugger-types');
+const { AttachBuildInfo, BreakpointOptions, DebuggerException, DebuggerValue, JavaBreakpointEvent, JavaClassType, JavaExceptionEvent, LaunchBuildInfo, SourceLocation } = require('./debugger-types');
 const { evaluate } = require('./expression/evaluate');
 const { PackageInfo } = require('./package-searcher');
 const ADBSocket = require('./sockets/adbsocket');
@@ -118,26 +118,18 @@ class AndroidDebugSession extends DebugSession {
 	/**
 	 * The 'initialize' request is the first request called by the frontend
 	 * to interrogate the features the debug adapter provides.
+     * @param {import('vscode-debugprotocol').DebugProtocol.InitializeResponse} response
 	 */
-	initializeRequest(response/*: DebugProtocol.InitializeResponse, args: DebugProtocol.InitializeRequestArguments*/) {
-
-		// This debug adapter implements the configurationDoneRequest.
-		response.body.supportsConfigurationDoneRequest = true;
-        
-        // we support some exception options
+	initializeRequest(response) {
         response.body.exceptionBreakpointFilters = [
             { label:'All Exceptions', filter:'all', default:false },
             { label:'Uncaught Exceptions', filter:'uncaught', default:true },
         ];
-
-        // we support modifying variable values
+		response.body.supportsConfigurationDoneRequest = true;
 		response.body.supportsSetVariable = true;
-
-        // we support hit-count conditional breakpoints
-        response.body.supportsHitConditionalBreakpoints = true;
-
-        // we support the new ExceptionInfoRequest
+        response.body.supportsEvaluateForHovers = true;
         response.body.supportsExceptionInfoRequest = true;
+        response.body.supportsHitConditionalBreakpoints = true;
 
 		this.sendResponse(response);
 	}
@@ -167,6 +159,7 @@ class AndroidDebugSession extends DebugSession {
 
     /**
      * @param {string} msg 
+     * @param {import('vscode-debugprotocol').DebugProtocol.Response} response
      * @param {boolean} silent
      */
     failRequest(msg, response, silent = false) {
@@ -185,7 +178,7 @@ class AndroidDebugSession extends DebugSession {
     /**
      * @param {string} requestName 
      * @param {number} threadId 
-     * @param {*} response 
+     * @param {import('vscode-debugprotocol').DebugProtocol.Response} response
      */
     failRequestNoThread(requestName, threadId, response) {
         this.failRequest(`${requestName} failed. Thread ${threadId} not found`, response);
@@ -194,7 +187,7 @@ class AndroidDebugSession extends DebugSession {
     /**
      * @param {string} requestName 
      * @param {number} threadId 
-     * @param {*} response 
+     * @param {import('vscode-debugprotocol').DebugProtocol.Response} response
      */
     failRequestThreadNotSuspended(requestName, threadId, response) {
         this.failRequest(`${requestName} failed. Thread ${threadId} is not suspended`, response);
@@ -203,7 +196,7 @@ class AndroidDebugSession extends DebugSession {
     /**
      * @param {string} requestName 
      * @param {number} threadId 
-     * @param {*} response 
+     * @param {import('vscode-debugprotocol').DebugProtocol.Response} response
      */
     cancelRequestThreadNotSuspended(requestName, threadId, response) {
         // now that vscode can resume threads before the locals,callstack,etc are retrieved, we only need to cancel the request
@@ -321,6 +314,17 @@ class AndroidDebugSession extends DebugSession {
         return s;
     }
 
+    /**
+     * @typedef AndroidAttachArguments
+     * @property {string} appSrcRoot
+     * @property {boolean} autoStartADB
+     * @property {number} processId
+     * @property {string} targetDevice
+     * @property {boolean} trace
+     * 
+     * @param {import('vscode-debugprotocol').DebugProtocol.AttachResponse} response 
+     * @param {import('vscode-debugprotocol').DebugProtocol.AttachRequestArguments & AndroidAttachArguments} args 
+     */
 	async attachRequest(response, args) {
         this.debug_mode = 'attach';
         if (args && args.trace) {
@@ -382,12 +386,7 @@ class AndroidDebugSession extends DebugSession {
             // try and determine the relevant path for the API sources (based upon the API level of the connected device)
             await this.configureAPISourcePath();
 
-            const build = new BuildInfo(
-                null,
-                new Map(this.src_packages.packages),
-                null,
-                null,
-                args.postLaunchPause);
+            const build = new AttachBuildInfo(new Map(this.src_packages.packages));
             this.LOG(`Attaching to pid ${processId} on device ${this._device.serial} [API:${this.device_api_level||'?'}]`);
 
             // try and attach to the specified pid
@@ -432,12 +431,28 @@ class AndroidDebugSession extends DebugSession {
         }
     }
 
-        /**
+    /**
+     * @typedef AndroidLaunchArguments
+     * @property {number} adbPort
+     * @property {string[]} amStartArgs 
+     * @property {string} apkFile
+     * @property {string} appSrcRoot
+     * @property {boolean} autoStartADB
+     * @property {number} callStackDisplaySize
+     * @property {string} launchActivity
+     * @property {string} manifestFile
+     * @property {string[]} pmInstallArgs
+     * @property {number} postLaunchPause
+     * @property {number} processId
+     * @property {StaleBuildSetting} staleBuild
+     * @property {string} targetDevice
+     * @property {boolean} trace
+
      * The entry point to the debugger
-     * @param {*} response 
-     * @param {*} args 
+     * @param {import('vscode-debugprotocol').DebugProtocol.LaunchResponse} response 
+     * @param {import('vscode-debugprotocol').DebugProtocol.LaunchRequestArguments & AndroidLaunchArguments} args 
      */
-	async launchRequest(response/*: DebugProtocol.LaunchResponse*/, args/*: LaunchRequestArguments*/) {
+	async launchRequest(response, args) {
         this.debug_mode = 'launch';
         if (args && args.trace) {
             this.trace = args.trace;
@@ -557,6 +572,10 @@ class AndroidDebugSession extends DebugSession {
         }
     }
     
+    /**
+     * Check if the build is out of date (i.e a source file has been modified since the last build)
+     * @param {StaleBuildSetting} staleBuild 
+     */
     checkBuildIsUpToDate(staleBuild) {
         // check if any source file was modified after the apk
         if (this.src_packages.last_src_modified >= this.apk_file_info.app_modified) {
@@ -584,9 +603,9 @@ class AndroidDebugSession extends DebugSession {
             }
         }
 
-        const build = new BuildInfo(
-            this.apk_file_info.manifest.package,
+        const build = new LaunchBuildInfo(
             new Map(this.src_packages.packages),
+            this.apk_file_info.manifest.package,
             launchActivity,
             this.am_start_args,
             postLaunchPause);
@@ -701,7 +720,11 @@ class AndroidDebugSession extends DebugSession {
         throw new Error(reject);
     }
 
-    configurationDoneRequest(response/*, args*/) {
+    /**
+     * 
+     * @param {import('vscode-debugprotocol').DebugProtocol.ConfigurationDoneResponse} response 
+     */
+    configurationDoneRequest(response) {
         D('configurationDoneRequest');
         this.waitForConfigurationDone();
         this.sendResponse(response);
@@ -717,7 +740,11 @@ class AndroidDebugSession extends DebugSession {
         }
     }
 
-    async disconnectRequest(response/*, args*/) {
+    /**
+     * 
+     * @param {import('vscode-debugprotocol').DebugProtocol.DisconnectResponse} response 
+     */
+    async disconnectRequest(response) {
         D('disconnectRequest');
         this._isDisconnecting = true;
         if (this.debuggerAttached) {
@@ -748,7 +775,7 @@ class AndroidDebugSession extends DebugSession {
     }
 
     /**
-     * 
+     * Called by the debugger in response to a JDWP breakpoint hit event
      * @param {JavaBreakpointEvent} e 
      */
     onBreakpointHit(e) {
@@ -760,13 +787,15 @@ class AndroidDebugSession extends DebugSession {
     /**
      * Called when the user requests a change to breakpoints in a source file
      * Note: all breakpoints in a file are always sent in args, even if they are not changing
+     * @param {import('vscode-debugprotocol').DebugProtocol.SetBreakpointsResponse} response
+     * @param {import('vscode-debugprotocol').DebugProtocol.SetBreakpointsArguments} args
      */
-	async setBreakPointsRequest(response/*: DebugProtocol.SetBreakpointsResponse*/, args/*: DebugProtocol.SetBreakpointsArguments*/) {
+	async setBreakPointsRequest(response, args) {
 		const source_filename = args.source && args.source.path;
         D('setBreakPointsRequest: ' + source_filename);
 
         const unverified_breakpoint = (src_bp,reason) => {
-            const bp = new Breakpoint(false,src_bp.line);
+            const bp = new Breakpoint(false, src_bp.line);
             bp['id'] = ++this._breakpointId;
             bp['message'] = reason;
             return bp;
@@ -829,8 +858,7 @@ class AndroidDebugSession extends DebugSession {
 	}
 
     /**
-     * 
-     * @param {*[]} breakpoints 
+     * @param {import('vscode-debugprotocol').DebugProtocol.SourceBreakpoint[]} breakpoints 
      * @param {string} relative_fpn 
      */
     async setupBreakpointsInFile(breakpoints, relative_fpn) {
@@ -867,7 +895,11 @@ class AndroidDebugSession extends DebugSession {
         return java_breakpoints;
     };
 
-    async setExceptionBreakPointsRequest(response /*: SetExceptionBreakpointsResponse*/, args /*: SetExceptionBreakpointsArguments*/) {
+    /**
+     * @param {import('vscode-debugprotocol').DebugProtocol.SetExceptionBreakpointsResponse} response 
+     * @param {import('vscode-debugprotocol').DebugProtocol.SetExceptionBreakpointsArguments} args 
+     */
+    async setExceptionBreakPointsRequest(response, args) {
         await this.dbgr.clearBreakOnExceptions();
         switch(true) {
             case args.filters.includes('all'):
@@ -880,7 +912,11 @@ class AndroidDebugSession extends DebugSession {
         this.sendResponse(response);
     }
 
-	async threadsRequest(response/*: DebugProtocol.ThreadsResponse*/) {
+    /**
+     * 
+     * @param {import('vscode-debugprotocol').DebugProtocol.ThreadsResponse} response 
+     */
+	async threadsRequest(response) {
         if (!this._threads.length) {
             try {
                 await this.refreshThreads();
@@ -904,8 +940,10 @@ class AndroidDebugSession extends DebugSession {
 
 	/**
 	 * Returns a stack trace for the given threadId
+     * @param {import('vscode-debugprotocol').DebugProtocol.StackTraceResponse} response
+     * @param {import('vscode-debugprotocol').DebugProtocol.StackTraceArguments} args
 	 */
-	async stackTraceRequest(response/*: DebugProtocol.StackTraceResponse*/, args/*: DebugProtocol.StackTraceArguments*/) {
+	async stackTraceRequest(response, args) {
         D(`stackTraceRequest thread:${args.threadId}`);
         // only retrieve the stack if the thread is paused
         const thread = this.getThread(args.threadId);
@@ -987,7 +1025,11 @@ class AndroidDebugSession extends DebugSession {
         }
 	}
 
-	async scopesRequest(response/*: DebugProtocol.ScopesResponse*/, args/*: DebugProtocol.ScopesArguments*/) {
+    /**
+     * @param {import('vscode-debugprotocol').DebugProtocol.ScopesResponse} response
+     * @param {import('vscode-debugprotocol').DebugProtocol.ScopesArguments} args
+     */
+	async scopesRequest(response, args) {
         D(`scopesRequest frame:${args.frameId}`);
         const threadId = AndroidThread.variableRefToThreadId(args.frameId);
         const thread = this.getThread(threadId);
@@ -1013,10 +1055,14 @@ class AndroidDebugSession extends DebugSession {
         } catch(e) {
         }
         this.sendResponse(response);
-}
+    }
 
-    sourceRequest(response/*: DebugProtocol.SourceResponse*/, args/*: DebugProtocol.SourceArguments*/) {
-        D(`sourceRequest: ${args.sourceId}`);
+    /**
+     * @param {import('vscode-debugprotocol').DebugProtocol.SourceResponse} response
+     * @param {import('vscode-debugprotocol').DebugProtocol.SourceArguments} args
+     */
+    sourceRequest(response, args) {
+        D(`sourceRequest: ${args.sourceReference}`);
         const content = 
 `/*
   The source for this class is unavailable.
@@ -1036,11 +1082,10 @@ class AndroidDebugSession extends DebugSession {
     }
 
     /**
-     * 
-     * @param {*} response 
-     * @param {{variablesReference:VSCVariableReference}} args 
+     * @param {import('vscode-debugprotocol').DebugProtocol.VariablesResponse} response
+     * @param {import('vscode-debugprotocol').DebugProtocol.VariablesArguments} args
      */
-	async variablesRequest(response/*: DebugProtocol.VariablesResponse*/, args/*: DebugProtocol.VariablesArguments*/) {
+	async variablesRequest(response, args) {
         D(`variablesRequest variablesReference:${args.variablesReference}`);
         const threadId = AndroidThread.variableRefToThreadId(args.variablesReference);
         const thread = this.getThread(threadId);
@@ -1124,7 +1169,11 @@ class AndroidDebugSession extends DebugSession {
         await this.dbgr.resumeThread(thread.threadid);
     }
 
-	continueRequest(response/*: DebugProtocol.ContinueResponse*/, args/*: DebugProtocol.ContinueArguments*/) {
+    /**
+     * @param {import('vscode-debugprotocol').DebugProtocol.ContinueResponse} response
+     * @param {import('vscode-debugprotocol').DebugProtocol.ContinueArguments} args
+     */
+	continueRequest(response, args) {
         D(`Continue thread:${args.threadId}`);
 
         const thread = this.getThread(args.threadId);
@@ -1147,8 +1196,8 @@ class AndroidDebugSession extends DebugSession {
     /**
      * Called by the user to start a step operation
      * @param {DebuggerStepType} which 
-     * @param {*} response 
-     * @param {*} args 
+     * @param {import('vscode-debugprotocol').DebugProtocol.NextResponse} response
+     * @param {import('vscode-debugprotocol').DebugProtocol.NextArguments} args
      */
     doStep(which, response, args) {
         D(`step ${which}`);
@@ -1171,15 +1220,27 @@ class AndroidDebugSession extends DebugSession {
         this.dbgr.step(which, thread.threadid);
     }
 
-	stepInRequest(response/*: DebugProtocol.NextResponse*/, args/*: DebugProtocol.StepInArguments*/) {
+    /**
+     * @param {import('vscode-debugprotocol').DebugProtocol.NextResponse} response
+     * @param {import('vscode-debugprotocol').DebugProtocol.StepInArguments} args
+     */
+	stepInRequest(response, args) {
         this.doStep('in', response, args);
 	}
 
-	nextRequest(response/*: DebugProtocol.NextResponse*/, args/*: DebugProtocol.NextArguments*/) {
+    /**
+     * @param {import('vscode-debugprotocol').DebugProtocol.NextResponse} response
+     * @param {import('vscode-debugprotocol').DebugProtocol.NextArguments} args
+     */
+	nextRequest(response, args) {
         this.doStep('over', response, args);
 	}
 
-	stepOutRequest(response/*: DebugProtocol.NextResponse*/, args/*: DebugProtocol.StepOutArguments*/) {
+    /**
+     * @param {import('vscode-debugprotocol').DebugProtocol.NextResponse} response
+     * @param {import('vscode-debugprotocol').DebugProtocol.StepOutArguments} args
+     */
+	stepOutRequest(response, args) {
         this.doStep('out', response, args);
 	}
 
@@ -1197,7 +1258,11 @@ class AndroidDebugSession extends DebugSession {
         this.reportStoppedEvent("exception", e.throwlocation, last_exception);
     }
 
-    async exceptionInfoRequest(response /*DebugProtocol.ExceptionInfoResponse*/, args /**/) {
+    /**
+     * @param {import('vscode-debugprotocol').DebugProtocol.ExceptionInfoResponse} response
+     * @param {import('vscode-debugprotocol').DebugProtocol.ExceptionInfoArguments} args
+     */
+    async exceptionInfoRequest(response, args) {
         D(`exceptionInfoRequest: ${args.threadId}`);
         const thread = this.getThread(args.threadId);
         if (!thread) return this.failRequestNoThread('Exception info', args.threadId, response);
@@ -1267,15 +1332,10 @@ class AndroidDebugSession extends DebugSession {
     }
 
     /**
-     * @typedef SetVariableArgs
-     * @property {string} name
-     * @property {string} value
-     * @property {number} variablesReference
-     *
-     * @param {*} response 
-     * @param {SetVariableArgs} args 
+     * @param {import('vscode-debugprotocol').DebugProtocol.SetVariableResponse} response
+     * @param {import('vscode-debugprotocol').DebugProtocol.SetVariableArguments} args
      */
-    async setVariableRequest(response/*: DebugProtocol.SetVariableResponse*/, args/*: DebugProtocol.SetVariableArguments*/) {
+    async setVariableRequest(response, args) {
 
         const threadId = AndroidThread.variableRefToThreadId(args.variablesReference);
         const thread = this.getThread(threadId);
@@ -1304,8 +1364,10 @@ class AndroidDebugSession extends DebugSession {
 
     /**
      * Called by VSCode to perform watch, console and hover evaluations
+     * @param {import('vscode-debugprotocol').DebugProtocol.EvaluateResponse} response
+     * @param {import('vscode-debugprotocol').DebugProtocol.EvaluateArguments} args
      */
-	async evaluateRequest(response/*: DebugProtocol.EvaluateResponse*/, args/*: DebugProtocol.EvaluateArguments*/) {
+	async evaluateRequest(response, args) {
 
         // Some notes to remember:
         // annoyingly, during stepping, the step can complete before the resume has called evaluateRequest on watches.

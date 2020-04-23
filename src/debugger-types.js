@@ -4,17 +4,25 @@ const { PackageInfo } = require('./package-searcher');
 const { splitSourcePath } = require('./utils/source-file');
 
 class BuildInfo {
-
     /**
-     * @param {string} pkgname 
      * @param {Map<string,PackageInfo>} packages 
+     */
+    constructor(packages) {
+        this.packages = packages;
+    }
+}
+
+class LaunchBuildInfo extends BuildInfo {
+    /**
+     * @param {Map<string,PackageInfo>} packages 
+     * @param {string} pkgname 
      * @param {string} launchActivity 
      * @param {string[]} amCommandArgs custom arguments passed to `am start`
      * @param {number} postLaunchPause amount of time (in ms) to wait after launch before we attempt a debugger connection
      */
-    constructor(pkgname, packages, launchActivity, amCommandArgs, postLaunchPause) {
+    constructor(packages, pkgname, launchActivity, amCommandArgs, postLaunchPause) {
+        super(packages);
         this.pkgname = pkgname;
-        this.packages = packages;
         this.launchActivity = launchActivity;
         /** the arguments passed to `am start` */
         this.startCommandArgs = amCommandArgs || [
@@ -29,6 +37,15 @@ class BuildInfo {
          * We need this because invoking JDWP too soon causes a hang.
         */
         this.postLaunchPause = ((typeof postLaunchPause === 'number') && (postLaunchPause >= 0)) ? postLaunchPause : 1000;
+    }
+}
+
+class AttachBuildInfo extends BuildInfo {
+    /**
+     * @param {Map<string,PackageInfo>} packages 
+     */
+    constructor(packages) {
+        super(packages);
     }
 }
 
@@ -748,9 +765,9 @@ class VariableValue {
 }
 
 module.exports = {
+    AttachBuildInfo,
     BreakpointLocation,
     BreakpointOptions,
-    BuildInfo,
     DebuggerBreakpoint,
     DebuggerException,
     DebuggerFrameInfo,
@@ -758,6 +775,7 @@ module.exports = {
     DebuggerTypeInfo,
     DebugSession,
     DebuggerValue,
+    LaunchBuildInfo,
     LiteralValue,
     JavaBreakpointEvent,
     JavaExceptionEvent,

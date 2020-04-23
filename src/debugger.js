@@ -8,9 +8,9 @@ const { D } = require('./utils/print');
 const { sleep } = require('./utils/thread');
 const { decodeJavaStringLiteral } = require('./utils/char-decode');
 const {
+    AttachBuildInfo,
     BreakpointLocation,
     BreakpointOptions,
-    BuildInfo,
     DebuggerBreakpoint,
     DebuggerFrameInfo,
     DebuggerMethodInfo,
@@ -24,6 +24,7 @@ const {
     JavaTaggedValue,
     JavaThreadInfo,
     JavaType,
+    LaunchBuildInfo,
     MethodInvokeArgs,
     SourceLocation,
     TypeNotAvailable,
@@ -71,7 +72,7 @@ class Debugger extends EventEmitter {
     };
 
     /**
-     * @param {BuildInfo} build
+     * @param {LaunchBuildInfo} build
      * @param {string} deviceid
      */
     async startDebugSession(build, deviceid) {
@@ -111,7 +112,7 @@ class Debugger extends EventEmitter {
     }
 
     /**
-     * @param {BuildInfo} build
+     * @param {AttachBuildInfo} build
      * @param {number} pid process ID to connect to
      * @param {string} deviceid device ID to connect to
      */
@@ -318,7 +319,9 @@ class Debugger extends EventEmitter {
         if (!this.session) {
             return;
         }
-        return Debugger.forceStopApp(this.session.deviceid, this.session.build.pkgname);
+        if (this.session.build instanceof LaunchBuildInfo) {
+            return Debugger.forceStopApp(this.session.deviceid, this.session.build.pkgname);
+        }
     }
 
     /**
