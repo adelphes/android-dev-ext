@@ -208,37 +208,41 @@ class ADBClient {
         if (!o.onlog) {
             const logcatbuffer = await this.adbsocket.read_stdout();
             await this.disconnect_from_adb();
-            return logcatbuffer;
+            return logcatbuffer.toString();
         }
 
         // start the logcat monitor
-        let logcatbuffer = Buffer.alloc(0);
         const next_logcat_lines = async () => {
-            // read the next data from ADB
+            let logcatbuffer = Buffer.alloc(0);
             let next_data;
-            try{
-                next_data = await this.adbsocket.read_stdout();
-            } catch(e) {
-                o.onclose(e);
-                return;
+            for (;;) {
+                // read the next data from ADB
+                try {
+                    next_data = await this.adbsocket.read_stdout();
+                } catch(e) {
+                    o.onclose(e);
+                    return;
+                }
+                logcatbuffer = Buffer.concat([logcatbuffer, next_data]);
+                const last_newline_index = logcatbuffer.lastIndexOf(10) + 1;
+                if (last_newline_index === 0) {
+                    // wait for a whole line
+                    next_logcat_lines();
+                    return;
+                }
+                // split into lines, sort and remove duplicates and blanks
+                const logs = logcatbuffer.slice(0, last_newline_index).toString()
+                    .split(/\r\n?|\n/)
+                    .sort()
+                    .filter((line,idx,arr) => line && line !== arr[idx-1]);
+                
+                logcatbuffer = logcatbuffer.slice(last_newline_index);
+                const e = {
+                    adbclient: this,
+                    logs,
+                };
+                o.onlog(e);
             }
-            logcatbuffer = Buffer.concat([logcatbuffer, next_data]);
-            const last_newline_index = logcatbuffer.lastIndexOf(10) + 1;
-            if (last_newline_index === 0) {
-                // wait for a whole line
-                next_logcat_lines();
-                return;
-            }
-            // split into lines
-            const logs = logcatbuffer.slice(0, last_newline_index).toString().split(/\r\n?|\n/);
-            logcatbuffer = logcatbuffer.slice(last_newline_index);
-
-            const e = {
-                adbclient: this,
-                logs,
-            };
-            o.onlog(e);
-            next_logcat_lines();
         }
         next_logcat_lines();
     }
