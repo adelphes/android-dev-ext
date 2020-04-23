@@ -82,10 +82,10 @@ class DebugSession {
         this.classPrepareFilters = new Set();
 
         /**
-         * The set of class signatures already prepared
+         * The set of class signatures loaded by the runtime
          * @type {Set<string>}
          */
-        this.preparedClasses = new Set();
+        this.loadedClasses = new Set();
 
         /**
          * Enabled step JDWP IDs for each thread

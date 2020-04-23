@@ -75,17 +75,37 @@ class Debugger extends EventEmitter {
      * @param {string} deviceid
      */
     async startDebugSession(build, deviceid) {
+        if (this.status() !== 'disconnected') {
+            throw new Error('startDebugSession: session already active');
+        }
         this.session = new DebugSession(build, deviceid);
         const stdout = await Debugger.runApp(deviceid, build.startCommandArgs, build.postLaunchPause);
 
         // retrieve the list of debuggable processes
-        const pids = await this.getDebuggablePIDs(this.session.deviceid);
+        const pids = await Debugger.getDebuggablePIDs(this.session.deviceid, 10e3);
+        if (pids.length === 0) {
+            throw new Error(`startDebugSession: No debuggable processes after app launch.`);
+        }
         // choose the last pid in the list
         const pid = pids[pids.length - 1];
         // after connect(), the caller must call resume() to begin
         await this.connect(pid);
         return stdout;
     }
+
+    /**
+     * @param {BuildInfo} build
+     * @param {number} pid process ID to connect to
+     * @param {string} deviceid device ID to connect to
+     */
+    async attachToProcess(build, pid, deviceid) {
+        if (this.status() !== 'disconnected') {
+            throw new Error('attachToProcess: session already active')
+        }
+        this.session = new DebugSession(build, deviceid);
+        // after connect(), the caller must call resume() to begin
+        await this.connect(pid);
+}
 
     /**
      * @param {string} deviceid Device ID to connect to
@@ -127,54 +147,21 @@ class Debugger extends EventEmitter {
 
     /**
      * Retrieve a list of debuggable process IDs from a device
+     * @param {string} deviceid
+     * @param {number} timeout_ms
      */
-    getDebuggablePIDs(deviceid) {
-        return new ADBClient(deviceid).jdwp_list();
+    static getDebuggablePIDs(deviceid, timeout_ms) {
+        return new ADBClient(deviceid).jdwp_list(timeout_ms);
     }
 
-    async getDebuggableProcesses(deviceid) {
-        const adbclient = new ADBClient(deviceid);
-        const info = {
-            debugger: this,
-            jdwps: null,
-        };
-        const jdwps = await info.adbclient.jdwp_list();
-        if (!jdwps.length)
-            return null;
-        info.jdwps = jdwps;
-        // retrieve the ps list from the device
-        const stdout = await adbclient.shell_cmd({
-            command: 'ps',
-        });
-        // output should look something like...
-        // USER     PID   PPID  VSIZE  RSS     WCHAN    PC        NAME
-        // u0_a153   32721 1452  1506500 37916 ffffffff 00000000 S com.example.somepkg
-        // but we cope with variations so long as PID and NAME exist
-        const lines = stdout.split(/\r?\n|\r/g);
-        const hdrs = (lines.shift() || '').trim().toUpperCase().split(/\s+/);
-        const pidindex = hdrs.indexOf('PID');
-        const nameindex = hdrs.indexOf('NAME');
-        if (pidindex < 0 || nameindex < 0)
-            return [];
-        const result = [];
-        // scan the list looking for matching pids...
-        for (let i = 0; i < lines.length; i++) {
-            const entries = lines[i].trim().replace(/ [S] /, ' ').split(/\s+/);
-            if (entries.length !== hdrs.length) {
-                continue;
-            }
-            const jdwpidx = info.jdwps.indexOf(entries[pidindex]);
-            if (jdwpidx < 0) {
-                continue;
-            }
-            // we found a match
-            const entry = {
-                jdwp: entries[pidindex],
-                name: entries[nameindex],
-            };
-            result.push(entry);
-        }
-        return result;
+    /**
+     * Retrieve a list of debuggable process IDs with process names from a device.
+     * For Android, the process name is usually the package name.
+     * @param {string} deviceid 
+     * @param {number} timeout_ms
+     */
+    static getDebuggableProcesses(deviceid, timeout_ms) {
+        return new ADBClient(deviceid).named_jdwp_list(timeout_ms);
     }
 
     /**
@@ -227,6 +214,7 @@ class Debugger extends EventEmitter {
 
     async performConnectionTasks() {
         // setup port forwarding
+        // note that this call generally succeeds - even if the JDWP pid is invalid
         await new ADBClient(this.session.deviceid).jdwp_forward({
             localport: this.connection.localport,
             jdwp: this.connection.jdwp,
@@ -236,13 +224,21 @@ class Debugger extends EventEmitter {
         // after this, the client keeps an open connection until
         // jdwp_disconnect() is called
         this.session.adbclient = new ADBClient(this.session.deviceid);
-        await this.session.adbclient.jdwp_connect({
-            localport: this.connection.localport,
-            onreply: data => this._onJDWPMessage(data),
-            ondisconnect: () => this._onJDWPDisconnect(),
-        });
+        try {
+            // if the JDWP pid is invalid (doesn't exist, not debuggable, etc) ,this
+            // is where it will fail...
+            await this.session.adbclient.jdwp_connect({
+                localport: this.connection.localport,
+                onreply: data => this._onJDWPMessage(data),
+                ondisconnect: () => this._onJDWPDisconnect(),
+            });
+        } catch (e) {
+            // provide a slightly more meaningful message than a socket error
+            throw new Error(`A debugger connection to pid ${this.connection.jdwp} could not be established. ${e.message}`)
+        }
         // handshake has completed
         this.connection.connected = true;
+
         // call suspend first - we shouldn't really need to do this (as the debugger
         // is already suspended and will not resume until we tell it), but if we
         // don't do this, it logs a complaint...
@@ -258,6 +254,12 @@ class Debugger extends EventEmitter {
         // set the class loader event notifier so we can enable breakpoints when the
         // runtime loads the classes
         await this.initClassPrepareForBreakpoints();
+
+        // some types have already been loaded (so we won't receive class-prepare notifications).
+        // we can't map breakpoint source locations to already-loaded anonymous types, so we just retrieve
+        // a list of all classes for now.
+        const all_classes = await this.getAllClasses();
+        this.session.loadedClasses = new Set(all_classes.map(x => x.signature));
     }
 
     /**
@@ -337,17 +339,20 @@ class Debugger extends EventEmitter {
 
         // reset the breakpoint states
         this.resetBreakpoints();
-        this.emit('disconnect');
+
+        // clear the session
+        const adbclient = this.session.adbclient;
+        this.session = null;
 
         // perform the JDWP disconnect
         if (connection.connected) {
-            await this.session.adbclient.jdwp_disconnect();
+            await adbclient.jdwp_disconnect();
         }
 
         // undo the portforwarding
         // todo: replace remove_all with remove_port
         if (connection.portforwarding) {
-            await new ADBClient(this.session.deviceid).forward_remove_all();
+            await adbclient.forward_remove_all();
         }
 
         // mark the port as freed
@@ -355,8 +360,7 @@ class Debugger extends EventEmitter {
             Debugger.portManager.freeport(connection.localport);
         }
 
-        // clear the session
-        this.session = null;
+        this.emit('disconnect');
         return previous_state;
     }
 
@@ -539,17 +543,12 @@ class Debugger extends EventEmitter {
      */
     async initialiseBreakpoint(bp) {
         // try and load the class - if the runtime hasn't loaded it yet, this will just return a TypeNotAvailable instance
-        let classes = [await this.loadClassInfo(`L${bp.qtype};`)];
+        let classes = await Promise.all(
+            [...this.session.loadedClasses]
+                .filter(signature => bp.sigpattern.test(signature))
+                .map(signature => this.loadClassInfo(signature))
+        );
         let bploc = Debugger.findBreakpointLocation(classes, bp);
-        if (!bploc) {
-            // the required location may be inside a nested class (anonymous or named)
-            // Since Android doesn't support the NestedTypes JDWP call (ffs), all we can do here
-            // is look for existing (cached) loaded types matching inner type signatures
-            classes = this.session.classList
-                .filter(c => bp.sigpattern.test(c.type.signature));
-            // try again
-            bploc = Debugger.findBreakpointLocation(classes, bp);
-        }
         if (!bploc) {
             // we couldn't identify a matching location - either the class is not yet loaded or the
             // location doesn't correspond to any code. In case it's the former, make sure we are notified
@@ -1492,10 +1491,10 @@ class Debugger extends EventEmitter {
         // if the class prepare events have overlapping packages (mypackage.*, mypackage.another.*), we will get
         // multiple notifications (which duplicates breakpoints, etc)
         const signature = prepared_class.type.signature;
-        if (this.session.preparedClasses.has(signature)) {
+        if (this.session.loadedClasses.has(signature)) {
             return; // we already know about this
         }
-        this.session.preparedClasses.add(signature);
+        this.session.loadedClasses.add(signature);
         D('Prepared: ' + signature);
         if (!/^L(.*);$/.test(signature)) {
             // unrecognised type signature - ignore it

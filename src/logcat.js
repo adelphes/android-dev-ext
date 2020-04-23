@@ -7,6 +7,8 @@ const WebSocketServer = require('ws').Server;
 // our stuff
 const { ADBClient } = require('./adbclient');
 const { AndroidContentProvider } = require('./contentprovider');
+const { checkADBStarted } = require('./utils/android');
+const { selectTargetDevice } = require('./utils/device');
 const { D } = require('./utils/print');
 
 /**
@@ -292,83 +294,58 @@ function onWebSocketClientConnection(client, req) {
     client._socket && typeof(client._socket.setNoDelay)==='function' && client._socket.setNoDelay(true);
 }
 
-function getADBPort() {
-    const defaultPort = 5037;
-    const adbPort = AndroidContentProvider.getLaunchConfigSetting('adbPort', defaultPort);
-    if (typeof adbPort === 'number' && adbPort === (adbPort|0))
-        return adbPort;
-    return defaultPort;
+/**
+ * @param {import('vscode')} vscode 
+ * @param {*} target_device 
+ */
+function openWebviewLogcatWindow(vscode, target_device) {
+    const panel = vscode.window.createWebviewPanel(
+        'androidlogcat', // Identifies the type of the webview. Used internally
+        `logcat-${target_device.serial}`, // Title of the panel displayed to the user
+        vscode.ViewColumn.Two, // Editor column to show the new webview panel in.
+        {
+            enableScripts: true,    // we use embedded scripts to relay logcat info over a websocket
+        }
+    );
+    const logcat = new LogcatContent(target_device.serial);
+    logcat.content().then(html => {
+        panel.webview.html = html;
+    });
 }
 
-function openLogcatWindow(vscode) {
-    new ADBClient().test_adb_connection()
-    .then(err => {
-        // if adb is not running, see if we can start it ourselves using ANDROID_HOME (and a sensible port number)
-        const adbport = getADBPort();
+/**
+ * @param {import('vscode')} vscode 
+ * @param {*} target_device 
+ */
+function openPreviewHtmlLogcatWindow(vscode, target_device) {
+    const uri = AndroidContentProvider.getReadLogcatUri(target_device.serial);
+    vscode.commands.executeCommand("vscode.previewHtml", uri, vscode.ViewColumn.Two);
+}
+
+/**
+ * @param {import('vscode')} vscode 
+ */
+async function openLogcatWindow(vscode) {
+    try {
+        // if adb is not running, see if we can start it ourselves
         const autoStartADB = AndroidContentProvider.getLaunchConfigSetting('autoStartADB', true);
-        if (err && autoStartADB!==false && process.env.ANDROID_HOME && typeof adbport === 'number' && adbport > 0 && adbport < 65536) {
-            const adbpath = path.join(process.env.ANDROID_HOME, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');
-            const adbargs = ['-P',''+adbport,'start-server'];
-            try {
-                /*const stdout = */require('child_process').execFileSync(adbpath, adbargs, {cwd:process.env.ANDROID_HOME, encoding:'utf8'});
-            } catch (ex) {} // if we fail, it doesn't matter - the device query will fail and the user will have to work it out themselves
+        await checkADBStarted(autoStartADB);
+
+        let target_device = await selectTargetDevice(vscode, "Logcat display");
+        if (!target_device) {
+            return;
         }
-    })
-    .then(() => new ADBClient().list_devices())
-    .then(devices => {
-        switch(devices.length) {
-            case 0: 
-                vscode.window.showInformationMessage('Logcat cannot be displayed. No Android devices are currently connected');
-                return null;
-            case 1:
-                return devices; // only one device - just show it
+
+        if (vscode.window.createWebviewPanel) {
+            // newer versions of vscode use WebviewPanels
+            openWebviewLogcatWindow(vscode, target_device);
+        } else {
+            // older versions of vscode use previewHtml
+            openPreviewHtmlLogcatWindow(vscode, target_device);
         }
-        const prefix = 'Android: View Logcat - ', all = '[ Display All ]';
-        const devicelist = devices.map(d => prefix + d.serial);
-        //devicelist.push(prefix + all);
-        return vscode.window.showQuickPick(devicelist)
-            .then(which => {
-                if (!which) return; // user cancelled
-                which = which.slice(prefix.length);
-                return new ADBClient().list_devices()
-                    .then(devices => {
-                        if (which === all) {
-                            return devices
-                        }
-                        const found = devices.find(d => d.serial === which);
-                        if (found) {
-                            return [found];
-                        }
-                        vscode.window.showInformationMessage('Logcat cannot be displayed. The device is disconnected');
-                        return null;
-                    });
-            }, () => null);
-    })
-    .then(devices => {
-        if (!Array.isArray(devices)) return;    // user cancelled (or no devices connected)
-        devices.forEach(device => {
-            if (vscode.window.createWebviewPanel) {
-                const panel = vscode.window.createWebviewPanel(
-                    'androidlogcat', // Identifies the type of the webview. Used internally
-                    `logcat-${device.serial}`, // Title of the panel displayed to the user
-                    vscode.ViewColumn.One, // Editor column to show the new webview panel in.
-                    {
-                        enableScripts: true,
-                    }
-                );
-                const logcat = new LogcatContent(device.serial);
-                logcat.content().then(html => {
-                    panel.webview.html = html;
-                });
-                return;
-            }
-            const uri = AndroidContentProvider.getReadLogcatUri(device.serial);
-            vscode.commands.executeCommand("vscode.previewHtml",uri,vscode.ViewColumn.Two);
-        });
-    })
-    .catch((/*e*/) => {
-        vscode.window.showInformationMessage('Logcat cannot be displayed. Querying the connected devices list failed. Is ADB running?');
-    });
+    } catch (e) {
+        vscode.window.showInformationMessage(`Logcat cannot be displayed. ${e.message}`);
+    }
 }
 
 module.exports = {

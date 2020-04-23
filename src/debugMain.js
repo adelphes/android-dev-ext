@@ -4,7 +4,6 @@ const {
     Thread, StackFrame, Scope, Source, Breakpoint } = require('vscode-debugadapter');
 
 // node and external modules
-const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
@@ -17,7 +16,8 @@ const { evaluate } = require('./expression/evaluate');
 const { PackageInfo } = require('./package-searcher');
 const ADBSocket = require('./sockets/adbsocket');
 const { AndroidThread } = require('./threads');
-const { D, onMessagePrint } = require('./utils/print');
+const { checkADBStarted, getAndroidSourcesFolder } = require('./utils/android');
+const { D, initLogToClient, onMessagePrint } = require('./utils/print');
 const { hasValidSourceFileExtension } = require('./utils/source-file');
 const { VariableManager } = require('./variable-manager');
 
@@ -33,13 +33,6 @@ class AndroidDebugSession extends DebugSession {
 
         // the base folder of the app (where AndroidManifest.xml and source files should be)
         this.app_src_root = '<no appSrcRoot>';
-        // the filepathname of the built apk
-        this.apk_fpn = '';
-        /**
-         * the file info, hash and manifest data of the apk
-         * @type {APKFileInfo}
-        */
-        this.apk_file_info = null;
         // packages we found in the source tree
         this.src_packages = {
             last_src_modified: 0,
@@ -50,8 +43,17 @@ class AndroidDebugSession extends DebugSession {
         this._device = null;
         // the API level of the device we are debugging
         this.device_api_level = '';
+
+
         // the full file path name of the AndroidManifest.xml, taken from the manifestFile launch property
         this.manifest_fpn = '';
+        // the filepathname of the built apk
+        this.apk_fpn = '';
+        /**
+         * the file info, hash and manifest data of the apk
+         * @type {APKFileInfo}
+        */
+        this.apk_file_info = null;
 
         /**
          * array of custom arguments to pass to `pm install`
@@ -94,9 +96,20 @@ class AndroidDebugSession extends DebugSession {
         // trace flag for printing diagnostic messages to the client Output Window
         this.trace = false;
 
+        // set to true if we've connected to the device
+        this.debuggerAttached = false;
+
+        /**
+         * @type {'launch'|'attach'}
+         */
+        this.debug_mode = null;
+
 		// this debugger uses one-based lines and columns
 		this.setDebuggerLinesStartAt1(true);
-		this.setDebuggerColumnsStartAt1(true);
+        this.setDebuggerColumnsStartAt1(true);
+
+        // override the log function to output to the client Debug Console
+        initLogToClient(this.LOG.bind(this));
     }
 
 	/**
@@ -264,13 +277,145 @@ class AndroidDebugSession extends DebugSession {
         })
     }
 
-	async launchRequest(response/*: DebugProtocol.LaunchResponse*/, args/*: LaunchRequestArguments*/) {
+    /**
+     * @param {*} obj 
+     */
+    extractPidAndTargetDevice(obj) {
+        let x, pid, serial = '', status;
+        try {
+            x = JSON.parse(`${obj}`);
+        } catch {
+        }
+        if (typeof x === 'number') {
+            pid = x;
+        } else if (typeof x === 'object') {
+            // object passed from PickAndroidProcess in the extension
+            ({ pid, serial, status } = x);
+            if (status !== 'ok') {
+                return null;
+            }
+        }
+        if (typeof pid !== "number" || (pid < 0)) {
+            this.LOG(`Attach failed: "processId" property in launch.json is not valid`);
+            return null;
+        }
+        return {
+            processId: pid,
+            targetDevice: `${serial}`,
+        }
+    }
+
+	async attachRequest(response, args) {
+        this.debug_mode = 'attach';
         if (args && args.trace) {
             this.trace = args.trace;
             onMessagePrint(this.LOG.bind(this));
         }
+        D(`Attach: ${JSON.stringify(args)}`);
 
-        D(`Launching: ${JSON.stringify(args)}`);
+        if (!args.processId) {
+            this.LOG(`Attach failed: Missing "processId" property in launch.json`);
+            this.sendEvent(new TerminatedEvent(false));
+            return;
+        }
+
+        // the processId passed in args can be:
+        // - a fixed id defined in launch.json (should be a string, but we allow a number),
+        // - a JSON object returned from the process picker (contains the target device and process ID),
+        let attach_info = this.extractPidAndTargetDevice(args.processId);
+        if (!attach_info) {
+            this.sendEvent(new TerminatedEvent(false));
+            return;
+        }
+
+        try {
+            // app_src_root must end in a path-separator for correct validation of sub-paths
+            this.app_src_root = ensure_path_end_slash(args.appSrcRoot);
+            // start by scanning the source folder for stuff we need to know about (packages, manifest, etc)
+            this.src_packages = PackageInfo.scanSourceSync(this.app_src_root);
+            // warn if we couldn't find any packages (-> no source -> cannot debug anything)
+            if (this.src_packages.packages.size === 0)
+                this.WARN('No source files found. Check the "appSrcRoot" setting in launch.json');
+
+        } catch(err) {
+            // wow, we really didn't make it very far...
+            this.LOG(err.message);
+            this.LOG('Check the "appSrcRoot" entries in launch.json');
+            this.sendEvent(new TerminatedEvent(false));
+            return;
+        }
+
+        try {
+            let { processId, targetDevice } = attach_info;
+            if (!targetDevice) {
+                targetDevice = args.targetDevice;
+            }
+            // make sure ADB exists and is started and look for a connected device
+            await checkADBStarted(args.autoStartADB !== false);
+            this._device = await this.findSuitableDevice(targetDevice, args.trace);
+            this._device.adbclient = new ADBClient(this._device.serial);
+
+            // try and determine the relevant path for the API sources (based upon the API level of the connected device)
+            await this.configureAPISourcePath();
+
+            const build = new BuildInfo(null, new Map(this.src_packages.packages), null);
+            this.LOG(`Attaching to pid ${processId} on device ${this._device.serial} [API:${this.device_api_level||'?'}]`);
+
+            // try and attach to the specified pid
+            await this.dbgr.attachToProcess(build, processId, this._device.serial);
+
+            this.debuggerAttached = true;
+
+            // if we get this far, the debugger is connected and waiting for the resume command
+            // - set up some events...
+            this.dbgr.on('bpstatechange', e => this.onBreakpointStateChange(e))
+                .on('bphit', e => this.onBreakpointHit(e))
+                .on('step', e => this.onStep(e))
+                .on('exception', e => this.onException(e))
+                .on('threadchange', e => this.onThreadChange(e))
+                .on('disconnect', () => this.onDebuggerDisconnect());
+
+            // - tell the client we're initialised and ready for breakpoint info, etc
+            this.sendEvent(new InitializedEvent());
+            await new Promise(resolve => this.waitForConfigurationDone = resolve);
+
+            // get the debugger to tell us about any thread creations/terminations
+            await this.dbgr.setThreadNotify();
+
+            // config is done - we're all set and ready to go!
+            this.sendResponse(response);
+
+            this.LOG(`Debugger attached`);
+            await this.dbgr.resume();
+            
+        } catch(e) {
+            //this.performDisconnect();
+            // exceptions use message, adbclient uses msg
+            this.LOG('Attach failed: '+(e.message||e.msg||'No additional information is available'));
+            // more info for adb connect errors
+            if (/^ADB server is not running/.test(e.msg)) {
+                this.LOG('Make sure the Android SDK Platform Tools are installed and run:');
+                this.LOG('      adb start-server');
+                this.LOG('If you are running ADB on a non-default port, also make sure the adbPort value in your launch.json is correct.');
+            }
+            // tell the client we're done
+            this.sendEvent(new TerminatedEvent(false));
+        }
+    }
+
+        /**
+     * The entry point to the debugger
+     * @param {*} response 
+     * @param {*} args 
+     */
+	async launchRequest(response/*: DebugProtocol.LaunchResponse*/, args/*: LaunchRequestArguments*/) {
+        this.debug_mode = 'launch';
+        if (args && args.trace) {
+            this.trace = args.trace;
+            onMessagePrint(this.LOG.bind(this));
+        }
+        D(`Launch: ${JSON.stringify(args)}`);
+
         // app_src_root must end in a path-separator for correct validation of sub-paths
         this.app_src_root = ensure_path_end_slash(args.appSrcRoot);
         this.apk_fpn = args.apkFile;
@@ -319,8 +464,8 @@ class AndroidDebugSession extends DebugSession {
                     throw new Error('No valid launch activity found in AndroidManifest.xml or launch.json');
 
             // make sure ADB exists and is started and look for a device to install on
-            await this.checkADBStarted(args.autoStartADB !== false);
-            this._device = await this.findSuitableDevice(args.targetDevice);
+            await checkADBStarted(args.autoStartADB !== false);
+            this._device = await this.findSuitableDevice(args.targetDevice, true);
             this._device.adbclient = new ADBClient(this._device.serial);
 
             // install the APK we are going to debug
@@ -335,6 +480,8 @@ class AndroidDebugSession extends DebugSession {
 
             // launch the app
             await this.startLaunchActivity(args.launchActivity);
+
+            this.debuggerAttached = true;
 
             // if we get this far, the debugger is connected and waiting for the resume command
             // - set up some events...
@@ -372,20 +519,6 @@ class AndroidDebugSession extends DebugSession {
         }
     }
     
-    async checkADBStarted(autoStartADB) {
-        const err = await new ADBClient().test_adb_connection();
-        // if adb is not running, see if we can start it ourselves using ANDROID_HOME (and a sensible port number)
-        if (err && autoStartADB && process.env.ANDROID_HOME) {
-            const adbpath = path.join(process.env.ANDROID_HOME, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');
-            const adbargs = ['-P',`${ADBSocket.ADBPort}`,'start-server'];
-            try {
-                this.LOG([adbpath, ...adbargs].join(' '));
-                const stdout = require('child_process').execFileSync(adbpath, adbargs, {cwd:process.env.ANDROID_HOME, encoding:'utf8'});
-                this.LOG(stdout);
-            } catch (ex) {} // if we fail, it doesn't matter - the device query will fail and the user will have to work it out themselves
-        }
-    }
-
     checkBuildIsUpToDate(staleBuild) {
         // check if any source file was modified after the apk
         if (this.src_packages.last_src_modified >= this.apk_file_info.app_modified) {
@@ -422,13 +555,7 @@ class AndroidDebugSession extends DebugSession {
         const apilevel = await this.getDeviceAPILevel();
 
         // look for the android sources folder appropriate for this device
-        if (process.env.ANDROID_HOME && apilevel) {
-            const sources_path = path.join(process.env.ANDROID_HOME,'sources',`android-${apilevel}`);
-            fs.stat(sources_path, (err,stat) => {
-                if (!err && stat && stat.isDirectory())
-                    this._android_sources_path = sources_path;
-            });
-        }
+        this._android_sources_path = getAndroidSourcesFolder(apilevel, true);
     }
 
     async getDeviceAPILevel() {
@@ -491,11 +618,13 @@ class AndroidDebugSession extends DebugSession {
 
     /**
      * @param {string} target_deviceid 
+     * @param {boolean} show_progress
      */
-    async findSuitableDevice(target_deviceid) {
-        this.LOG('Searching for devices...');
+    async findSuitableDevice(target_deviceid, show_progress) {
+        show_progress && this.LOG('Searching for devices...');
         const devices = await this.dbgr.listConnectedDevices()
-        this.LOG(`Found ${devices.length} device${devices.length===1?'':'s'}`);
+        show_progress && this.LOG(`Found ${devices.length} device${devices.length===1?'':'s'}`);
+
         let reject;
         if (devices.length === 0) {
             reject = 'No devices are connected';
@@ -543,11 +672,17 @@ class AndroidDebugSession extends DebugSession {
     async disconnectRequest(response/*, args*/) {
         D('disconnectRequest');
         this._isDisconnecting = true;
-        try {
-            await this.dbgr.forceStop();
-            await this.dbgr.disconnect();
-            this.LOG(`Debugger stopped`);
-        } catch (e) {
+        if (this.debuggerAttached) {
+            try {
+                if (this.debug_mode === 'launch') {
+                    await this.dbgr.forceStop();
+                    this.LOG(`Debugger stopped`);
+                } else {
+                    await this.dbgr.disconnect();
+                    this.LOG(`Debugger detached`);
+                }
+            } catch (e) {
+            }
         }
         this.sendResponse(response);
     }
@@ -635,10 +770,10 @@ class AndroidDebugSession extends DebugSession {
         const bp_queue_len = this._set_breakpoints_queue.push({args,response,relative_fpn});
         if (bp_queue_len === 1) {
             do {
-                const next_bp = this._set_breakpoints_queue[0];
-                const javabp_arr = await this._setup_breakpoints(next_bp);
+                const { args, relative_fpn, response } = this._set_breakpoints_queue[0];
+                const javabp_arr = await this.setupBreakpointsInFile(args.breakpoints, relative_fpn);
                 // send back the VS Breakpoint instances
-                sendBPResponse(next_bp.response, javabp_arr.map(javabp => javabp.vsbp));
+                sendBPResponse(response, javabp_arr.map(javabp => javabp.vsbp));
                 // .. and do the next one
                 this._set_breakpoints_queue.shift();
             } while (this._set_breakpoints_queue.length);
@@ -646,43 +781,42 @@ class AndroidDebugSession extends DebugSession {
 	}
 
     /**
-     * @param {*} o 
-     * @param {number} idx 
-     * @param {*[]} javabp_arr 
+     * 
+     * @param {*[]} breakpoints 
+     * @param {string} relative_fpn 
      */
-    async _setup_breakpoints(o, idx = 0, javabp_arr = []) {
-        const src_bp = o.args.breakpoints[idx];
-        if (!src_bp) {
-            // end of list
-            return javabp_arr;
-        }
-        const dbgline = this.convertClientLineToDebugger(src_bp.line);
-        const options = new BreakpointOptions(); 
-        if (src_bp.hitCondition) {
-            // the hit condition is an expression that requires evaluation
-            // until we get more comprehensive evaluation support, just allow integer literals
-            const m = src_bp.hitCondition.match(/^\s*(?:0x([0-9a-f]+)|0b([01]+)|0*(\d+([e]\+?\d+)?))\s*$/i);
-            if (m) {
-                const hitcount = m[3] ? parseFloat(m[3]) : m[2] ? parseInt(m[2],2) : parseInt(m[1],16);
-                if ((hitcount > 0) && (hitcount <= 0x7fffffff)) {
-                    options.hitcount = hitcount;
+    async setupBreakpointsInFile(breakpoints, relative_fpn) {
+        const java_breakpoints = [];
+        for (let idx = 0; idx < breakpoints.length; idx++) {
+            const src_bp = breakpoints[idx];
+            const dbgline = this.convertClientLineToDebugger(src_bp.line);
+            const options = new BreakpointOptions(); 
+            if (src_bp.hitCondition) {
+                // the hit condition is an expression that requires evaluation
+                // until we get more comprehensive evaluation support, just allow integer literals
+                const m = src_bp.hitCondition.match(/^\s*(?:0x([0-9a-f]+)|0b([01]+)|0*(\d+([e]\+?\d+)?))\s*$/i);
+                if (m) {
+                    const hitcount = m[3] ? parseFloat(m[3]) : m[2] ? parseInt(m[2],2) : parseInt(m[1],16);
+                    if ((hitcount > 0) && (hitcount <= 0x7fffffff)) {
+                        options.hitcount = hitcount;
+                    }
                 }
             }
+            const javabp = await this.dbgr.setBreakpoint(relative_fpn, dbgline, options);
+            if (!javabp.vsbp) {
+                // state is one of: set,notloaded,enabled,removed
+                const verified = !!javabp.state.match(/set|enabled/);
+                const bp = new Breakpoint(verified, this.convertDebuggerLineToClient(dbgline));
+                // the breakpoint *must* have an id field or it won't update properly
+                bp['id'] = ++this._breakpointId;
+                if (javabp.state === 'notloaded')
+                    bp['message'] = 'The runtime hasn\'t loaded this code location';
+                javabp.vsbp = bp;
+            }
+            javabp.vsbp.order = idx;
+            java_breakpoints.push(javabp);
         }
-        const javabp = await this.dbgr.setBreakpoint(o.relative_fpn, dbgline, options);
-        if (!javabp.vsbp) {
-            // state is one of: set,notloaded,enabled,removed
-            const verified = !!javabp.state.match(/set|enabled/);
-            const bp = new Breakpoint(verified, this.convertDebuggerLineToClient(dbgline));
-            // the breakpoint *must* have an id field or it won't update properly
-            bp['id'] = ++this._breakpointId;
-            if (javabp.state === 'notloaded')
-                bp['message'] = 'The runtime hasn\'t loaded this code location';
-            javabp.vsbp = bp;
-        }
-        javabp.vsbp.order = idx;
-        javabp_arr.push(javabp);
-        return this._setup_breakpoints(o, ++idx, javabp_arr);
+        return java_breakpoints;
     };
 
     async setExceptionBreakPointsRequest(response /*: SetExceptionBreakpointsResponse*/, args /*: SetExceptionBreakpointsArguments*/) {
@@ -847,13 +981,7 @@ class AndroidDebugSession extends DebugSession {
 `;
         // don't actually attempt to load the file here - just recheck to see if the sources
         // path is valid yet.
-        if (process.env.ANDROID_HOME && this.device_api_level) {
-            const sources_path = path.join(process.env.ANDROID_HOME,'sources','android-'+this.device_api_level);
-            fs.stat(sources_path, (err,stat) => {
-                if (!err && stat && stat.isDirectory())
-                    this._android_sources_path = sources_path;
-            });
-        }
+        this._android_sources_path = getAndroidSourcesFolder(this.device_api_level, true);
 
         response.body = { content };
         this.sendResponse(response);

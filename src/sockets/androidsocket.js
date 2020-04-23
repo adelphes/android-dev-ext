@@ -64,8 +64,9 @@ class AndroidSocket extends EventEmitter {
      * 
      * @param {number|'length+data'|undefined} length 
      * @param {string} [format] 
+     * @param {number} [timeout_ms]
      */
-    async read_bytes(length, format) {
+    async read_bytes(length, format, timeout_ms) {
         //D(`reading ${length} bytes`);
         let actual_length = length;
         if (typeof actual_length === 'undefined') {
@@ -95,25 +96,40 @@ class AndroidSocket extends EventEmitter {
             return Promise.resolve(data);
         }
         // wait for the socket to update and then retry the read
-        await this.wait_for_socket_data();
+        await this.wait_for_socket_data(timeout_ms);
         return this.read_bytes(length, format);
     }
 
-    wait_for_socket_data() {
+    /**
+     * 
+     * @param {number} [timeout_ms] 
+     */
+    wait_for_socket_data(timeout_ms) {
         return new Promise((resolve, reject) => {
-            let done = 0;
+            let done = 0, timer = null;
             let onDataChanged = () => {
                 if ((done += 1) !== 1) return;
                 this.off('socket-ended', onSocketEnded);
+                clearTimeout(timer);
                 resolve();
             }
             let onSocketEnded = () => {
                 if ((done += 1) !== 1) return;
                 this.off('data-changed', onDataChanged);
+                clearTimeout(timer);
                 reject(new Error(`${this.which} socket read failed. Socket closed.`));
+            }
+            let onTimerExpired = () => {
+                if ((done += 1) !== 1) return;
+                this.off('socket-ended', onSocketEnded);
+                this.off('data-changed', onDataChanged);
+                reject(new Error(`${this.which} socket read failed. Read timeout.`));
             }
             this.once('data-changed', onDataChanged);
             this.once('socket-ended', onSocketEnded);
+            if (typeof timeout_ms === 'number' && timeout_ms >= 0) {
+                timer = setTimeout(onTimerExpired, timeout_ms);
+            }
         });
     }
 
@@ -122,8 +138,26 @@ class AndroidSocket extends EventEmitter {
         return this.read_bytes(len.readUInt32LE(0), format);
     }
 
-    read_stdout(format = 'latin1') {
-        return this.read_bytes(undefined, format);
+    /**
+     * 
+     * @param {number} [timeout_ms] 
+     * @param {boolean} [until_closed] 
+     * @returns {Promise<Buffer>}
+     */
+    async read_stdout(timeout_ms, until_closed) {
+        let buf = await this.read_bytes(undefined, null, timeout_ms);
+        if (!until_closed) {
+            return buf;
+        }
+        const parts = [buf];
+        try {
+            for (;;) {
+                buf = await this.read_bytes(undefined, null);
+                parts.push(buf);
+            }
+        } catch {
+        }
+        return Buffer.concat(parts);
     }
 
     /**
@@ -134,6 +168,7 @@ class AndroidSocket extends EventEmitter {
         return new Promise((resolve, reject) => {
             this.check_socket_active('write');
             try {
+                // @ts-ignore
                 const flushed = this.socket.write(bytes, () => {
                     flushed ? resolve() : this.socket.once('drain', resolve);
                 });

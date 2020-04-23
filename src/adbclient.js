@@ -68,14 +68,63 @@ class ADBClient {
     }
 
     /**
-     * Return a list of debuggable pids from the device
+     * Return a list of debuggable pids from the device.
+     * 
+     * The `adb jdwp` command never terminates - it just posts each debuggable PID
+     * as it comes online. Normally we just perform a single read of stdout
+     * and terminate the connection, but if there are no pids available, the command
+     * will wait forever.
+     * @param {number} [timeout_ms] time to wait before we abort reading (and return an empty list).
      */
-    async jdwp_list() {
+    async jdwp_list(timeout_ms) {
         await this.connect_to_adb();
         await this.adbsocket.cmd_and_status(`host:transport:${this.deviceid}`);
-        const stdout = await this.adbsocket.cmd_and_read_stdout('jdwp');
+        /** @type {string} */
+        let stdout;
+        try {
+            stdout = await this.adbsocket.cmd_and_read_stdout('jdwp', timeout_ms);
+        } catch {
+            // timeout or socket closed
+            stdout = '';
+        }
         await this.disconnect_from_adb();
-        return stdout.trim().split(/\r?\n|\r/);
+        // do not sort the pid list - the debugger needs to pick the last one in the list.
+        return stdout.trim().split(/\s+/).filter(x => x).map(s => parseInt(s, 10));
+    }
+
+    async named_jdwp_list(timeout_ms) {
+        const named_pids = (await this.jdwp_list(timeout_ms))
+            .map(pid => ({
+                pid,
+                name: '',
+            }))
+        if (!named_pids.length)
+            return [];
+
+        // retrieve the list of process names from the device
+        const command = `for pid in ${named_pids.map(np => np.pid).join(' ')}; do cat /proc/$pid/cmdline;echo " $pid"; done`;
+        const stdout = await this.shell_cmd({
+            command,
+            untilclosed: true,
+        });
+        // output should look something like...
+        // com.example.somepkg 32721
+        const lines = stdout.replace(/\0+/g,'').split(/\r?\n|\r/g);
+
+        // scan the list looking for pids to match names with...
+        for (let i = 0; i < lines.length; i++) {
+            let entries = lines[i].match(/^\s*(.*)\s+(\d+)$/);
+            if (!entries) {
+                continue;
+            }
+            const pid = parseInt(entries[2], 10);
+            const named_pid = named_pids.find(x => x.pid === pid);
+            if (named_pid) {
+                named_pid.name = entries[1];
+            }
+        }
+
+        return named_pids;
     }
 
     /**
@@ -132,12 +181,14 @@ class ADBClient {
 
     /**
      * Run a shell command on the connected device
-     * @param {{command:string}} o 
+     * @param {{command:string, untilclosed?:boolean}} o 
+     * @param {number} [timeout_ms]
+     * @returns {Promise<string>}
      */
-    async shell_cmd(o) {
+    async shell_cmd(o, timeout_ms) {
         await this.connect_to_adb();
         await this.adbsocket.cmd_and_status(`host:transport:${this.deviceid}`);
-        const stdout = await this.adbsocket.cmd_and_read_stdout(`shell:${o.command}`);
+        const stdout = await this.adbsocket.cmd_and_read_stdout(`shell:${o.command}`, timeout_ms, o.untilclosed);
         await this.disconnect_from_adb();
         return stdout;
     }
@@ -145,7 +196,7 @@ class ADBClient {
     /**
      * Starts the Logcat monitor.
      * Logcat lines are passed back via onlog callback. If the device disconnects, onclose is called.
-     * @param {{onlog:(e)=>void, onclose:()=>void}} o 
+     * @param {{onlog:(e)=>void, onclose:(err)=>void}} o 
      */
     async startLogcatMonitor(o) {
         // onlog:function(e)
@@ -157,37 +208,41 @@ class ADBClient {
         if (!o.onlog) {
             const logcatbuffer = await this.adbsocket.read_stdout();
             await this.disconnect_from_adb();
-            return logcatbuffer;
+            return logcatbuffer.toString();
         }
 
         // start the logcat monitor
-        let logcatbuffer = Buffer.alloc(0);
         const next_logcat_lines = async () => {
-            // read the next data from ADB
+            let logcatbuffer = Buffer.alloc(0);
             let next_data;
-            try{
-                next_data = await this.adbsocket.read_stdout(null);
-            } catch(e) {
-                o.onclose();
-                return;
+            for (;;) {
+                // read the next data from ADB
+                try {
+                    next_data = await this.adbsocket.read_stdout();
+                } catch(e) {
+                    o.onclose(e);
+                    return;
+                }
+                logcatbuffer = Buffer.concat([logcatbuffer, next_data]);
+                const last_newline_index = logcatbuffer.lastIndexOf(10) + 1;
+                if (last_newline_index === 0) {
+                    // wait for a whole line
+                    next_logcat_lines();
+                    return;
+                }
+                // split into lines, sort and remove duplicates and blanks
+                const logs = logcatbuffer.slice(0, last_newline_index).toString()
+                    .split(/\r\n?|\n/)
+                    .sort()
+                    .filter((line,idx,arr) => line && line !== arr[idx-1]);
+                
+                logcatbuffer = logcatbuffer.slice(last_newline_index);
+                const e = {
+                    adbclient: this,
+                    logs,
+                };
+                o.onlog(e);
             }
-            logcatbuffer = Buffer.concat([logcatbuffer, next_data]);
-            const last_newline_index = logcatbuffer.lastIndexOf(10) + 1;
-            if (last_newline_index === 0) {
-                // wait for a whole line
-                next_logcat_lines();
-                return;
-            }
-            // split into lines
-            const logs = logcatbuffer.slice(0, last_newline_index).toString().split(/\r\n?|\n/);
-            logcatbuffer = logcatbuffer.slice(last_newline_index);
-
-            const e = {
-                adbclient: this,
-                logs,
-            };
-            o.onlog(e);
-            next_logcat_lines();
         }
         next_logcat_lines();
     }
