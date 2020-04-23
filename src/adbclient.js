@@ -196,7 +196,7 @@ class ADBClient {
     /**
      * Starts the Logcat monitor.
      * Logcat lines are passed back via onlog callback. If the device disconnects, onclose is called.
-     * @param {{onlog:(e)=>void, onclose:()=>void}} o 
+     * @param {{onlog:(e)=>void, onclose:(err)=>void}} o 
      */
     async startLogcatMonitor(o) {
         // onlog:function(e)
@@ -217,9 +217,9 @@ class ADBClient {
             // read the next data from ADB
             let next_data;
             try{
-                next_data = await this.adbsocket.read_stdout(null);
+                next_data = await this.adbsocket.read_stdout();
             } catch(e) {
-                o.onclose();
+                o.onclose(e);
                 return;
             }
             logcatbuffer = Buffer.concat([logcatbuffer, next_data]);

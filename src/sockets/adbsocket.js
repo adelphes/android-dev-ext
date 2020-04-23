@@ -78,7 +78,8 @@ class ADBSocket extends AndroidSocket {
      */
     async cmd_and_read_stdout(command, timeout_ms, until_closed) {
         await this.cmd_and_status(command);
-        return this.read_stdout('latin1', timeout_ms, until_closed);
+        const buf = await this.read_stdout(timeout_ms, until_closed);
+        return buf.toString('latin1');
     }
 
     /**

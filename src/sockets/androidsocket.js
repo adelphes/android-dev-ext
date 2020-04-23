@@ -138,20 +138,26 @@ class AndroidSocket extends EventEmitter {
         return this.read_bytes(len.readUInt32LE(0), format);
     }
 
-    async read_stdout(encoding = 'latin1', timeout_ms, until_closed) {
-        let s = await this.read_bytes(undefined, null, timeout_ms);
+    /**
+     * 
+     * @param {number} [timeout_ms] 
+     * @param {boolean} [until_closed] 
+     * @returns {Promise<Buffer>}
+     */
+    async read_stdout(timeout_ms, until_closed) {
+        let buf = await this.read_bytes(undefined, null, timeout_ms);
         if (!until_closed) {
-            return s.toString(encoding);
+            return buf;
         }
-        const parts = [s];
+        const parts = [buf];
         try {
             for (;;) {
-                s = await this.read_bytes(undefined, null);
-                parts.push(s);
+                buf = await this.read_bytes(undefined, null);
+                parts.push(buf);
             }
         } catch {
         }
-        return Buffer.concat(parts).toString(encoding);
+        return Buffer.concat(parts);
     }
 
     /**
