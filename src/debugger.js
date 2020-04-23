@@ -127,9 +127,9 @@ class Debugger extends EventEmitter {
     /**
      * @param {string} deviceid Device ID to connect to
      * @param {string[]} launch_cmd_args Array of arguments to pass to 'am start'
-     * @param {number} [post_launch_pause] amount to time to wait after each launch attempt
+     * @param {number} post_launch_pause amount of time (in ms) to wait after each launch attempt
      */
-    static async runApp(deviceid, launch_cmd_args, post_launch_pause = 1000) {
+    static async runApp(deviceid, launch_cmd_args, post_launch_pause) {
         // older (<3) versions of Android only allow target components to be specified with -n
         const shell_cmd = {
             command: `am start ${launch_cmd_args.join(' ')}`,

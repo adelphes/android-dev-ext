@@ -87,6 +87,10 @@ The following settings are used to configure the debugger:
                 // mutually exclusive with "amStartArgs".
                 "launchActivity": ".MainActivity",
 
+                // Time in milliseconds to wait after launching an app before attempting to attach
+                // the debugger. Default: 1000ms
+                "postLaunchPause": 1000,
+
                 // Set to true to output debugging logs for diagnostics.
                 "trace": false
             }

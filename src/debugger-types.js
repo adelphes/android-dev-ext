@@ -9,9 +9,10 @@ class BuildInfo {
      * @param {string} pkgname 
      * @param {Map<string,PackageInfo>} packages 
      * @param {string} launchActivity 
-     * @param {string[]} [amCommandArgs] custom arguments passed to `am start`
+     * @param {string[]} amCommandArgs custom arguments passed to `am start`
+     * @param {number} postLaunchPause amount of time (in ms) to wait after launch before we attempt a debugger connection
      */
-    constructor(pkgname, packages, launchActivity, amCommandArgs) {
+    constructor(pkgname, packages, launchActivity, amCommandArgs, postLaunchPause) {
         this.pkgname = pkgname;
         this.packages = packages;
         this.launchActivity = launchActivity;
@@ -24,10 +25,10 @@ class BuildInfo {
             `-n ${pkgname}/${launchActivity}`,
         ];
         /** 
-         * the amount of time to wait after 'am start ...' is invoked.
+         * the amount of time (in millis) to wait after 'am start ...' is invoked.
          * We need this because invoking JDWP too soon causes a hang.
         */
-        this.postLaunchPause = 1000;
+        this.postLaunchPause = ((typeof postLaunchPause === 'number') && (postLaunchPause >= 0)) ? postLaunchPause : 1000;
     }
 }
 

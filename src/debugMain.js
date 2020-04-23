@@ -382,7 +382,12 @@ class AndroidDebugSession extends DebugSession {
             // try and determine the relevant path for the API sources (based upon the API level of the connected device)
             await this.configureAPISourcePath();
 
-            const build = new BuildInfo(null, new Map(this.src_packages.packages), null);
+            const build = new BuildInfo(
+                null,
+                new Map(this.src_packages.packages),
+                null,
+                null,
+                args.postLaunchPause);
             this.LOG(`Attaching to pid ${processId} on device ${this._device.serial} [API:${this.device_api_level||'?'}]`);
 
             // try and attach to the specified pid
@@ -512,7 +517,7 @@ class AndroidDebugSession extends DebugSession {
             await this.configureAPISourcePath();
 
             // launch the app
-            await this.startLaunchActivity(args.launchActivity);
+            await this.startLaunchActivity(args.launchActivity, args.postLaunchPause);
 
             this.debuggerAttached = true;
 
@@ -564,7 +569,12 @@ class AndroidDebugSession extends DebugSession {
         }
     }
 
-    async startLaunchActivity(launchActivity) {
+    /**
+     * 
+     * @param {string} launchActivity 
+     * @param {number} postLaunchPause 
+     */
+    async startLaunchActivity(launchActivity, postLaunchPause) {
         if (!launchActivity) {
             // we're allowed no launchActivity if we have a custom am start command
             if (!this.am_start_args) {
@@ -574,7 +584,12 @@ class AndroidDebugSession extends DebugSession {
             }
         }
 
-        const build = new BuildInfo(this.apk_file_info.manifest.package, new Map(this.src_packages.packages), launchActivity, this.am_start_args);
+        const build = new BuildInfo(
+            this.apk_file_info.manifest.package,
+            new Map(this.src_packages.packages),
+            launchActivity,
+            this.am_start_args,
+            postLaunchPause);
 
         this.LOG(`Launching on device ${this._device.serial} [API:${this.device_api_level||'?'}]`);
         if (this.am_start_args) {
