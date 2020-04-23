@@ -4,6 +4,7 @@ const vscode = require('vscode');
 const { AndroidContentProvider } = require('./src/contentprovider');
 const { openLogcatWindow } = require('./src/logcat');
 const { selectAndroidProcessID } = require('./src/process-attach');
+const { selectTargetDevice } = require('./src/utils/device');
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
@@ -17,6 +18,12 @@ function activate(context) {
         // add the view logcat handler
         vscode.commands.registerCommand('android-dev-ext.view_logcat', () => {
             openLogcatWindow(vscode);
+        }),
+        // add the device picker handler - used to choose a target device
+        vscode.commands.registerCommand('PickAndroidDevice', async () => {
+            const device = await selectTargetDevice(vscode, "Launch", { alwaysShow:true });
+            // the debugger requires a string value to be returned
+            return JSON.stringify(device);
         }),
         // add the process picker handler - used to choose a PID to attach to
         vscode.commands.registerCommand('PickAndroidProcess', async () => {

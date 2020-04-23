@@ -305,6 +305,19 @@ class AndroidDebugSession extends DebugSession {
         }
     }
 
+    extractTargetDeviceID(s) {
+        if (!s || typeof s !== 'string') {
+            return '';
+        }
+        // the device picker returns a stringified object
+        try {
+            const o = JSON.parse(s);
+            return o.serial || s;
+        } catch {
+        }
+        return s;
+    }
+
 	async attachRequest(response, args) {
         this.debug_mode = 'attach';
         if (args && args.trace) {
@@ -312,6 +325,14 @@ class AndroidDebugSession extends DebugSession {
             onMessagePrint(this.LOG.bind(this));
         }
         D(`Attach: ${JSON.stringify(args)}`);
+
+        if (args.targetDevice === 'null') {
+            // "null" is returned from the device picker if there's an error or if the
+            // user cancels.
+            D('targetDevice === "null"');
+            this.sendEvent(new TerminatedEvent(false));
+            return;
+        }
 
         if (!args.processId) {
             this.LOG(`Attach failed: Missing "processId" property in launch.json`);
@@ -348,7 +369,7 @@ class AndroidDebugSession extends DebugSession {
         try {
             let { processId, targetDevice } = attach_info;
             if (!targetDevice) {
-                targetDevice = args.targetDevice;
+                targetDevice = this.extractTargetDeviceID(args.targetDevice);
             }
             // make sure ADB exists and is started and look for a connected device
             await checkADBStarted(args.autoStartADB !== false);
@@ -416,6 +437,14 @@ class AndroidDebugSession extends DebugSession {
         }
         D(`Launch: ${JSON.stringify(args)}`);
 
+        if (args.targetDevice === 'null') {
+            // "null" is returned from the device picker if there's an error or if the
+            // user cancels.
+            D('targetDevice === "null"');
+            this.sendEvent(new TerminatedEvent(false));
+            return;
+        }
+
         // app_src_root must end in a path-separator for correct validation of sub-paths
         this.app_src_root = ensure_path_end_slash(args.appSrcRoot);
         this.apk_fpn = args.apkFile;
@@ -465,7 +494,8 @@ class AndroidDebugSession extends DebugSession {
 
             // make sure ADB exists and is started and look for a device to install on
             await checkADBStarted(args.autoStartADB !== false);
-            this._device = await this.findSuitableDevice(args.targetDevice, true);
+            const targetDevice = this.extractTargetDeviceID(args.targetDevice);
+            this._device = await this.findSuitableDevice(targetDevice, true);
             this._device.adbclient = new ADBClient(this._device.serial);
 
             // install the APK we are going to debug

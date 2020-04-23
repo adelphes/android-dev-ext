@@ -26,9 +26,10 @@ async function showDevicePicker(vscode, devices) {
 /**
  * 
  * @param {import('vscode')} vscode 
- * @param {'Attach'|'Logcat display'} action 
+ * @param {'Launch'|'Attach'|'Logcat display'} action 
+ * @param {{alwaysShow:boolean}} [options]
  */
-async function selectTargetDevice(vscode, action) {
+async function selectTargetDevice(vscode, action, options) {
     const devices = await new ADBClient().list_devices();
     let device;
     switch(devices.length) {
@@ -36,14 +37,20 @@ async function selectTargetDevice(vscode, action) {
             vscode.window.showWarningMessage(`${action} failed. No Android devices are connected.`);
             return null;
         case 1:
-            return devices[0]; // only one device - just use it
+            if (!options || !options.alwaysShow) {
+                return devices[0]; // only one device - just use it
+            }
+            break;
     }
     device = await showDevicePicker(vscode, devices);
+    if (!device) {
+        return null;    // user cancelled
+    }
     // the user might take a while to choose the device, so once
     // chosen, recheck it exists
     const current_devices = await new ADBClient().list_devices();
     if (!current_devices.find(d => d.serial === device.serial)) {
-        vscode.window.showInformationMessage(`${action} failed. The target device is disconnected`);
+        vscode.window.showInformationMessage(`${action} failed. The target device is disconnected.`);
         return null;
     }
     return device;

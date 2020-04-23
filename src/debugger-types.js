@@ -9,7 +9,7 @@ class BuildInfo {
      * @param {string} pkgname 
      * @param {Map<string,PackageInfo>} packages 
      * @param {string} launchActivity 
-     * @param {string[]} amCommandArgs custom arguments passed to `am start`
+     * @param {string[]} [amCommandArgs] custom arguments passed to `am start`
      */
     constructor(pkgname, packages, launchActivity, amCommandArgs) {
         this.pkgname = pkgname;
