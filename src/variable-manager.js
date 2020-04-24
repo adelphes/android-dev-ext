@@ -12,8 +12,6 @@ class VariableManager {
      * @param {VSCVariableReference} base_variable_reference The reference value for values stored by this manager
      */
     constructor(base_variable_reference) {
-        // expandable variables get allocated new variable references.
-        this._expandable_prims = false;
 
         /** @type {VSCVariableReference} */
         this.nextVariableRef = base_variable_reference + 10;
@@ -40,10 +38,20 @@ class VariableManager {
         this.variableValues.set(variablesReference, value);
     }
 
-    _getObjectIdReference(type, objvalue) {
+    /**
+     * Retrieve or create a variable reference for a given object instance
+     * @param {JavaType} type 
+     * @param {JavaObjectID} instance_id 
+     * @param {string} display_format 
+     */
+    _getObjectIdReference(type, instance_id, display_format) {
         // we need the type signature because we must have different id's for
-        // an instance and it's supertype instance (which obviously have the same objvalue)
-        const key = type.signature + objvalue;
+        // an instance and it's supertype instance (which obviously have the same instance_id)
+        //
+        // display_format is also included to give unique variable references for each display type.
+        // This is because VSCode caches expanded values, so once evaluated in one format, they can
+        // never be changed.
+        const key = `${type.signature}:${instance_id}:${display_format || ''}`;
         let value = this.objIdCache.get(key);
         if (!value) {
             this.objIdCache.set(key, value = this.nextVariableRef += 1);
@@ -54,12 +62,12 @@ class VariableManager {
     /**
      * Convert to a VariableValue object used by VSCode
      * @param {DebuggerValue} v
+     * @param {string} [display_format]
      */
-    makeVariableValue(v) {
+    makeVariableValue(v, display_format) {
         let varref = 0;
         let value = '';
         const evaluateName = v.fqname || v.name;
-        const formats = {};
         const full_typename = v.type.fullyQualifiedName();
         switch(true) {
             case v.hasnullvalue && JavaType.isReference(v.type):
@@ -74,91 +82,159 @@ class VariableManager {
                 value = v.type.typename;
                 break;
             case v.type.signature === JavaType.String.signature:
-                value = JSON.stringify(v.string);
                 if (v.biglen) {
                     // since this is a big string - make it viewable on expand
                     varref = this._addVariable({
                         bigstring: v,
                     });
                     value = `String (length:${v.biglen})`;
-                }
-                else if (this._expandable_prims) {
-                    // as a courtesy, allow strings to be expanded to see their length
-                    varref = this._addVariable({
-                        signature: v.type.signature,
-                        primitive: true,
-                        value: v.string.length
-                    });
+                } else {
+                    value = formatString(v.string, display_format);
                 }
                 break;
             case JavaType.isArray(v.type):
                 // non-null array type - if it's not zero-length add another variable reference so the user can expand
                 if (v.arraylen) {
-                    varref = this._getObjectIdReference(v.type, v.value);
+                    varref = this._getObjectIdReference(v.type, v.value, display_format);
                     this._setVariable(varref, {
                         varref,
                         arrvar: v,
                         range:[0, v.arraylen],
+                        display_format,
                     });
                 }
                 value = v.type.typename.replace(/]/, v.arraylen+']');   // insert len as the first array bound
                 break;
             case JavaType.isClass(v.type):
                 // non-null object instance - add another variable reference so the user can expand
-                varref = this._getObjectIdReference(v.type, v.value);
+                varref = this._getObjectIdReference(v.type, v.value, display_format);
                 this._setVariable(varref, {
                     varref,
                     objvar: v,
+                    display_format,
                 });
                 value = v.type.typename;
                 break;
             case v.type.signature === JavaType.char.signature: 
                 // character types have a integer value
-                const char = String.fromCodePoint(v.value);
-                const cmap = {'\b':'b','\f':'f','\r':'r','\n':'n','\t':'t','\v':'v','\'':'\'','\\':'\\','\0':'0'};
-                if (cmap[char]) {
-                    value = `'\\${cmap[char]}'`;
-                } else if (v.value < 32) {
-                    value = `'\\u${v.value.toString(16).padStart(4,'0')}'`;
-                } else value = `'${char}'`;
+                value = formatChar(v.value, display_format);
                 break;
             case v.type.signature === JavaType.long.signature:
                 // because JS cannot handle 64bit ints, we need a bit of extra work
                 const v64hex = v.value.replace(/[^0-9a-fA-F]/g,'');
-                value = formats.dec = NumberBaseConverter.hexToDec(v64hex, true);
-                formats.hex = '0x' + v64hex.replace(/^0+/, '0');
-                formats.oct = formats.bin = '';
-                // 24 bit chunks...
-                for (let s = v64hex; s; s = s.slice(0,-6)) {
-                    const uint = parseInt(s.slice(-6), 16) >>> 0; // 6*4 = 24 bits
-                    formats.oct = uint.toString(8) + formats.oct;
-                    formats.bin = uint.toString(2) + formats.bin;
-                }
-                formats.oct = '0c' + formats.oct.replace(/^0+/, '0');
-                formats.bin = '0b' + formats.bin.replace(/^0+/, '0');
+                value = formatLong(v64hex, display_format);
                 break;
             case JavaType.isInteger(v.type):
-                value = formats.dec = v.value.toString();
-                const uint = (v.value >>> 0);
-                formats.hex = '0x' + uint.toString(16);
-                formats.oct = '0c' + uint.toString(8);
-                formats.bin = '0b' + uint.toString(2);
+                value = formatInteger(v.value, v.type.signature, display_format);
                 break;
             default:
                 // other primitives: boolean, etc
                 value = v.value.toString();
                 break;
         }
-        // as a courtesy, allow integer and character values to be expanded to show the value in alternate bases
-        if (this._expandable_prims && /^[IJBSC]$/.test(v.type.signature)) {
-            varref = this._addVariable({
-                signature: v.type.signature,
-                primitive: true,
-                value: v.value,
-            });
-        }
+
         return new VariableValue(v.name, value, full_typename, varref, evaluateName);
     }
+}
+
+const cmap = {
+    '\b':'b','\f':'f','\r':'r','\n':'n','\t':'t',
+    '\v':'v','\'':'\'','\\':'\\','\0':'0'
+};
+
+function makeJavaChar(i) {
+    let value;
+    const char = String.fromCodePoint(i);
+    if (cmap[char]) {
+        value = `'\\${cmap[char]}'`;
+    } else if (i < 32) {
+        value = `'\\u${i.toString(16).padStart(4,'0')}'`;
+    } else value = `'${char}'`;
+    return value;
+}
+
+/**
+ * @param {number} c 
+ * @param {string} df 
+ */
+function formatChar(c, df) {
+    if (/[xX]b|o|bb|d/.test(df)) {
+        return formatInteger(c, 'C', df);
+    }
+    return makeJavaChar(c);
+
+}
+
+/**
+ * 
+ * @param {string} s
+ * @param {string} display_format 
+ */
+function formatString(s, display_format) {
+    if (display_format === '!') {
+        return s;
+    }
+    let value = JSON.stringify(s);
+    if (display_format === 'sb') {
+        // remove quotes
+        value = value.slice(1,-1);
+    }
+    return value;
+}
+
+/**
+ * @param {hex64} hex64 
+ * @param {string} df 
+ */
+function formatLong(hex64, df) {
+    let minlength;
+    if (/[xX]b?/.test(df)) {
+        minlength = Math.ceil(64 / 4);
+        let s = `${df[1]?'':'0x'}${hex64.padStart(minlength,'0')}`;
+        return df[0] === 'x' ? s.toLowerCase() : s.toUpperCase();
+    }
+    if (/o/.test(df)) {
+        minlength = Math.ceil(64 / 3);
+        return `${df[1]?'':'0'}${NumberBaseConverter.convertBase(hex64,16,8).padStart(minlength, '0')}`;
+    }
+    if (/bb?/.test(df)) {
+        minlength = 64;
+        return `${df[1]?'':'0b'}${NumberBaseConverter.convertBase(hex64,16,2).padStart(minlength, '0')}`;
+    }
+    if (/c/.test(df)) {
+        return makeJavaChar(parseInt(hex64.slice(-4), 16));
+    }
+    return NumberBaseConverter.convertBase(hex64, 16, 10);
+}
+
+/**
+ * @param {number} i 
+ * @param {string} signature 
+ * @param {string} df 
+ */
+function formatInteger(i, signature, df) {
+    const bits = { B:8,S:16,I:32,C:16 }[signature];
+    let u = (i & (-1 >>> (32 - bits))) >>> 0;
+    let minlength;
+    if (/[xX]b?/.test(df)) {
+        minlength = Math.ceil(bits / 4);
+        let s = u.toString(16).padStart(minlength,'0');
+        s = df[0] === 'x' ? s.toLowerCase() : s.toUpperCase();
+        return `${df[1]?'':'0x'}${s}`;
+    }
+    if (/o/.test(df)) {
+        minlength = Math.ceil(bits / 3);
+        return `${df[1]?'':'0'}${u.toString(8).padStart(minlength, '0')}`;
+    }
+    if (/bb?/.test(df)) {
+        minlength = bits;
+        return `${df[1]?'':'0b'}${u.toString(2).padStart(minlength, '0')}`;
+    }
+    if (/c/.test(df)) {
+        minlength = bits;
+        return makeJavaChar(u & 0xffff);
+    }
+    return i.toString();
 }
 
 module.exports = {
