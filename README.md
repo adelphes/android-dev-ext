@@ -113,6 +113,7 @@ Add a `preLaunchTask` item to the launch configuration:
             "request": "launch",
             "name": "App Build & Launch",
             "preLaunchTask": "run gradle",
+            ...
         }
     ]
 }
@@ -127,7 +128,22 @@ Add a new task to run the build command:
             "label": "run gradle",
             "type": "shell",
             "command": "${workspaceFolder}/gradlew",
-            "args": ["assembleDebug"]
+            "args": [
+                "assembleDebug"
+            ],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
         }
     ]
 }
