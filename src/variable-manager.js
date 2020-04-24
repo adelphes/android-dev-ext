@@ -90,6 +90,7 @@ class VariableManager {
                         varref,
                         arrvar: v,
                         range:[0, v.arraylen],
+                        display_format,
                     });
                 }
                 value = v.type.typename.replace(/]/, v.arraylen+']');   // insert len as the first array bound
@@ -100,6 +101,7 @@ class VariableManager {
                 this._setVariable(varref, {
                     varref,
                     objvar: v,
+                    display_format,
                 });
                 value = v.type.typename;
                 break;

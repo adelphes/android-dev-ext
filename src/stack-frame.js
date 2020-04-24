@@ -53,7 +53,7 @@ class DebuggerStackFrame extends VariableManager {
         }
         const fetch_locals = async () => {
             const values = await this.dbgr.getLocals(this.frame);
-            // display the variables in (case-insensitive) alphabetical order, with 'this' first and all-caps last
+            // display the variables in (case-insensitive) alphabetical order, with 'this' first
             return this.locals = sortVariables(values, true, false);
         }
         // @ts-ignore
@@ -133,7 +133,7 @@ class DebuggerStackFrame extends VariableManager {
             values = [await this.getBigString(varinfo)];
         }
 
-        return (varinfo.cached = values).map(v => this.makeVariableValue(v));
+        return (varinfo.cached = values).map(v => this.makeVariableValue(v, varinfo.display_format));
     }
 
     async getObjectFields(varinfo) {
