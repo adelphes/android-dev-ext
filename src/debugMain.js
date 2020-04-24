@@ -251,10 +251,11 @@ class AndroidDebugSession extends DebugSession {
         // configure the thread names
         threadinfos.forEach(threadinfo => {
             const thread = this.getThread(threadinfo.threadid);
-            if (thread.name === null) {
+            if (typeof thread.name !== 'string') {
                 thread.name = threadinfo.name;
             } else if (thread.name !== threadinfo.name) {
                 // give the thread a new id for VS code
+                // - note: this will invalidate all current variable references for this thread
                 delete this._threads[thread.vscode_threadid];
                 thread.allocateNewThreadID();
                 this._threads[thread.vscode_threadid] = thread;
