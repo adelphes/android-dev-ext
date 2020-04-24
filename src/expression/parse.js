@@ -88,10 +88,16 @@ class UnaryOpExpression extends ParsedExpression {
 }
 
 class TernaryExpression extends ParsedExpression {
+
+    /**
+     * @param {ParsedExpression} condition 
+     */
     constructor(condition) {
         super();
         this.condition = condition;
+        /** @type {ParsedExpression} */
         this.ternary_true = null;
+        /** @type {ParsedExpression} */
         this.ternary_false = null;
     }
 }
@@ -101,17 +107,24 @@ class QualifierExpression extends ParsedExpression {
 }
 
 class ArrayIndexExpression extends QualifierExpression {
-    constructor(e) {
+    /**
+     * @param {ParsedExpression} index_expression 
+     */
+    constructor(index_expression) {
         super();
-        this.indexExpression = e;
+        this.indexExpression = index_expression;
     }
 }
 
 class MethodCallExpression extends QualifierExpression {
+    /** @type {ParsedExpression[]} */
     arguments = [];
 }
 
 class MemberExpression extends QualifierExpression {
+    /**
+     * @param {string} name 
+     */
     constructor(name) {
         super();
         this.name = name;
