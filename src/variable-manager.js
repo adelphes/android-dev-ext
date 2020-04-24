@@ -38,10 +38,20 @@ class VariableManager {
         this.variableValues.set(variablesReference, value);
     }
 
-    _getObjectIdReference(type, objvalue) {
+    /**
+     * Retrieve or create a variable reference for a given object instance
+     * @param {JavaType} type 
+     * @param {JavaObjectID} instance_id 
+     * @param {string} display_format 
+     */
+    _getObjectIdReference(type, instance_id, display_format) {
         // we need the type signature because we must have different id's for
-        // an instance and it's supertype instance (which obviously have the same objvalue)
-        const key = type.signature + objvalue;
+        // an instance and it's supertype instance (which obviously have the same instance_id)
+        //
+        // display_format is also included to give unique variable references for each display type.
+        // This is because VSCode caches expanded values, so once evaluated in one format, they can
+        // never be changed.
+        const key = `${type.signature}:${instance_id}:${display_format || ''}`;
         let value = this.objIdCache.get(key);
         if (!value) {
             this.objIdCache.set(key, value = this.nextVariableRef += 1);
@@ -85,7 +95,7 @@ class VariableManager {
             case JavaType.isArray(v.type):
                 // non-null array type - if it's not zero-length add another variable reference so the user can expand
                 if (v.arraylen) {
-                    varref = this._getObjectIdReference(v.type, v.value);
+                    varref = this._getObjectIdReference(v.type, v.value, display_format);
                     this._setVariable(varref, {
                         varref,
                         arrvar: v,
@@ -97,7 +107,7 @@ class VariableManager {
                 break;
             case JavaType.isClass(v.type):
                 // non-null object instance - add another variable reference so the user can expand
-                varref = this._getObjectIdReference(v.type, v.value);
+                varref = this._getObjectIdReference(v.type, v.value, display_format);
                 this._setVariable(varref, {
                     varref,
                     objvar: v,
