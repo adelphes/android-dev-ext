@@ -1,5 +1,12 @@
 # Change Log
 
+### version 1.1.0
+* App launch arguments overriden in a new `amStartArgs` launch configuration property.
+* A new "attach" launch configuration allows the debugger to attach to running processes.
+* A "${command:PickAndroidDevice}" value allows a deployment device to be chosen during each launch
+* Watch and repl expressions now support format specifiers
+* Small bug fixes and performance improvements
+
 ### version 1.0.0
 * Update extension to support minimum version of node v10
 * refactoring and improvement of type-checking using jsdocs
