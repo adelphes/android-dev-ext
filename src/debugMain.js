@@ -77,7 +77,7 @@ class AndroidDebugSession extends DebugSession {
         this._android_sources_path = '';
 
         // number of call stack entries to display above the project source
-        this.callStackDisplaySize = 1;
+        this.callStackDisplaySize = 0;
 
         /**
          * the fifo queue of evaluations (watches, hover, etc)
