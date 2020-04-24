@@ -512,7 +512,7 @@ async function evaluate_identifier(dbgr, locals, identifier) {
         return local;
     }
     // if it's not a local, it could be the start of a package name or a type
-    const classes = await dbgr.getAllClasses();
+    const classes = Array.from(dbgr.session.loadedClasses);
     return evaluate_qualified_type_name(dbgr, identifier, classes);
 }
 
@@ -520,17 +520,17 @@ async function evaluate_identifier(dbgr, locals, identifier) {
  * 
  * @param {Debugger} dbgr 
  * @param {string} dotted_name
- * @param {*[]} classes
+ * @param {string[]} classes
  */
 async function evaluate_qualified_type_name(dbgr, dotted_name, classes) {
     const exact_class_matcher = new RegExp(`^L(java/lang/)?${dotted_name.replace(/\./g,'[$/]')};$`);
-    const exact_class = classes.find(c => exact_class_matcher.test(c.type.signature));
+    const exact_class = classes.find(signature => exact_class_matcher.test(signature));
     if (exact_class) {
-        return dbgr.getTypeValue(exact_class.type.signature);
+        return dbgr.getTypeValue(exact_class);
     }
 
     const class_matcher = new RegExp(`^L(java/lang/)?${dotted_name.replace('.','[$/]')}/`);
-    const matching_classes = classes.filter(c => class_matcher.test(c.type.signature));
+    const matching_classes = classes.filter(signature => class_matcher.test(signature));
     if (matching_classes.length === 0) {
         // the dotted name doesn't match any packages
         throw new Error(`'${dotted_name}' is not a package, type or variable name`);
