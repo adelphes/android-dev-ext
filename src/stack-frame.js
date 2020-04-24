@@ -137,7 +137,7 @@ class DebuggerStackFrame extends VariableManager {
     }
 
     async getObjectFields(varinfo) {
-        const supertype = await this.dbgr.getSuperType(varinfo.objvar);
+        const supertype = await this.dbgr.getSuperType(varinfo.objvar.type.signature);
         const fields = await this.dbgr.getFieldValues(varinfo.objvar);
         // add an extra msg field for exceptions
         if (varinfo.exception) {

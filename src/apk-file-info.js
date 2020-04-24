@@ -104,8 +104,7 @@ class APKFileInfo {
  *   2. The decoded manifest from the APK
  *   3. The AndroidManifest.xml file from the root of the source tree.
  */
-async function getAndroidManifestXml(args) {
-    const {manifestFile, apkFile, appSrcRoot} = args;
+async function getAndroidManifestXml({manifestFile, apkFile, appSrcRoot}) {
     let manifest;
 
     // a value from the manifestFile overrides the default manifest extraction
@@ -121,7 +120,7 @@ async function getAndroidManifestXml(args) {
         manifest = await extractManifestFromAPK(apkFile);
     } catch(err) {
         // if we fail to get manifest from the APK, revert to the source file version
-        D(`Reading source manifest from ${appSrcRoot}`);
+        D(`Reading source manifest from ${appSrcRoot} (${err.message})`);
         manifest = await readFile(path.join(appSrcRoot, 'AndroidManifest.xml'), 'utf8');
     }
     return manifest;

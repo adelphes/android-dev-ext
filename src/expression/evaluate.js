@@ -511,8 +511,20 @@ async function evaluate_identifier(dbgr, locals, identifier) {
     if (local) {
         return local;
     }
+
+    // check if the identifier is an unqualified member of the current 'this' context
+    const this_context = locals.find(l => l.name === 'this');
+    if (this_context) {
+        try {
+            const member = await evaluate_member(dbgr, new MemberExpression(identifier), this_context);
+            return member;
+        } catch {
+            // not a member of this - just continue
+        }
+    }
+
     // if it's not a local, it could be the start of a package name or a type
-    const classes = await dbgr.getAllClasses();
+    const classes = Array.from(dbgr.session.loadedClasses);
     return evaluate_qualified_type_name(dbgr, identifier, classes);
 }
 
@@ -520,17 +532,17 @@ async function evaluate_identifier(dbgr, locals, identifier) {
  * 
  * @param {Debugger} dbgr 
  * @param {string} dotted_name
- * @param {*[]} classes
+ * @param {string[]} classes
  */
 async function evaluate_qualified_type_name(dbgr, dotted_name, classes) {
     const exact_class_matcher = new RegExp(`^L(java/lang/)?${dotted_name.replace(/\./g,'[$/]')};$`);
-    const exact_class = classes.find(c => exact_class_matcher.test(c.type.signature));
+    const exact_class = classes.find(signature => exact_class_matcher.test(signature));
     if (exact_class) {
-        return dbgr.getTypeValue(exact_class.type.signature);
+        return dbgr.getTypeValue(exact_class);
     }
 
     const class_matcher = new RegExp(`^L(java/lang/)?${dotted_name.replace('.','[$/]')}/`);
-    const matching_classes = classes.filter(c => class_matcher.test(c.type.signature));
+    const matching_classes = classes.filter(signature => class_matcher.test(signature));
     if (matching_classes.length === 0) {
         // the dotted name doesn't match any packages
         throw new Error(`'${dotted_name}' is not a package, type or variable name`);
@@ -623,7 +635,7 @@ async function evaluate_qualifiers(dbgr, locals, thread, value, qualified_terms)
                 i++;
                 continue;
             }
-            value = await evaluate_member(dbgr, locals, thread, term, value);
+            value = await evaluate_member(dbgr, term, value);
             continue;
         }
         if (term instanceof ArrayIndexExpression) {
@@ -822,12 +834,10 @@ async function evaluate_methodcall(dbgr, locals, thread, method_name, m, obj_loc
 
 /**
  * @param {Debugger} dbgr 
- * @param {DebuggerValue[]} locals 
- * @param {AndroidThread} thread
  * @param {MemberExpression} member 
  * @param {DebuggerValue} value 
  */
-async function evaluate_member(dbgr, locals, thread, member, value) {
+async function evaluate_member(dbgr, member, value) {
     if (!JavaType.isReference(value.type)) {
         throw new Error('TypeError: value is not a reference type');
     }
@@ -952,7 +962,7 @@ async function evaluate_cast(dbgr, locals, thread, cast_type, rhs) {
  * @param {Debugger} dbgr 
  * @param {{allowFormatSpecifier:boolean}} [options]
  */
-async function evaluate(expression, thread, locals, dbgr, options) {
+async function evaluate_one_expression(expression, thread, locals, dbgr, options) {
     D('evaluate: ' + expression);
     await dbgr.ensureConnected();
 
@@ -993,6 +1003,45 @@ async function evaluate(expression, thread, locals, dbgr, options) {
         display_format,
     }
 }
+
+/**
+ *
+ */
+const queuedExpressions = [];
+
+/**
+ * @param {string} expression 
+ * @param {AndroidThread} thread 
+ * @param {DebuggerValue[]} locals 
+ * @param {Debugger} dbgr 
+ * @param {{allowFormatSpecifier:boolean}} [options]
+ */
+async function evaluate(expression, thread, locals, dbgr, options) {
+    return new Promise(async (resolve, reject) => {
+        const queue_length = queuedExpressions.push({
+            expression, thread, locals, dbgr, options,
+            resolve, reject
+        });
+        if (queue_length > 1) {
+            return;
+        }
+        // run the queue
+        while (queuedExpressions.length) {
+            const {
+                expression, thread, locals, dbgr, options,
+                resolve, reject
+            } = queuedExpressions[0];
+            try {
+                const res = await evaluate_one_expression(expression, thread, locals, dbgr, options);
+                resolve(res);
+            } catch (err) {
+                reject(err);
+            }
+            queuedExpressions.shift();
+        }
+    });
+}
+
 
 module.exports = {
     evaluate,

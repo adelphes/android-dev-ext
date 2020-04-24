@@ -107,7 +107,7 @@ function decode_spec_value(o, key, value, buf, idx, main) {
         case /^align:\d+$/.test(value): {
             // used for arbitrary padding to a specified alignment
             const align = parseInt(value.split(':')[1], 10);
-            byteLength = align - (idx % align);
+            byteLength = idx - (Math.trunc(idx / align) * align);
             o[key] = buf.slice(idx, idx + byteLength);
             break;
         }

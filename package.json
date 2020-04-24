@@ -114,6 +114,11 @@
                                     "-r"
                                 ]
                             },
+                            "postLaunchPause": {
+                                "type": "number",
+                                "description": "Time in milliseconds to wait after launching an app before attempting to attach the debugger. Default: 1000",
+                                "default": 1000
+                            },
                             "staleBuild": {
                                 "type": "string",
                                 "description": "Launch behaviour if source files have been saved after the APK was built. One of: [\"ignore\" \"warn\" \"stop\"]. Default: \"warn\"",

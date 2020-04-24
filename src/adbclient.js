@@ -92,17 +92,31 @@ class ADBClient {
         return stdout.trim().split(/\s+/).filter(x => x).map(s => parseInt(s, 10));
     }
 
+    /**
+     * Retrieve a list of named debuggable pids
+     * @param {number} timeout_ms 
+     */
     async named_jdwp_list(timeout_ms) {
-        const named_pids = (await this.jdwp_list(timeout_ms))
+        const pids = await this.jdwp_list(timeout_ms);
+        return this.get_named_processes(pids);
+    }
+
+    /**
+     * Convert a list of pids to named-process objects
+     * @param {number[]} pids 
+     */
+    async get_named_processes(pids) {
+        if (!pids.length) {
+            return [];
+        }
+        const named_pids = pids
             .map(pid => ({
                 pid,
                 name: '',
             }))
-        if (!named_pids.length)
-            return [];
 
         // retrieve the list of process names from the device
-        const command = `for pid in ${named_pids.map(np => np.pid).join(' ')}; do cat /proc/$pid/cmdline;echo " $pid"; done`;
+        const command = `for pid in ${pids.join(' ')}; do cat /proc/$pid/cmdline;echo " $pid"; done`;
         const stdout = await this.shell_cmd({
             command,
             untilclosed: true,

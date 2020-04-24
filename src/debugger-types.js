@@ -4,16 +4,25 @@ const { PackageInfo } = require('./package-searcher');
 const { splitSourcePath } = require('./utils/source-file');
 
 class BuildInfo {
-
     /**
-     * @param {string} pkgname 
      * @param {Map<string,PackageInfo>} packages 
-     * @param {string} launchActivity 
-     * @param {string[]} [amCommandArgs] custom arguments passed to `am start`
      */
-    constructor(pkgname, packages, launchActivity, amCommandArgs) {
-        this.pkgname = pkgname;
+    constructor(packages) {
         this.packages = packages;
+    }
+}
+
+class LaunchBuildInfo extends BuildInfo {
+    /**
+     * @param {Map<string,PackageInfo>} packages 
+     * @param {string} pkgname 
+     * @param {string} launchActivity 
+     * @param {string[]} amCommandArgs custom arguments passed to `am start`
+     * @param {number} postLaunchPause amount of time (in ms) to wait after launch before we attempt a debugger connection
+     */
+    constructor(packages, pkgname, launchActivity, amCommandArgs, postLaunchPause) {
+        super(packages);
+        this.pkgname = pkgname;
         this.launchActivity = launchActivity;
         /** the arguments passed to `am start` */
         this.startCommandArgs = amCommandArgs || [
@@ -24,10 +33,19 @@ class BuildInfo {
             `-n ${pkgname}/${launchActivity}`,
         ];
         /** 
-         * the amount of time to wait after 'am start ...' is invoked.
+         * the amount of time (in millis) to wait after 'am start ...' is invoked.
          * We need this because invoking JDWP too soon causes a hang.
         */
-        this.postLaunchPause = 1000;
+        this.postLaunchPause = ((typeof postLaunchPause === 'number') && (postLaunchPause >= 0)) ? postLaunchPause : 1000;
+    }
+}
+
+class AttachBuildInfo extends BuildInfo {
+    /**
+     * @param {Map<string,PackageInfo>} packages 
+     */
+    constructor(packages) {
+        super(packages);
     }
 }
 
@@ -670,7 +688,7 @@ class DebuggerTypeInfo {
         // otherwise, leave super undefined to be updated later
         if (info.reftype.string !== 'class' || type.signature[0] !== 'L' || type.signature === JavaType.Object.signature) {
             if (info.reftype.string !== 'array') {
-                /** @type {JavaType} */
+                /** @type {JavaClassType} */
                 this.super = null;
             }
         }
@@ -747,9 +765,9 @@ class VariableValue {
 }
 
 module.exports = {
+    AttachBuildInfo,
     BreakpointLocation,
     BreakpointOptions,
-    BuildInfo,
     DebuggerBreakpoint,
     DebuggerException,
     DebuggerFrameInfo,
@@ -757,6 +775,7 @@ module.exports = {
     DebuggerTypeInfo,
     DebugSession,
     DebuggerValue,
+    LaunchBuildInfo,
     LiteralValue,
     JavaBreakpointEvent,
     JavaExceptionEvent,

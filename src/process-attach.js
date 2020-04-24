@@ -1,6 +1,5 @@
 const os = require('os');
 const { ADBClient } = require('./adbclient');
-const { selectTargetDevice } = require('./utils/device');
 
 /**
  * @param {import('vscode')} vscode 
@@ -30,28 +29,23 @@ async function showPIDPicker(vscode, pids) {
 
 /**
  * @param {import('vscode')} vscode 
+ * @param {string} device_serial
  */
-async function selectAndroidProcessID(vscode) {
+async function selectAndroidProcessID(vscode, device_serial) {
     const res = {
         /** @type {string|'ok'|'cancelled'|'failed'} */
         status: 'failed',
         pid: 0,
         serial: '',
     }
-    const err = await new ADBClient().test_adb_connection()
-    if (err) {
-        vscode.window.showWarningMessage('Attach failed. ADB is not running.');
+
+    let named_pids;
+    try {
+        named_pids = await new ADBClient(device_serial).named_jdwp_list(5000);
+    } catch {
+        vscode.window.showWarningMessage(`Attach failed. Check the device ${device_serial} is connected.`);
         return res;
     }
-
-    const device = await selectTargetDevice(vscode, 'Attach');
-    if (!device) {
-        // user cancelled picker
-        res.status = 'cancelled';
-        return res;
-    }
-
-    let named_pids = await new ADBClient(device.serial).named_jdwp_list(5000);
     if (named_pids.length === 0) {
         vscode.window.showWarningMessage(
             'Attach failed. No debuggable processes are running on the device.'
@@ -72,7 +66,7 @@ async function selectAndroidProcessID(vscode) {
     }
 
     res.pid = named_pid.pid;
-    res.serial = device.serial;
+    res.serial = device_serial;
     res.status = 'ok';
 
     return res;

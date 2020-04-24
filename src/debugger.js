@@ -8,9 +8,9 @@ const { D } = require('./utils/print');
 const { sleep } = require('./utils/thread');
 const { decodeJavaStringLiteral } = require('./utils/char-decode');
 const {
+    AttachBuildInfo,
     BreakpointLocation,
     BreakpointOptions,
-    BuildInfo,
     DebuggerBreakpoint,
     DebuggerFrameInfo,
     DebuggerMethodInfo,
@@ -24,6 +24,7 @@ const {
     JavaTaggedValue,
     JavaThreadInfo,
     JavaType,
+    LaunchBuildInfo,
     MethodInvokeArgs,
     SourceLocation,
     TypeNotAvailable,
@@ -71,7 +72,7 @@ class Debugger extends EventEmitter {
     };
 
     /**
-     * @param {BuildInfo} build
+     * @param {LaunchBuildInfo} build
      * @param {string} deviceid
      */
     async startDebugSession(build, deviceid) {
@@ -82,19 +83,36 @@ class Debugger extends EventEmitter {
         const stdout = await Debugger.runApp(deviceid, build.startCommandArgs, build.postLaunchPause);
 
         // retrieve the list of debuggable processes
-        const pids = await Debugger.getDebuggablePIDs(this.session.deviceid, 10e3);
-        if (pids.length === 0) {
+        const named_pids = await Debugger.getDebuggableProcesses(deviceid, 10e3);
+        if (named_pids.length === 0) {
             throw new Error(`startDebugSession: No debuggable processes after app launch.`);
         }
-        // choose the last pid in the list
-        const pid = pids[pids.length - 1];
+        // we assume the newly launched app is the last pid in the list, but try and
+        // validate using the process names
+        const matched_named_pids = build.pkgname ? named_pids.filter(np => np.name === build.pkgname) : [];
+        let pid;
+        switch (matched_named_pids.length) {
+            case 0:
+                // no name match - warn, but choose the last entry anyway
+                D('No process name match - choosing last jdwp pid');
+                pid = named_pids[named_pids.length - 1].pid;
+                break;
+            case 1:
+                pid = matched_named_pids[0].pid;
+                break;
+            default:
+                // more than one choice - warn, but choose we'll use the last one anyway
+                D('Multiple process names match - choosing last matching entry');
+                pid = matched_named_pids[matched_named_pids.length - 1].pid;
+                break;
+        }
         // after connect(), the caller must call resume() to begin
         await this.connect(pid);
         return stdout;
     }
 
     /**
-     * @param {BuildInfo} build
+     * @param {AttachBuildInfo} build
      * @param {number} pid process ID to connect to
      * @param {string} deviceid device ID to connect to
      */
@@ -110,9 +128,9 @@ class Debugger extends EventEmitter {
     /**
      * @param {string} deviceid Device ID to connect to
      * @param {string[]} launch_cmd_args Array of arguments to pass to 'am start'
-     * @param {number} [post_launch_pause] amount to time to wait after each launch attempt
+     * @param {number} post_launch_pause amount of time (in ms) to wait after each launch attempt
      */
-    static async runApp(deviceid, launch_cmd_args, post_launch_pause = 1000) {
+    static async runApp(deviceid, launch_cmd_args, post_launch_pause) {
         // older (<3) versions of Android only allow target components to be specified with -n
         const shell_cmd = {
             command: `am start ${launch_cmd_args.join(' ')}`,
@@ -301,7 +319,9 @@ class Debugger extends EventEmitter {
         if (!this.session) {
             return;
         }
-        return Debugger.forceStopApp(this.session.deviceid, this.session.build.pkgname);
+        if (this.session.build instanceof LaunchBuildInfo) {
+            return Debugger.forceStopApp(this.session.deviceid, this.session.build.pkgname);
+        }
     }
 
     /**
@@ -682,13 +702,13 @@ class Debugger extends EventEmitter {
     }
 
     /**
-     * @param {DebuggerValue} value 
+     * @param {string} signature 
      */
-    async getSuperType(value) {
-        if (value.type.signature === JavaType.Object.signature)
+    async getSuperType(signature) {
+        if (signature === JavaType.Object.signature)
             throw new Error('java.lang.Object has no super type');
 
-        const typeinfo = await this.getTypeInfo(value.type.signature);
+        const typeinfo = await this.getTypeInfo(signature);
         await this._ensureSuperType(typeinfo);
         return typeinfo.super;
     }
@@ -697,7 +717,7 @@ class Debugger extends EventEmitter {
      * @param {DebuggerValue} value 
      */
     async getSuperInstance(value) {
-        const supertype = await this.getSuperType(value);
+        const supertype = await this.getSuperType(value.type.signature);
         if (value.vtype === 'class') {
             return this.getTypeValue(supertype.signature);
         }
@@ -743,15 +763,23 @@ class Debugger extends EventEmitter {
     }
 
     /**
-     * 
      * @param {DebuggerValue} object_value 
      */
     async getFieldValues(object_value) {
         const type = await this.getTypeInfo(object_value.type.signature);
         await this._ensureFields(type);
+        return this.fetchFieldValues(object_value, type.info.typeid, type.fields);
+    }
+
+    /**
+     * @param {DebuggerValue} object_value 
+     * @param {JavaTypeID} typeid 
+     * @param {JavaField[]} field_list 
+     */
+    async fetchFieldValues(object_value, typeid, field_list) {
         // the Android runtime now pointlessly barfs into logcat if an instance value is used
         // to retrieve a static field. So, we now split into two calls...
-        const splitfields = type.fields.reduce((z, f) => {
+        const splitfields = field_list.reduce((z, f) => {
             if (f.modbits & 8) {
                 z.static.push(f);
             } else {
@@ -776,7 +804,7 @@ class Debugger extends EventEmitter {
         let static_fieldvalues = [];
         if (splitfields.static.length) {
             static_fieldvalues = await this.session.adbclient.jdwp_command({
-                cmd: JDWP.Commands.GetStaticFieldValues(type.info.typeid, splitfields.static),
+                cmd: JDWP.Commands.GetStaticFieldValues(typeid, splitfields.static),
             });
         }
         // make sure the fields and values match up...
@@ -786,7 +814,8 @@ class Debugger extends EventEmitter {
         res.forEach((value,i) => {
             value.data.field = fields[i];
             value.fqname = `${object_value.fqname || object_value.name}.${value.name}`;
-        })
+        });
+
         return res;
     }
 
@@ -799,21 +828,24 @@ class Debugger extends EventEmitter {
         if (!(object_value.type instanceof JavaClassType)) {
             return null;
         }
-        let instance = object_value;
+        // retrieving field values is expensive, so we search through the class
+        // fields (which will be cached) until we find a match
+        let field, object_type = object_value.type, typeinfo;
         for (;;) {
-            // retrieve all the fields for this instance
-            const fields = await this.getFieldValues(instance);
-            const field = fields.find(f => f.name === fieldname);
+            typeinfo = await this.getTypeInfo(object_type.signature);
+            const fields = await this._ensureFields(typeinfo);
+            field = fields.find(f => f.name === fieldname);
             if (field) {
-                return field;
+                break;
             }
-            // if there's no matching field in this instance, check the super
-            if (!includeInherited || instance.type.signature === JavaType.Object.signature) {
+            if (!includeInherited || object_type.signature === JavaType.Object.signature) {
                 const fully_qualified_typename = `${object_value.type.package}.${object_value.type.typename}`;
                 throw new Error(`No such field '${fieldname}' in type ${fully_qualified_typename}`);
             }
-            instance = await this.getSuperInstance(instance);
+            object_type = await this.getSuperType(object_type.signature);
         }
+        const values = await this.fetchFieldValues(object_value, typeinfo.info.typeid, [field]);
+        return values[0];
     }
 
     /**
