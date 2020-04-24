@@ -135,22 +135,29 @@ Format specifiers can be appended to watch and repl expressions to change how th
 The specifiers work with the same syntax used in Visual Studio.
 See https://docs.microsoft.com/en-us/visualstudio/debugger/format-specifiers-in-cpp for examples.
 
-- `123      ->      123`
-- `123,x      ->      0x0000007b`
-- `123,xb      ->       0000007b`
-- `123,X      ->      0x0000007B`
-- `123,o      ->      000000000173`
-- `123,b      ->      0b00000000000000000000000001111011`
-- `123,bb      ->       00000000000000000000000001111011`
-- `123,c      ->      '{'`
-- `"one\ntwo"      ->      "one\ntwo"`
-- `"one\ntwo",sb      ->      one\ntwo`
-- `"one\ntwo",!      ->      `
-
-```text
-one
-two
 ```
+123              123
+123,x            0x0000007b
+123,xb           0000007b
+123,X            0x0000007B
+123,o            000000000173
+123,b            0b00000000000000000000000001111011
+123,bb           00000000000000000000000001111011
+123,c            '{'
+"one\ntwo"       "one\ntwo"
+"one\ntwo",sb    one\ntwo
+"one\ntwo",!     one
+                 two
+```
+
+You can also apply the specifiers to object and array instances to format fields and elements:
+```
+arr,x            int[3]
+   [0]           0x00000001
+   [1]           0x00000002
+   [1]           0x00000003
+```
+
 
 Note: Format specifiers for floating point values (`e`/`g`) and string encoding conversions (`s8`/`su`/`s32`) are not supported.
 
