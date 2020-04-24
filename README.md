@@ -129,6 +129,32 @@ Add a new task to run the build command:
 }
 ```
 
+## Expression evaluation
+
+Format specifiers can be appended to watch and repl expressions to change how the evaluated result is displayed.
+The specifiers work with the same syntax used in Visual Studio.
+See https://docs.microsoft.com/en-us/visualstudio/debugger/format-specifiers-in-cpp for examples.
+
+- `123      ->      123`
+- `123,x      ->      0x0000007b`
+- `123,xb      ->       0000007b`
+- `123,X      ->      0x0000007B`
+- `123,o      ->      000000000173`
+- `123,b      ->      0b00000000000000000000000001111011`
+- `123,bb      ->       00000000000000000000000001111011`
+- `123,c      ->      '{'`
+- `"one\ntwo"      ->      "one\ntwo"`
+- `"one\ntwo",sb      ->      one\ntwo`
+- `"one\ntwo",!      ->      `
+
+```text
+one
+two
+```
+
+Note: Format specifiers for floating point values (`e`/`g`) and string encoding conversions (`s8`/`su`/`s32`) are not supported.
+
+
 ## Powered by coffee
 
 The Android Developer Extension is a completely free, fully open-source project. If you've found the extension useful, you
