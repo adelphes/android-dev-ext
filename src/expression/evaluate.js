@@ -471,7 +471,7 @@ async function evaluate_binary_expression(dbgr, locals, thread, lhs, rhs, operat
  * @param {DebuggerValue[]} locals 
  * @param {AndroidThread} thread
  * @param {string} operator 
- * @param {*} expr 
+ * @param {ParsedExpression} expr 
  */
 async function evaluate_unary_expression(dbgr, locals, thread, operator, expr) {
     /** @type {DebuggerValue} */
@@ -684,7 +684,7 @@ function evaluate_expression(dbgr, locals, thread, expr) {
  * @param {Debugger} dbgr 
  * @param {DebuggerValue[]} locals 
  * @param {AndroidThread} thread 
- * @param {string} index_expr 
+ * @param {ParsedExpression} index_expr 
  * @param {DebuggerValue} arr_local 
  */
 async function evaluate_array_element(dbgr, locals, thread, index_expr, arr_local) {
@@ -712,36 +712,36 @@ async function evaluate_array_element(dbgr, locals, thread, index_expr, arr_loca
 /**
  * Build a regular expression which matches the possible parameter types for a value
  * @param {Debugger} dbgr 
- * @param {DebuggerValue} v 
+ * @param {DebuggerValue} argument 
  */
-async function getParameterSignatureRegex(dbgr, v) {
-    if (v.type.signature == 'Lnull;') {
+async function getParameterSignatureRegex(dbgr, argument) {
+    if (argument.type.signature == 'Lnull;') {
         return /^[LT[]/;   // null matches any reference type
     }
-    if (/^L/.test(v.type.signature)) {
+    if (/^L/.test(argument.type.signature)) {
         // for class reference types, retrieve a list of inherited classes 
         // since subclass instances can be passed as arguments
-        const sigs = await dbgr.getClassInheritanceList(v.type.signature);
+        const sigs = await dbgr.getClassInheritanceList(argument.type.signature);
         const re_sigs = sigs.map(signature => signature.replace(/[$]/g, '\\$'));
         return new RegExp(`(^${re_sigs.join('$)|(^')}$)`);
     }
-    if (/^\[/.test(v.type.signature)) {
+    if (/^\[/.test(argument.type.signature)) {
         // for array types, only an exact array match or Object is allowed
-        return new RegExp(`^(${v.type.signature})|(${JavaType.Object.signature})$`);
+        return new RegExp(`^(${argument.type.signature})|(${JavaType.Object.signature})$`);
     }
-    switch(v.type.signature) {
+    switch(argument.type.signature) {
         case 'I':
             // match bytes/shorts/ints/longs/floats/doubles literals within range
-            if (v.value >= -128 && v.value <= 127)
+            if (argument.value >= -128 && argument.value <= 127)
                 return /^[BSIJFD]$/
-            if (v.value >= -32768 && v.value <= 32767)
+            if (argument.value >= -32768 && argument.value <= 32767)
                 return /^[SIJFD]$/
             return /^[IJFD]$/;
         case 'F':
             return /^[FD]$/;    // floats can be assigned to floats or doubles
         default:
             // anything else must be an exact match (no implicit cast is valid)
-            return new RegExp(`^${v.type.signature}$`);
+            return new RegExp(`^${argument.type.signature}$`);
     }
 }
 
@@ -950,8 +950,9 @@ async function evaluate_cast(dbgr, locals, thread, cast_type, rhs) {
  * @param {AndroidThread} thread 
  * @param {DebuggerValue[]} locals 
  * @param {Debugger} dbgr 
+ * @param {{allowFormatSpecifier:boolean}} [options]
  */
-async function evaluate(expression, thread, locals, dbgr) {
+async function evaluate(expression, thread, locals, dbgr, options) {
     D('evaluate: ' + expression);
     await dbgr.ensureConnected();
 
@@ -967,6 +968,17 @@ async function evaluate(expression, thread, locals, dbgr) {
     }
     const parsed_expression = parse_expression(e);
 
+    let display_format = null;
+    if (options && options.allowFormatSpecifier) {
+        // look for formatting specifiers in the form of ',<x>'
+        // ref: https://docs.microsoft.com/en-us/visualstudio/debugger/format-specifiers-in-cpp
+        const df_match = e.expr.match(/^,([doc!]|[xX]b?|bb?|sb?)/);
+        if (df_match) {
+            display_format = df_match[1];
+            e.expr = e.expr.slice(df_match[0].length)
+        }
+    }
+
     // if there's anything left, it's an error
     if (!parsed_expression || e.expr) {
         // the expression is not well-formed
@@ -975,7 +987,11 @@ async function evaluate(expression, thread, locals, dbgr) {
 
     // the expression is well-formed - start the (asynchronous) evaluation
     const value = await evaluate_expression(dbgr, locals, thread, parsed_expression);
-    return value;
+
+    return {
+        value,
+        display_format,
+    }
 }
 
 module.exports = {

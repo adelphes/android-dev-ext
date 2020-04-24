@@ -79,7 +79,10 @@ class AndroidDebugSession extends DebugSession {
         // number of call stack entries to display above the project source
         this.callStackDisplaySize = 1;
 
-        // the fifo queue of evaluations (watches, hover, etc)
+        /**
+         * the fifo queue of evaluations (watches, hover, etc)
+         * @type {EvalQueueEntry[]}
+         */
         this._evals_queue = [];
 
         // since we want to send breakpoint events, we will assign an id to every event
@@ -1269,7 +1272,7 @@ class AndroidDebugSession extends DebugSession {
             const stack_frame = thread.findStackFrame(args.variablesReference);
             // evaluate the expression
             const locals = await stack_frame.getLocals();
-            const value = await evaluate(args.value, thread, locals, this.dbgr);
+            const { value } = await evaluate(args.value, thread, locals, this.dbgr);
             // update the variable
             const vsvar = await stack_frame.setVariableValue(args.variablesReference, args.name, value);
             response.body = {
@@ -1307,25 +1310,15 @@ class AndroidDebugSession extends DebugSession {
             this.sendResponse(prev.response);
         }
 
-        const eval_info = {
-            expression: args.expression,
-            response,
-            /** @type {DebuggerValue[]} */
-            locals: null,
-            /** @type {VariableManager} */
-            var_manager: null,
-            /** @type {AndroidThread} */
-            thread: null,
-        }
+        let eval_info;
         if (args.frameId) {
             const threadId = AndroidThread.variableRefToThreadId(args.frameId);
             const thread = this.getThread(threadId);
             if (!thread) return this.failRequestNoThread('Evaluate',threadId, response);
             if (!thread.paused) return this.failRequestThreadNotSuspended('Evaluate',threadId, response);
-            eval_info.thread = thread;
             const stack_frame = thread.findStackFrame(args.frameId);
-            eval_info.var_manager = stack_frame;
-            eval_info.locals = await stack_frame.getLocals();
+            const locals = await stack_frame.getLocals();
+            eval_info = new EvalQueueEntry(args.expression, response, locals, stack_frame, thread);
         } else {
             // if there's no frameId, we are being asked to evaluate the value in the 'global' context.
             // This is a problem because there's no associated stack frame, so we include any locals in the evaluation.
@@ -1334,9 +1327,7 @@ class AndroidDebugSession extends DebugSession {
             // would require primitive literals)
             const thread = this._threads.find(t => t && t.paused);
             if (!thread) return this.failRequest(`No threads are paused`, response);
-            eval_info.thread = thread;
-            eval_info.var_manager = thread.getGlobalVariableManager();
-            eval_info.locals = [];
+            eval_info = new EvalQueueEntry(args.expression, response, [], thread.getGlobalVariableManager(), thread);
         }
 
         const queue_len = this._evals_queue.push(eval_info);
@@ -1347,8 +1338,8 @@ class AndroidDebugSession extends DebugSession {
         while (this._evals_queue.length > 0) {
             const { expression, response, locals, var_manager, thread } = this._evals_queue[0];
             try {
-                const value = await evaluate(expression, thread, locals, this.dbgr);
-                const v = var_manager.makeVariableValue(value);
+                const { value, display_format } = await evaluate(expression, thread, locals, this.dbgr, { allowFormatSpecifier:true });
+                const v = var_manager.makeVariableValue(value, display_format);
                 response.body = {
                     result: v.value,
                     variablesReference: v.variablesReference|0
@@ -1360,6 +1351,23 @@ class AndroidDebugSession extends DebugSession {
             this.sendResponse(response);
             this._evals_queue.shift();
         }
+    }
+}
+
+class EvalQueueEntry {
+    /**
+     * @param {string} expression
+     * @param {import('vscode-debugprotocol').DebugProtocol.EvaluateResponse} response
+     * @param {DebuggerValue[]} locals
+     * @param {VariableManager} var_manager 
+     * @param {AndroidThread} thread
+     */
+    constructor(expression, response, locals, var_manager, thread) {
+        this.expression = expression;
+        this.response = response;
+        this.locals = locals;
+        this.var_manager = var_manager;
+        this.thread = thread;
     }
 }
 
