@@ -511,6 +511,18 @@ async function evaluate_identifier(dbgr, locals, identifier) {
     if (local) {
         return local;
     }
+
+    // check if the identifier is an unqualified member of the current 'this' context
+    const this_context = locals.find(l => l.name === 'this');
+    if (this_context) {
+        try {
+            const member = await evaluate_member(dbgr, new MemberExpression(identifier), this_context);
+            return member;
+        } catch {
+            // not a member of this - just continue
+        }
+    }
+
     // if it's not a local, it could be the start of a package name or a type
     const classes = Array.from(dbgr.session.loadedClasses);
     return evaluate_qualified_type_name(dbgr, identifier, classes);
@@ -623,7 +635,7 @@ async function evaluate_qualifiers(dbgr, locals, thread, value, qualified_terms)
                 i++;
                 continue;
             }
-            value = await evaluate_member(dbgr, locals, thread, term, value);
+            value = await evaluate_member(dbgr, term, value);
             continue;
         }
         if (term instanceof ArrayIndexExpression) {
@@ -822,12 +834,10 @@ async function evaluate_methodcall(dbgr, locals, thread, method_name, m, obj_loc
 
 /**
  * @param {Debugger} dbgr 
- * @param {DebuggerValue[]} locals 
- * @param {AndroidThread} thread
  * @param {MemberExpression} member 
  * @param {DebuggerValue} value 
  */
-async function evaluate_member(dbgr, locals, thread, member, value) {
+async function evaluate_member(dbgr, member, value) {
     if (!JavaType.isReference(value.type)) {
         throw new Error('TypeError: value is not a reference type');
     }
