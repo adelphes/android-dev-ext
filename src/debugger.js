@@ -702,13 +702,13 @@ class Debugger extends EventEmitter {
     }
 
     /**
-     * @param {DebuggerValue} value 
+     * @param {string} signature 
      */
-    async getSuperType(value) {
-        if (value.type.signature === JavaType.Object.signature)
+    async getSuperType(signature) {
+        if (signature === JavaType.Object.signature)
             throw new Error('java.lang.Object has no super type');
 
-        const typeinfo = await this.getTypeInfo(value.type.signature);
+        const typeinfo = await this.getTypeInfo(signature);
         await this._ensureSuperType(typeinfo);
         return typeinfo.super;
     }
@@ -717,7 +717,7 @@ class Debugger extends EventEmitter {
      * @param {DebuggerValue} value 
      */
     async getSuperInstance(value) {
-        const supertype = await this.getSuperType(value);
+        const supertype = await this.getSuperType(value.type.signature);
         if (value.vtype === 'class') {
             return this.getTypeValue(supertype.signature);
         }
@@ -763,15 +763,23 @@ class Debugger extends EventEmitter {
     }
 
     /**
-     * 
      * @param {DebuggerValue} object_value 
      */
     async getFieldValues(object_value) {
         const type = await this.getTypeInfo(object_value.type.signature);
         await this._ensureFields(type);
+        return this.fetchFieldValues(object_value, type.info.typeid, type.fields);
+    }
+
+    /**
+     * @param {DebuggerValue} object_value 
+     * @param {JavaTypeID} typeid 
+     * @param {JavaField[]} field_list 
+     */
+    async fetchFieldValues(object_value, typeid, field_list) {
         // the Android runtime now pointlessly barfs into logcat if an instance value is used
         // to retrieve a static field. So, we now split into two calls...
-        const splitfields = type.fields.reduce((z, f) => {
+        const splitfields = field_list.reduce((z, f) => {
             if (f.modbits & 8) {
                 z.static.push(f);
             } else {
@@ -796,7 +804,7 @@ class Debugger extends EventEmitter {
         let static_fieldvalues = [];
         if (splitfields.static.length) {
             static_fieldvalues = await this.session.adbclient.jdwp_command({
-                cmd: JDWP.Commands.GetStaticFieldValues(type.info.typeid, splitfields.static),
+                cmd: JDWP.Commands.GetStaticFieldValues(typeid, splitfields.static),
             });
         }
         // make sure the fields and values match up...
@@ -806,7 +814,8 @@ class Debugger extends EventEmitter {
         res.forEach((value,i) => {
             value.data.field = fields[i];
             value.fqname = `${object_value.fqname || object_value.name}.${value.name}`;
-        })
+        });
+
         return res;
     }
 
@@ -819,21 +828,24 @@ class Debugger extends EventEmitter {
         if (!(object_value.type instanceof JavaClassType)) {
             return null;
         }
-        let instance = object_value;
+        // retrieving field values is expensive, so we search through the class
+        // fields (which will be cached) until we find a match
+        let field, object_type = object_value.type, typeinfo;
         for (;;) {
-            // retrieve all the fields for this instance
-            const fields = await this.getFieldValues(instance);
-            const field = fields.find(f => f.name === fieldname);
+            typeinfo = await this.getTypeInfo(object_type.signature);
+            const fields = await this._ensureFields(typeinfo);
+            field = fields.find(f => f.name === fieldname);
             if (field) {
-                return field;
+                break;
             }
-            // if there's no matching field in this instance, check the super
-            if (!includeInherited || instance.type.signature === JavaType.Object.signature) {
+            if (!includeInherited || object_type.signature === JavaType.Object.signature) {
                 const fully_qualified_typename = `${object_value.type.package}.${object_value.type.typename}`;
                 throw new Error(`No such field '${fieldname}' in type ${fully_qualified_typename}`);
             }
-            instance = await this.getSuperInstance(instance);
+            object_type = await this.getSuperType(object_type.signature);
         }
+        const values = await this.fetchFieldValues(object_value, typeinfo.info.typeid, [field]);
+        return values[0];
     }
 
     /**

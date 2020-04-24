@@ -688,7 +688,7 @@ class DebuggerTypeInfo {
         // otherwise, leave super undefined to be updated later
         if (info.reftype.string !== 'class' || type.signature[0] !== 'L' || type.signature === JavaType.Object.signature) {
             if (info.reftype.string !== 'array') {
-                /** @type {JavaType} */
+                /** @type {JavaClassType} */
                 this.super = null;
             }
         }
