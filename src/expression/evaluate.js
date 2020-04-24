@@ -952,7 +952,7 @@ async function evaluate_cast(dbgr, locals, thread, cast_type, rhs) {
  * @param {Debugger} dbgr 
  * @param {{allowFormatSpecifier:boolean}} [options]
  */
-async function evaluate(expression, thread, locals, dbgr, options) {
+async function evaluate_one_expression(expression, thread, locals, dbgr, options) {
     D('evaluate: ' + expression);
     await dbgr.ensureConnected();
 
@@ -993,6 +993,45 @@ async function evaluate(expression, thread, locals, dbgr, options) {
         display_format,
     }
 }
+
+/**
+ *
+ */
+const queuedExpressions = [];
+
+/**
+ * @param {string} expression 
+ * @param {AndroidThread} thread 
+ * @param {DebuggerValue[]} locals 
+ * @param {Debugger} dbgr 
+ * @param {{allowFormatSpecifier:boolean}} [options]
+ */
+async function evaluate(expression, thread, locals, dbgr, options) {
+    return new Promise(async (resolve, reject) => {
+        const queue_length = queuedExpressions.push({
+            expression, thread, locals, dbgr, options,
+            resolve, reject
+        });
+        if (queue_length > 1) {
+            return;
+        }
+        // run the queue
+        while (queuedExpressions.length) {
+            const {
+                expression, thread, locals, dbgr, options,
+                resolve, reject
+            } = queuedExpressions[0];
+            try {
+                const res = await evaluate_one_expression(expression, thread, locals, dbgr, options);
+                resolve(res);
+            } catch (err) {
+                reject(err);
+            }
+            queuedExpressions.shift();
+        }
+    });
+}
+
 
 module.exports = {
     evaluate,
