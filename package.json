@@ -20,7 +20,8 @@
     "activationEvents": [
         "onCommand:android-dev-ext.view_logcat",
         "onCommand:PickAndroidDevice",
-        "onCommand:PickAndroidProcess"
+        "onCommand:PickAndroidProcess",
+        "onLanguage:java"
     ],
     "repository": {
         "type": "git",
@@ -28,6 +29,18 @@
     },
     "main": "./extension",
     "contributes": {
+        "configuration": {
+            "type": "object",
+            "title": "Java (Android)",
+            "properties": {
+                "androidJavaLanguageServer.maxNumberOfProblems": {
+                    "scope": "resource",
+                    "type": "number",
+                    "default": 100,
+                    "description": "Controls the maximum number of problems produced by the server."
+                }
+            }
+        },
         "commands": [
             {
                 "command": "android-dev-ext.view_logcat",
@@ -228,6 +241,7 @@
         "uuid": "^3.3.2",
         "vscode-debugadapter": "^1.40.0",
         "vscode-debugprotocol": "^1.40.0",
+        "vscode-languageclient": "6.1.3",
         "ws": "^7.1.2",
         "xmldom": "^0.1.27",
         "xpath": "^0.0.27"

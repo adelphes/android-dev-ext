@@ -1,0 +1,19 @@
+{
+  "name": "langserver",
+  "version": "1.0.0",
+  "description": "Java language server for Android development",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "jarscanner": "file://~/dev/nodejs/jarscanner",
+    "vscode-languageserver": "^6.1.1",
+    "vscode-languageserver-textdocument": "^1.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^13.13.4"
+  }
+}

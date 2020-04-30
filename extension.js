@@ -1,10 +1,61 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
+const path = require('path');
 const vscode = require('vscode');
+const { LanguageClient, TransportKind, } = require('vscode-languageclient');
 const { AndroidContentProvider } = require('./src/contentprovider');
 const { openLogcatWindow } = require('./src/logcat');
 const { selectAndroidProcessID } = require('./src/process-attach');
 const { selectTargetDevice } = require('./src/utils/device');
+
+/** @type {LanguageClient} */
+let client;
+
+function activateLanguageClient(context) {
+  // The server is implemented in node
+  let serverModule = context.asAbsolutePath(path.join('langserver', 'server.js'));
+  // The debug options for the server
+  // --inspect=6009: runs the server in Node's Inspector mode so VS Code can attach to the server for debugging
+  let debugOptions = { execArgv: ['--nolazy', '--inspect=6009'] };
+
+  // If the extension is launched in debug mode then the debug server options are used
+  // Otherwise the run options are used
+  /** @type {import('vscode-languageclient').ServerOptions} */
+  let serverOptions = {
+    run: {
+        module: serverModule,
+        transport: TransportKind.ipc,
+    },
+    debug: {
+      module: serverModule,
+      transport: TransportKind.ipc,
+      options: debugOptions
+    }
+  };
+
+  // Options to control the language client
+  /** @type {import('vscode-languageclient').LanguageClientOptions} */
+  let clientOptions = {
+    // Register the server for plain text documents
+    documentSelector: [{ scheme: 'file', language: 'java' }],
+    synchronize: {
+      // Notify the server about file changes to '.java files contained in the workspace
+      fileEvents: vscode.workspace.createFileSystemWatcher('**/.java')
+    }
+  };
+
+  // Create the language client and start the client.
+  client = new LanguageClient(
+    'androidJavaLanguageServer',
+    'Java (Android)',
+    serverOptions,
+    clientOptions
+  );
+
+  // Start the client. This will also launch the server
+  return client.start();
+}
+
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
@@ -50,6 +101,8 @@ function activate(context) {
             // the debugger requires a string value to be returned
             return JSON.stringify(o);
         }),
+
+        activateLanguageClient(context),
     ];
 
     context.subscriptions.splice(context.subscriptions.length, 0, ...disposables);
