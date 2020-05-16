@@ -1,0 +1,264 @@
+const { ResolvedImport } = require('./import-resolver');
+const MTI = require('./mti');
+const ResolvedType = require('./parsetypes/resolved-type');
+
+/**
+ * Parse a type into its various components
+ * @param {string} label 
+ * @returns {{type:ResolvedType, error:string}}
+ */
+function parse_type(label) {
+    const type = new ResolvedType();
+    let re = /([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)|(\.[a-zA-Z_]\w*)|[<,>]|((?:\[\])+)|( +)|./g;
+    let parts = [type.addTypePart()];
+    for (let m; m = re.exec(label);) {
+        if (m[4]) {
+            // ignore ws
+            continue;
+        }
+        if (!parts[0].name) {
+            if (m[1]) {
+                parts[0].name = m[1];
+                continue;
+            }
+            return { type, error: 'Missing type identifier' };
+        }
+        if (m[0] === '<') {
+            if (!parts[0].typeargs && !parts[0].owner.arrdims) {
+                // start of type arguments - start a new type
+                const t = new ResolvedType();
+                parts[0].typeargs = [t];
+                parts.unshift(t.addTypePart());
+                continue;
+            }
+            return { type, error: `Unexpected '<' character` };
+        }
+        if (m[0] === ',') {
+            if (parts[1] && parts[1].typeargs) {
+                // type argument separator - replace the type on the stack
+                const t = new ResolvedType();
+                parts[1].typeargs.push(t);
+                parts[0] = t.addTypePart();
+                continue;
+            }
+            return { type, error: `Unexpected ',' character` };
+        }
+        if (m[0] === '>') {
+            if (parts[1] && parts[1].typeargs) {
+                // end of type arguments
+                parts.shift();
+                continue;
+            }
+            return { type, error: `Unexpected '>' character` };
+        }
+        if (m[2]) {
+            if (parts[0].typeargs || parts[0].outer) {
+                // post-type-args enclosed type
+                parts[0] = parts[0].inner = parts[0].owner.addTypePart(m[2].slice(1), parts[0]);
+                continue;
+            }
+            return { type, error: `Unexpected '.' character` };
+        }
+        if (m[3]) {
+            parts[0].owner.arrdims = m[3].length / 2;
+            continue;
+        }
+        return { type, error: `Invalid type` };
+    }
+
+    if (parts.length !== 1) {
+        // one or more missing >
+        return { type, error: `Missing >` };
+    }
+
+    return { type, error: '' };
+}
+
+
+/**
+ * Construct a regex to search for an enclosed type in the current and outer scopes of a given type
+ * 
+ * @param {string} fully_qualified_scope the JRE name (a.b.X$Y) of the current type scope
+ * @param {string} dotted_raw_typename the dotted name of the type we are searching for
+ */
+function createTypeScopeRegex(fully_qualified_scope, dotted_raw_typename) {
+    // split the type name across enclosed type boundaries
+    const scopes = fully_qualified_scope.split('$');
+
+    // the first scope is the dotted package name and top-level type - we need to escape the package-qualifier dots for regex
+    scopes[0] = scopes[0].replace(/\./g,'[.]');
+
+    // if the typename we are searching represents an enclosed type, the type-qualifier dots must be replaced with $
+    const enclosed_raw_typename = dotted_raw_typename.replace(/\./g,'[$]');
+
+    // bulld up the list of possible type matches based upon each outer scope of the type
+    const enclosed_type_regexes = [];
+    while (scopes.length) {
+        enclosed_type_regexes.push(`${scopes.join('[$]')}[$]${enclosed_raw_typename}`);
+        scopes.pop();
+    }
+    // the final regex is an exact match of possible type names, sorted from inner scope to outer (top-level) scope
+    return new RegExp(`^(${enclosed_type_regexes.join('|')})$`);
+}
+
+/**
+  * Locate MTIs that match a type.
+  * @param {string} typename The type to resolve
+  * @param {string} fully_qualified_scope The fully-qualified JRE name of the current type scope.
+  * @param {ResolvedImport[]} resolved_imports The list of types resolved from the imports
+  * @param {Map<string,MTI.Type>} typemap the global list of types
+  */
+function resolveType(typename, fully_qualified_scope, resolved_imports, typemap) {
+    const { type, error } = parse_type(typename);
+    if (error) {
+        // don't try to find the type if the parsing failed
+        type.error = error;
+        return type;
+    }
+
+    // locate the MTIs for the type and type arguments
+    resolveCompleteType(type, fully_qualified_scope, resolved_imports, typemap);
+    return type;
+}
+
+/**
+ * 
+ * @param {ResolvedType} type 
+ * @param {string} fully_qualified_scope 
+ * @param {ResolvedImport[]} resolved_imports 
+ * @param {Map<string,MTI.Type>} typemap 
+ */
+function resolveCompleteType(type, fully_qualified_scope, resolved_imports, typemap) {
+
+    type.mtis = findTypeMTIs(type.getDottedRawType(), type.arrdims, fully_qualified_scope, resolved_imports, typemap);
+
+    // resolve type arguments
+    type.parts.filter(p => p.typeargs).forEach(p => {
+        p.typeargs.forEach(typearg => {
+            resolveCompleteType(typearg, fully_qualified_scope, resolved_imports, typemap);
+        })
+    })
+}
+
+
+/**
+ * @param {string} dotted_raw_typename
+ * @param {number} arraydims
+ * @param {string} fully_qualified_scope The fully-qualified JRE name of the current type scope.
+ * @param {ResolvedImport[]} resolved_imports The list of types resolved from the imports
+ * @param {Map<string,MTI.Type>} typemap 
+ */
+function findTypeMTIs(dotted_raw_typename, arraydims, fully_qualified_scope, resolved_imports, typemap) {
+    let mtis = findRawTypeMTIs(dotted_raw_typename, fully_qualified_scope, resolved_imports, typemap);
+
+    if (arraydims > 0) {
+        // convert matches to array MTIs
+        mtis.forEach((mti,idx,arr) => {
+            arr[idx] = MTI.makeArrayType(mti, arraydims);
+        })
+    }
+
+    return mtis;
+}
+
+/**
+ * Match a dotted type name to one or more MTIs
+ * @param {string} dotted_raw_typename
+ * @param {string} fully_qualified_scope The fully-qualified JRE name of the current type scope.
+ * @param {Map<string,MTI.Type>} typemap 
+ * @param {ResolvedImport[]} resolved_imports The list of types resolved from the imports
+ */
+function findRawTypeMTIs(dotted_raw_typename, fully_qualified_scope, resolved_imports, typemap) {
+
+    // first check if it's a simple primitive
+    if (/^(int|char|boolean|void|long|byte|short|float|double)$/.test(dotted_raw_typename)) {
+        // return the primitive type
+        return [MTI.fromPrimitive(dotted_raw_typename)];
+    }
+
+    // create a regex to search for the type name
+    // - the first search is for exact type matches inside the current type scope (and any parent type scopes)
+    let search = createTypeScopeRegex(fully_qualified_scope, dotted_raw_typename); 
+    let matched_types = 
+        resolved_imports.map(ri => ({
+            ri,
+            mtis: ri.fullyQualifiedNames.filter(fqn => search.test(fqn)).map(fqn => ri.types.get(fqn))
+        }))
+        .filter(x => x.mtis.length);
+
+    if (!matched_types.length) {
+        // if the type was not found in the current type scope, construct a new search for the imported types.
+        // - since we don't know if the type name includes package qualifiers or not, this regex allows for implicit
+        //   package prefixes (todo - need to figure out static type imports)
+        search = new RegExp(`^(.+?[.])?${dotted_raw_typename.replace(/\./g,'[.$]')}$`);
+
+        // search the imports for the type
+        matched_types = 
+            resolved_imports.map(ri => ({
+                ri,
+                mtis: ri.fullyQualifiedNames.filter(fqn => search.test(fqn)).map(fqn => ri.types.get(fqn))
+            }))
+            .filter(x => x.mtis.length);
+    }
+
+    // if the type matches multiple import entries, exact imports take prioirity over demand-load imports
+    let exact_import_matches = matched_types.filter(x => x.ri.import && !x.ri.import.asterisk);
+    if (exact_import_matches.length) {
+        if (exact_import_matches.length < matched_types.length) {
+            matched_types = exact_import_matches;
+        }
+    }
+
+    if (!matched_types.length) {
+        // if the type doesn't match any import, the final option is a fully qualified match across all types in all libraries
+        search = new RegExp(`^${dotted_raw_typename.replace(/\./g,'[.$]')}$`);
+        for (let typename of typemap.keys()) {
+            if (search.test(typename)) {
+                matched_types = [{
+                    ri: null,
+                    mtis: [typemap.get(typename)]
+                }];
+                break;
+            }
+        }
+    }
+
+    // at this point, we should (hopefully) have a single matched type
+    // - if the matched_types array is empty, the type is not found
+    // - if the matched_type array has more than one entry, the type matches types across multiple imports
+    // - if the matched_type array has one entry and multiple MTIs, the type matches multiple types in a single import
+    return matched_types.reduce((mtis,mt) => [...mtis, ...mt.mtis] , []);
+}
+
+/**
+ * Converts an array of type name strings to resolved types
+ * @param {string[]} types
+ * @param {string} fully_qualified_scope the JRE name of the type scope we are resolving in
+ * @param {ResolvedImport[]} resolved_imports the list of resolved imports (and types associated with them)
+ * @param {Map<string,MTI.Type>} typemap 
+ */
+function resolveTypes(types, fully_qualified_scope, resolved_imports, typemap) {
+    return types.map(typename => resolveType(typename, fully_qualified_scope, resolved_imports, typemap));
+}
+
+/**
+ * Converts an array of TypeIdent instances to resolved types
+ * @param {import('./parsetypes/typeident')[]} types
+ * @param {string} fully_qualified_scope the JRE name of the type scope we are resolving in
+ * @param {ResolvedImport[]} resolved_imports the list of resolved imports (and types associated with them)
+ * @param {Map<string,MTI.Type>} typemap 
+ */
+function resolveTypeIdents(types, fully_qualified_scope, resolved_imports, typemap) {
+    const names = types.map(typeident => 
+        typeident.tokens.map(token => token.text).join('')
+    );
+    return resolveTypes(names, fully_qualified_scope, resolved_imports, typemap);
+}
+
+
+module.exports = {
+    parse_type,
+    resolveTypes,
+    resolveTypeIdents,
+    ResolvedType,
+}

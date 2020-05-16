@@ -16,21 +16,26 @@ function packageNameFromRef(ref, mti) {
 
 /**
  * @param {number} ref 
- * @param {MTI} mti
+ * @param {MTI} unit
  */
-function typeFromRef(ref, mti) {
+function typeFromRef(ref, unit) {
     if (typeof ref !== 'number') {
         return null;
     }
     if (ref < 16) {
         return KnownTypes[ref];
     }
-    return mti.referenced.types[ref - 16];
+    return unit.referenced.types[ref - 16];
 }
 
 function indent(s) {
     return '\n' + s.split('\n').map(s => `    ${s}`).join('\n');
 }
+
+/**
+ * @typedef {MTIType|MTIArrayType|MTIPrimitiveType} Type
+ * @typedef {'class'|'interface'|'enum'|'@interface'|'primitive'|'array'} MTITypeKind
+ */
 
 class MinifiableInfo {
 
@@ -75,11 +80,132 @@ class MinifiableInfo {
     ```
  */
 class MTI extends MinifiableInfo {
+    /**
+     * @param {string} package_name
+     * @param {string} docs
+     * @param {string[]} modifiers 
+     * @param {'class'|'enum'|'interface'|'@interface'} typeKind 
+     * @param {string} name 
+     */
+  addType(package_name, docs, modifiers, typeKind, name) {
+      const t = {
+          d: docs,
+          p: this.addPackage(package_name),
+          m: getTypeMods(modifiers, typeKind),
+          n: name.replace(/\./g,'$'),
+          v: [],
+          e: /interface/.test(typeKind) ? [] 
+            : typeKind === 'enum' ? this.addRefType('java.lang', 'Enum')
+            : this.addRefType('java.lang', 'Object'),
+          i: [],
+          f: [],
+          c: [],
+          g: [],
+      }
+      this.minified.it.push(t);
+      const mtitype = new MTIType(this, t);
+      this.types.push(mtitype);
+      return mtitype;
+  }
+
+  /**
+   * @param {number} base_typeref 
+   * @param {number[]} type_args 
+   */
+    addGenericRefType(base_typeref, type_args) {
+        const targs_key = type_args.join(',');
+        let idx = this.minified.rt.findIndex(t => (t.n === base_typeref) && !t.a && t.g && (t.g.join(',') === targs_key));
+        if (idx < 0) {
+            const rt_mti = {
+                n: base_typeref,
+                g: type_args,
+            };
+            idx = this.minified.rt.push(rt_mti) - 1;
+            this.referenced.types.push(new ReferencedType(this, rt_mti));
+        }
+        return idx + 16;
+    }
+
+    addArrayRefType(element_typeref, dimensions) {
+        let idx = this.minified.rt.findIndex(t => (t.n === element_typeref) && !t.g && (t.a === dimensions));
+        if (idx < 0) {
+            const rt_mti = {
+                n: element_typeref,
+                a: dimensions,
+            };
+            idx = this.minified.rt.push(rt_mti) - 1;
+            this.referenced.types.push(new ReferencedType(this, rt_mti));
+        }
+        return idx + 16;
+    }
 
     /**
-     * @param {{rp:[], rt:[], it:[]}} mti 
+     * @param {string} package_name 
+     * @param {string} type_name 
      */
-    constructor(mti) {
+    addRefType(package_name, type_name) {
+        let idx;
+        if (!package_name || package_name === 'java.lang') {
+            idx = KnownTypes.findIndex(t => t.name === type_name);
+            if (idx >= 0) {
+                return idx;
+            }
+        }
+        const pkgref = this.addPackage(package_name);
+        const jre_type_name = type_name.replace(/\./g, '$');
+        idx = this.minified.rt.findIndex(t => t.p === pkgref && t.n === jre_type_name);
+        if (idx < 0) {
+            const rt_mti = {
+                p: pkgref,
+                n: jre_type_name,
+            };
+            idx = this.minified.rt.push(rt_mti) - 1;
+            this.referenced.types.push(new ReferencedType(this, rt_mti))
+        }
+        return idx + 16;
+    }
+
+    /**
+     * @param {string} packagename 
+     */
+    addPackage(packagename) {
+        let idx = KnownPackages.indexOf(packagename);
+        if (idx >= 0) {
+            return idx;
+        }
+        idx = this.minified.rp.indexOf(packagename);
+        if (idx < 0) {
+            idx = this.minified.rp.push(packagename) - 1;
+        }
+        return idx + 16;
+    }
+
+    static get defaultPackageRef() {
+        return KnownPackages.indexOf("");
+    }
+
+    /**
+     * @param {string} name 
+     */
+    static fromPrimitive(name) {
+        return MTIPrimitiveType.fromName(name);
+    }
+
+    /**
+     * @param {Type} element 
+     */
+    static makeArrayType(element, dimensions) {
+        let res = element;
+        for (let i = 0; i < dimensions; i++) {
+            res = new MTIArrayType(res);
+        }
+        return res;
+    }
+
+    /**
+     * @param {{rp:string[], rt:*[], it:*[]}} mti 
+     */
+    constructor(mti = {rp:[],rt:[],it:[]}) {
         super(mti);
         // initialise the lists of referenced packages and types
         this.referenced = {
@@ -162,7 +288,7 @@ class ReferencedType extends MinifiableInfo {
             baseType,
 
             /** @type {ReferencedType[]} */
-            typeParams: mti.g && mti.g.map(t => typeFromRef(t, unit)),
+            typeArgs: mti.g && mti.g.map(t => typeFromRef(t, unit)),
 
             /** @type {string} */
             arr: '[]'.repeat(mti.a | 0),
@@ -177,10 +303,10 @@ class ReferencedType extends MinifiableInfo {
     get name() {
         // note: names in enclosed types are in x$y format
         const n = this.parsed.baseType ? this.parsed.baseType.name : this.minified.n;
-        const type_params = this.parsed.typeParams
-            ? `<${this.parsed.typeParams.map(tp => tp.name).join(',')}>`
+        const type_args = this.parsed.typeArgs
+            ? `<${this.parsed.typeArgs.map(tp => tp.name).join(',')}>`
             : ''
-        return `${n}${type_params}${this.parsed.arr}`;
+        return `${n}${type_args}${this.parsed.arr}`;
     }
 
     get dottedName() {
@@ -188,6 +314,97 @@ class ReferencedType extends MinifiableInfo {
     }
 }
 
+class MTITypeBase extends MinifiableInfo {
+    /**
+     * type docs
+     * @type {string}
+     */
+    get docs() { return this.minified.d }
+    
+    /**
+     * type modifiers
+     * @type {number}
+     */
+    get modifiers() { return this.minified.m }
+
+    /**
+     * type name (in x$y format for enclosed types)
+     * @type {string}
+     */
+    get name() { return this.minified.n }
+
+    /**
+     * package this type belongs to
+     */
+    get package() { return null }
+
+    /**
+     * @type {MTIConstructor[]}
+     */
+    get constructors() { return [] }
+
+    /**
+     * @type {MTIField[]}
+     */
+    get fields() { return [] }
+
+    /**
+     * @type {MTIMethod[]}
+     */
+    get methods() { return [] }
+
+    /**
+     * @param {string} name 
+     */
+    hasModifier(name) {
+        return ((this.minified.m | 0) & getModifierBit(name)) !== 0;
+    }
+
+    toSource() {
+        return this.name;
+    }
+}
+
+class MTIArrayType extends MTITypeBase {
+    /**
+     * @param {Type} element_type 
+     */
+    constructor(element_type) {
+        super({
+            n: element_type.name + '[]',
+            d: '',
+            m: 0,   // should array types be implicitly final?
+        });
+        this.element_type = element_type;
+    }
+
+    get fullyDottedRawName() { return `${this.element_type.fullyDottedRawName}[]` }
+
+    /** @type {MTITypeKind} */
+    get typeKind() { return 'array' }
+}
+
+class MTIPrimitiveType extends MTITypeBase {
+
+    static _cached = new Map();
+    static fromName(name) {
+        let value = MTIPrimitiveType._cached.get(name);
+        if (!value) {
+            value = new MTIPrimitiveType({
+                n: name,
+                d: '',
+                m: 0,
+            });
+            MTIPrimitiveType._cached.set(name, value);
+        }
+        return value;
+    }
+    
+    get fullyDottedRawName() { return this.name }
+
+    /** @type {MTITypeKind} */
+    get typeKind() { return 'primitive' }
+}
 
 /**
  * MTIType encodes a complete type (class, interface or enum)
@@ -205,7 +422,7 @@ class ReferencedType extends MinifiableInfo {
  * }
  * ```
  */
-class MTIType extends MinifiableInfo {
+class MTIType extends MTITypeBase {
 
     /**
      * @param {MTI} unit 
@@ -241,25 +458,12 @@ class MTIType extends MinifiableInfo {
         }
     }
 
-    /**
-     * type docs
-     * @type {string}
-     */
-    get docs() { return this.minified.d }
-
-    /**
-     * type modifiers
-     * @type {number}
-     */
-    get modifiers() { return this.minified.m }
-    
-    /**
-     * type name (in x$y format for enclosed types)
-     * @type {string}
-     */
-    get name() { return this.minified.n }
-
     get dottedRawName() { return this.minified.n.replace(/[$]/g, '.') };
+
+    get fullyDottedRawName() {
+        const pkg = this.package;
+        return pkg ? `${pkg}.${this.dottedRawName}` : this.dottedRawName;
+    };
 
     get dottedName() {
         const t = this.typevars.map(t => t.name).join(',');
@@ -277,6 +481,7 @@ class MTIType extends MinifiableInfo {
      */
     get package() { return this.parsed.package }
 
+    /** @type {MTITypeKind} */
     get typeKind() {
         const m = this.minified.m;
         return (m & TypeModifiers.enum)
@@ -332,7 +537,9 @@ class MTIType extends MinifiableInfo {
             // only add extends if it's not derived from java.lang.Object
             if (this.extends !== KnownTypes[3]) {
                 const x = Array.isArray(this.extends) ? this.extends : [this.extends];
-                ex = `extends ${x.map(type => type.dottedName).join(', ')} `;
+                if (x.length) {
+                    ex = `extends ${x.map(type => type.dottedName).join(', ')} `;
+                }
             }
         }
 
@@ -347,6 +554,85 @@ class MTIType extends MinifiableInfo {
             ...this.methods.map(m => indent(m.toSource())),
             `}`
         ].join('\n');
+    }
+
+    /**
+     * @param {MTI} unit
+     * @param {number} typeref 
+     */
+    setExtends(unit, typeref) {
+        if (Array.isArray(this.minified.e)) {
+            this.minified.e.push(typeref);
+            // @ts-ignore
+            this.parsed.extends.push(typeFromRef(typeref, unit));
+        } else {
+            this.minified.e = typeref;
+            this.parsed.extends = typeFromRef(typeref, unit);
+        }
+    }
+
+    /**
+     * @param {MTI} unit 
+     * @param {string} docs 
+     * @param {string[]} modifiers 
+     * @param {number} typeref 
+     * @param {string} name 
+     */
+    addField(unit, docs, modifiers, typeref, name) {
+        const o = {
+            d: docs,
+            m: getAccessMods(modifiers),
+            n: name,
+            t: typeref,
+        }
+        this.minified.f.push(o);
+        this.parsed.fields.push(new MTIField(unit, o));
+    }
+
+    /**
+     * @param {MTI} unit 
+     * @param {string} docs 
+     * @param {string[]} modifiers 
+     */
+    addConstructor(unit, docs, modifiers) {
+        const o = {
+            d: docs,
+            m: getAccessMods(modifiers),
+            p: [],
+        }
+        this.minified.c.push(o);
+        const c = new MTIConstructor(unit, o);
+        this.parsed.constructors.push(c);
+        return c;
+    }
+
+    /**
+     * @param {MTI} unit 
+     * @param {MTIType} owner 
+     * @param {string} docs 
+     * @param {string[]} modifiers 
+     * @param {number} typeref 
+     * @param {string} name 
+     */
+    addMethod(unit, owner, docs, modifiers, typeref, name) {
+        let g = this.minified.g.find(m => m.name === name);
+        if (!g) {
+            g = {
+                n:name,
+                s: [],
+            }
+            this.minified.g.push(g);
+        }
+        const o = {
+            d: docs,
+            m: getAccessMods(modifiers),
+            t: typeref,
+            p: [],
+        };
+        g.s.push(o);
+        const method = new MTIMethod(unit, owner, name, o);
+        this.parsed.methods.push(method);
+        return method;
     }
 }
 
@@ -442,6 +728,22 @@ class MTIConstructor extends MTIMethodBase {
         const typename = this.parsed.typename.split('$').pop();
         return `${this.fmtdocs()}${access(this.modifiers)}${typename}(${this.parameters.map(p => p.toSource()).join(', ')}) {}`
     }
+
+    /**
+     * @param {MTI} unit 
+     * @param {string[]} modifiers 
+     * @param {number} typeref 
+     * @param {string} name 
+     */
+    addParameter(unit, modifiers, typeref, name) {
+        const o = {
+            m: getAccessMods(modifiers),
+            t: typeref,
+            n: name,
+        }
+        this.minified.p.push(o);
+        this.parsed.parameters.push(new MTIParameter(unit, o));
+    }
 }
 
 /**
@@ -518,6 +820,10 @@ class MTIConstructor extends MTIMethodBase {
      */
     get parameters() { return this.parsed.parameters }
 
+    toDeclSource() {
+        return `${this.return_type.dottedName} ${this.name}(${this.parameters.map(p => p.toSource()).join(', ')})`;
+    }    
+
     toSource() {
         let m = this.modifiers, body = ' {}';
         if (m & 0x400) {
@@ -529,6 +835,22 @@ class MTIConstructor extends MTIMethodBase {
             m &= ~0x400;    // exclude abstract modifier as it's redundant
         }
         return `${this.fmtdocs()}${access(m)}${this.return_type.dottedName} ${this.name}(${this.parameters.map(p => p.toSource()).join(', ')})${body}`
+    }
+
+    /**
+     * @param {MTI} unit 
+     * @param {string[]} modifiers 
+     * @param {number} typeref 
+     * @param {string} name 
+     */
+    addParameter(unit, modifiers, typeref, name) {
+        const o = {
+            m: getAccessMods(modifiers),
+            t: typeref,
+            n: name,
+        }
+        this.minified.p.push(o);
+        this.parsed.parameters.push(new MTIParameter(unit, o));
     }
 }
 
@@ -589,6 +911,27 @@ function access(modifier_bits) {
     return decls.join(' ');
 }
 
+/**
+ * @param {string} modifier 
+ */
+function getModifierBit(modifier) {
+    const i = access_keywords.indexOf(modifier);
+    return i < 0 ? 0 : (1 << i);
+}
+
+/**
+ * @param {string[]} modifiers 
+ * @param {boolean} [varargs] 
+ */
+function getAccessMods(modifiers, varargs = false) {
+    let m = 0;
+    modifiers.forEach(modifier => m |= getModifierBit(modifier));
+    if (varargs) {
+        m |= getModifierBit('transient');
+    }
+    return m;
+}
+
 const TypeModifiers = {
     public:       0b0000_0000_0000_0001,    // 0x1
     final:        0b0000_0000_0001_0000,    // 0x10
@@ -618,6 +961,29 @@ function typemods(modifier_bits) {
     if (modifier_bits & TypeModifiers.abstract) modifiers.push('abstract');
     modifiers.push(type);
     return modifiers.join(' ');
+}
+
+/**
+ * @param {string[]} modifiers 
+ * @param {MTITypeKind} typeKind 
+ */
+function getTypeMods(modifiers, typeKind) {
+    let m = 0;
+    if (modifiers.includes('public')) m |= TypeModifiers.public;
+    if (modifiers.includes('final')) m |= TypeModifiers.final;
+    if (modifiers.includes('abstract')) m |= TypeModifiers.abstract;
+    switch (typeKind) {
+        case "interface": 
+            m |= TypeModifiers.interface | TypeModifiers.abstract;
+            break;
+        case "@interface": 
+            m |= TypeModifiers['@interface'] | TypeModifiers.abstract;
+            break;
+        case "enum": 
+            m |= TypeModifiers.enum | TypeModifiers.final;
+            break;
+    }
+    return m;
 }
 
 /**
