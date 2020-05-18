@@ -87,6 +87,18 @@ class UnaryOpExpression extends ParsedExpression {
     }
 }
 
+class IncOpExpression extends ParsedExpression {
+    /**
+     * @param {'e++'|'e--'|'++e'|'--e'} which 
+     * @param {ParsedExpression} expression 
+     */
+    constructor(which, expression) {
+        super();
+        this.which = which;
+        this.expression = expression;
+    }
+}
+
 class TernaryExpression extends ParsedExpression {
 
     /**
@@ -287,7 +299,23 @@ function getBinaryOperator(s) {
  * @returns {ParsedExpression}
  */
 function parse_expression(e) {
+    const prefix_incdec = e.expr.match(/^(?:(\+\+)|\-\-)(?=[a-zA-Z_])/);
+    if (prefix_incdec) {
+        strip(e, 2);
+    }
     let res = parse_expression_term(e);
+    if (prefix_incdec) {
+        res = new IncOpExpression(e.expr[1] ? '++e' : '--e', res);
+    }
+
+    const postfix_incdec = e.expr.match(/^(?:(\+\+)|\-\-)(?![+-])/);
+    if (postfix_incdec) {
+        if (prefix_incdec) {
+            return null;
+        }
+        strip(e, 2);
+        res = new IncOpExpression(e.expr[1] ? 'e++' : 'e--', res);
+    }
 
     for (; ;) {
         const binary_operator = getBinaryOperator(e.expr);
