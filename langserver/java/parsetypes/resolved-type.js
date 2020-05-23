@@ -58,6 +58,10 @@ class ResolvedType {
         get label() {
             return this.name + (this.typeargs ? `<${this.typeargs.map(arg => arg.label).join(',')}>` : '');
         }
+
+        get rawlabel() {
+            return this.name;
+        }
     }
 
     /** @type {ResolvedType.TypePart[]} */
@@ -80,6 +84,13 @@ class ResolvedType {
     mtis = [];
 
     /**
+     * @param {boolean} [isTypeArg] 
+     */
+    constructor(isTypeArg = false) {
+        this.isTypeArg = isTypeArg;
+    }
+
+    /**
      * During parsing, add a new type part
      * @param {string} [name] 
      * @param {ResolvedType.TypePart} [outer] 
@@ -97,8 +108,19 @@ class ResolvedType {
         return this.parts.map(p => p.name).join('.');
     }
 
+    get isPrimitive() {
+        if (this.arrdims > 0 || this.parts.length !== 1) {
+            return false;
+        }
+        return /^(int|boolean|char|void|byte|long|double|float|short)$/.test(this.parts[0].name);
+    }
+
     get label() {
         return this.parts.map(p => p.label).join('.') + '[]'.repeat(this.arrdims);
+    }
+
+    get rawlabel() {
+        return this.parts.map(p => p.rawlabel).join('.') + '[]'.repeat(this.arrdims);
     }
 };
 

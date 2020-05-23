@@ -18,8 +18,9 @@ const {
 const { TextDocument } = require('vscode-languageserver-textdocument');
 
 const MTI = require('./java/mti');
-const { parse, ParseProblem, ProblemSeverity, ParseResult } = require('./java/parser');
-const { resolveImports } = require('./java/import-resolver');
+const { ParseProblem } = require('./java/parser');
+const { parse, ModuleBlock } = require('./java/parser9');
+const { validate } = require('./java/validater');
 
 let androidLibrary = null;
 function loadAndroidLibrary(retry) {
@@ -70,7 +71,7 @@ let connection = createConnection(ProposedFeatures.all);
 
 ///** @type {LiveParseInfo[]} */
 //const liveParsers = [];
-/** @type {{content: string, uri: string, result: ParseResult, positionAt:(n) => Position, indexAt:(p:Position) => number}} */
+/** @type {{content: string, uri: string, result: ModuleBlock, positionAt:(n) => Position, indexAt:(p:Position) => number}} */
 let parsed = null;
 
 function reparse(uri, content) {
@@ -270,57 +271,7 @@ async function validateTextDocument(textDocument) {
     connection.console.log('validateTextDocument');
 
     if (parsed && parsed.result) {
-        // package problem
-        if (parsed.result.package) {
-            problems = [...problems, ...parsed.result.package.validate()];
-        }
-
-        // import problems
-        problems = parsed.result.imports.reduce((problems, import_decl) => {
-            return [...problems, ...import_decl.validate()];
-        }, problems);
-
-        // type problems
-        problems = parsed.result.types.reduce((problems, type_decl) => {
-            return [...problems, ...type_decl.validate()];
-        }, problems);
-
-        // syntax problems
-        problems = parsed.result.invalids.reduce((problems, invalid) => {
-            return [...problems, ...invalid.validate()];
-        }, problems);
-
-        const package_name = parsed.result.package ? parsed.result.package.dottedName() : '';
-        const source_mtis = parsed.result.types.map(type_decl => {
-            return new MTI().addType(package_name, type_decl.getDocString(), type_decl.getAccessModifierValues(), type_decl.kind, type_decl.qualifiedName());
-        })
-        const imports = resolveImports(androidLibrary, parsed.result.imports, package_name, source_mtis);
-
-        // missing/invalid imports
-        problems = imports.unresolved.reduce((problems, unresolved) => {
-            const fqn = unresolved.nameparts.join('.');
-            return [...problems, new ParseProblem(unresolved.nameparts, `Unresolved import: ${fqn}`, ProblemSeverity.Warning)];
-        }, problems);
-
-        // resolved types
-        problems = parsed.result.types.reduce((problems, type_decl) => {
-            return [...problems, ...type_decl.validateTypes(package_name, imports.resolved, imports.typemap)];
-        }, problems);
-
-        // duplicate type names
-        /** @type {Map<string,import('./java/parsetypes/type')[]>} */
-        const typenames = new Map();
-        parsed.result.types.forEach(type_decl => {
-            const qname = type_decl.qualifiedName();
-            let list = typenames.get(qname);
-            if (!list) typenames.set(qname, list = []);
-            list.push(type_decl);
-        });
-        [...typenames.values()]
-            .filter(list => list.length > 1)
-            .forEach(list => {
-                problems = [...problems, ...list.map(type_decl => new ParseProblem(type_decl.name, `Duplicate type: ${type_decl.qualifiedDottedName()}`, ProblemSeverity.Error))];
-            });
+        problems = validate(parsed.result, androidLibrary);
     }
 
     const diagnostics = problems

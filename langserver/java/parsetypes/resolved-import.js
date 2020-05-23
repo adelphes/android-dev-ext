@@ -1,6 +1,4 @@
-/**
- * @typedef {import('./import')} ImportDeclaration
- */
+const { ImportBlock } = require('../parser9');
 
  /**
   * Class representing a resolved import.
@@ -11,9 +9,10 @@
   */
  class ResolvedImport {
     /**
-     * @param {ImportDeclaration} import_decl 
+     * @param {ImportBlock} import_decl 
      * @param {RegExpMatchArray} matches 
-     * @param {'owner-package'|'import'|'implicit-import'} import_kind;
+     * @param {Map<string,import('../mti').Type>} typemap
+     * @param {'owner-package'|'import'|'implicit-import'} import_kind
      */
     constructor(import_decl, matches, typemap, import_kind) {
         /**

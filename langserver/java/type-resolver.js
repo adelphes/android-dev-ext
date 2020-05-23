@@ -26,7 +26,7 @@ function parse_type(label) {
         if (m[0] === '<') {
             if (!parts[0].typeargs && !parts[0].owner.arrdims) {
                 // start of type arguments - start a new type
-                const t = new ResolvedType();
+                const t = new ResolvedType(true);
                 parts[0].typeargs = [t];
                 parts.unshift(t.addTypePart());
                 continue;
@@ -36,7 +36,7 @@ function parse_type(label) {
         if (m[0] === ',') {
             if (parts[1] && parts[1].typeargs) {
                 // type argument separator - replace the type on the stack
-                const t = new ResolvedType();
+                const t = new ResolvedType(true);
                 parts[1].typeargs.push(t);
                 parts[0] = t.addTypePart();
                 continue;
@@ -202,7 +202,7 @@ function findRawTypeMTIs(dotted_raw_typename, fully_qualified_scope, resolved_im
     }
 
     // if the type matches multiple import entries, exact imports take prioirity over demand-load imports
-    let exact_import_matches = matched_types.filter(x => x.ri.import && !x.ri.import.asterisk);
+    let exact_import_matches = matched_types.filter(x => x.ri.import && !x.ri.import.isDemandLoad);
     if (exact_import_matches.length) {
         if (exact_import_matches.length < matched_types.length) {
             matched_types = exact_import_matches;

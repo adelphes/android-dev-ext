@@ -86,14 +86,15 @@ class MTI extends MinifiableInfo {
      * @param {string[]} modifiers 
      * @param {'class'|'enum'|'interface'|'@interface'} typeKind 
      * @param {string} name 
+     * @param {string[]} typeVarNames
      */
-  addType(package_name, docs, modifiers, typeKind, name) {
+  addType(package_name, docs, modifiers, typeKind, name, typeVarNames) {
       const t = {
           d: docs,
           p: this.addPackage(package_name),
           m: getTypeMods(modifiers, typeKind),
           n: name.replace(/\./g,'$'),
-          v: [],
+          v: typeVarNames.map(name => this.addRefType('', name)),
           e: /interface/.test(typeKind) ? [] 
             : typeKind === 'enum' ? this.addRefType('java.lang', 'Enum')
             : this.addRefType('java.lang', 'Object'),
@@ -352,6 +353,11 @@ class MTITypeBase extends MinifiableInfo {
      * @type {MTIMethod[]}
      */
     get methods() { return [] }
+
+    /**
+     * @type {ReferencedType[]}
+     */
+    get typevars() { return [] }
 
     /**
      * @param {string} name 

@@ -1,6 +1,4 @@
-/**
- * @typedef {import('./parsetypes/import')} ImportDeclaration
- */
+const { ImportBlock } = require('./parser9');
 const ResolvedImport = require('./parsetypes/resolved-import');
 
 /**
@@ -25,11 +23,10 @@ function fetchImportedTypes(typenames, dotted_import, demandload) {
 
 /**
  * @param {string} typenames newline-separated list of fully qualified type names
- * @param {import('./parsetypes/import')} import_decl import declaration
+ * @param {ImportBlock} import_decl import declaration
  */
 function resolveImportTypes(typenames, import_decl) {
-    const dotted = import_decl.getDottedName();
-    return fetchImportedTypes(typenames, dotted, !!import_decl.asterisk);
+    return fetchImportedTypes(typenames, import_decl.name, import_decl.isDemandLoad);
 }
 
 /**
@@ -41,7 +38,7 @@ function resolveImportTypes(typenames, import_decl) {
  *   - followed by implicit packages
  * 
  * @param {*} androidLibrary imported types from the Android platform library
- * @param {import('./parsetypes/import')[]} imports list of declared imports in the module
+ * @param {ImportBlock[]} imports list of declared imports in the module
  * @param {string} package_name package name of the module
  * @param {import('./mti').Type[]} source_mtis MTIs representing types declared in the source
  * @param {string[]} [implicitPackages] list of implicit demand-load packages
@@ -63,7 +60,7 @@ function resolveImports(androidLibrary, imports, package_name, source_mtis, impl
 
     /**
      * The list of explicit import declarations we are unable to resolve
-     * @type {ImportDeclaration[]}
+     * @type {ImportBlock[]}
      */
     const unresolved = [];
 

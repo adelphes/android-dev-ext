@@ -2,6 +2,7 @@ const Token = require('./parsetypes/token');
 const Declaration = require('./parsetypes/declaration');
 const TypeIdent = require('./parsetypes/typeident');
 const { parse_expression, ExpressionText, ParsedExpression } = require('../../src/expression/parse');
+const { TextBlock, TextBlockArray, BlockRange } = require('./parsetypes/textblock');
 
 class LocalVariableDeclaration extends Declaration {
     /**
@@ -40,10 +41,11 @@ class LocalVariable {
  * @param {number} index 
  */
 function extractExpression(text, index = 0) {
-    const e = new ExpressionText(text.slice(index));
+    const src = text.slice(index);
+    const e = new ExpressionText(src);
     const parsed = parse_expression(e);
-    console.log(parsed);
-    let consumed = text.indexOf(e.expr);
+    //console.log(parsed);
+    let consumed = index + src.lastIndexOf(e.expr);
     return {
         parsed,
         index: consumed,
@@ -69,18 +71,19 @@ function parseBody(text, text_index = 0) {
     const tokens = new TextBlockArray('body');
 
     // preprocess - strip any comments and normalise strings
-    text = text.replace(/(\/\/.*|\/\*[\D\d]*?\*\/)|(".+?")/g, (_,comment,str) => 
+    text = text.replace(/(\/\/.*|\/\*[\D\d]*?\*\/|\s+)|(".+?")/g, (_,comment,str) => 
         str ? 
         `"${' '.repeat(str.length-2)}"`
-        : _.replace(/[^\r\n]/g,' ')
-    );
+        : ' '
+    ).replace(/;/g,';\n');
 
-    const re = /(\s+)|(["'\d]|\b(?:true|false|null)\b)|\b(if|switch|while|else|for|case|default|do|try|finally|catch|return|break|continue)\b|(\bnew\b)|(\w+)|([;{}():])|(.)/g;
+    const re = /(\s+)|(["'\d]|\b(?:true|false|null)\b)|\b(if|switch|while|else|for|case|default|do|try|finally|catch|return|break|continue)\b|(\bnew\b)|(\w+|\d+(?:\.\d*)?[eE][+-]?\w*|[!~+-])|([;{}():])|(.)/g;
     for (let m; m = re.exec(text);) {
         if (m[1]) {
             // ignore ws + comments
             continue;
         }
+        console.log(re.lastIndex)
         if (m[2]) {
             // string, character, number, boolean or null literal - parse as an expression
             const { parsed, index } = extractExpression(text, m.index);
@@ -101,19 +104,19 @@ function parseBody(text, text_index = 0) {
         }
         if (m[5]) {
             // word - first check if this looks like a variable declaration
-            const local_var_re = /(\w+(?: *\. *\w+)*(?: *<.*?>)?(?: *\[ *\])*)( +)(\w+)( *\[ *\])*/g;
+            const local_var_re = /(final +)?(\w+(?: *\. *\w+)*(?: *<.*?>)?(?: *\[ *\])*)( +)(\w+)( *\[ *\])*/g;
             local_var_re.lastIndex = m.index;
             const local_var_match = local_var_re.exec(text);
             if (local_var_match && local_var_match.index === m.index) {
                 m = local_var_match;
                 // it looks like a local variable declaration
-                const typeident = new TypeIdent([new Token(text_index + m.index, m[1], '', null)]);
+                const typeident = new TypeIdent([new Token(text_index + m.index, m[2], '', null)]);
                 const local_var_decl = new LocalVariableDeclaration([], typeident);
-                let name_token = new Token(text_index + m.index + m[1].length + m[2].length, m[3], '', null);
-                let postarray_token = m[4] ? new Token(name_token.source_idx + m[3].length, m[4], '', null) : null;
+                let name_token = new Token(text_index + m.index + (m[1]||'').length + m[2].length + m[3].length, m[4], '', null);
+                let postarray_token = m[4] ? new Token(name_token.source_idx + m[4].length, m[5], '', null) : null;
                 const vars = [new LocalVariable(local_var_decl, name_token, postarray_token)];
 
-                const next = /( *=)|( *, *)(\w+)( *\[ *\])*/g;
+                const next = /( *= *)|( *, *)(\w+)( *\[ *\])*/g;
                 let lastIndex = local_var_re.lastIndex;
                 for (;;) {
                     next.lastIndex = lastIndex;
@@ -184,7 +187,7 @@ function parseBody(text, text_index = 0) {
         for (let m; m = re.exec(sourcemap.simplified);) {
             let start = sourcemap.map[m.index];
             let end = sourcemap.map[m.index + m[0].length];
-            tokens.shrink(ids[idx], start, end - start, replacements[idx]);
+            tokens.shrink(ids[idx], start, end - start, m, replacements[idx]);
             sourcemap = tokens.sourcemap();
             re.lastIndex = 0;
         }
@@ -192,7 +195,7 @@ function parseBody(text, text_index = 0) {
 
     chunks = [
         /\{([SBVE;]*)(\})/g,          // statement block -> B
-        /I([SBVE;])L?[SBVE;]/g,      // if (Expression) Statement/Block Else -> S
+        /I([SBVE;])(L[SBVE;])?/g,      // if (Expression) Statement/Block Else -> S
         /F[SBVE;]/g,                // for loop -> S
         /P(\{)(Q+[SBVE]*)*(\}?)/g,  // switch(Expression){ Q(caseblock),... } -> S
         /try(B)(C?B?)(N?B?)/g,          // try, Block, catch/finally -> S
@@ -208,7 +211,7 @@ function parseBody(text, text_index = 0) {
             for (let m; m = re.exec(sourcemap.simplified);) {
                 let start = sourcemap.map[m.index];
                 let end = sourcemap.map[m.index + m[0].length];
-                tokens.shrink(ids[idx], start, end - start, replacements[idx]);
+                tokens.shrink(ids[idx], start, end - start, m, replacements[idx]);
                 sourcemap = tokens.sourcemap();
                 re.lastIndex = 0;
             }
@@ -218,124 +221,6 @@ function parseBody(text, text_index = 0) {
 
     return tokens;
 
-}
-
-const expressions = [
-    '1 for(){}',
-    'a',
-    'true',
-    'null',
-    `""`,
-    `'c'`,
-    // operators
-    `1 + 2`,
-    `1 - 2`,
-    `1 * 2`,
-    `1 / 2`,
-    `1 % 2`,
-    `1 & 2`,
-    `1 | 2`,
-    `1 ^ 2`,
-    `1 < 2`,
-    `1 <= 2`,
-    `1 << 2`,
-    `1 > 2`,
-    `1 >= 2`,
-    `1 >> 2`,
-    `1 == 2`,
-    `1 instanceof 2`,
-    // assignment operators
-    `a += 2`,
-    `a -= 2`,
-    `a *= 2`,
-    `a /= 2`,
-    `a %= 2`,
-    `a &= 2`,
-    `a |= 2`,
-    `a ^= 2`,
-    `a <<= 2`,
-    `a >>= 2`,
-    // member, array, methodcall
-    `a.b`,
-    `a.b.c`,
-    `a[1]`,
-    `a[1,2]`,
-    `a[1][2]`,
-    `a()`,
-    `a(b)`,
-    `a(b, "")`,
-    `a.b()`,
-    `a.b()[1]`,
-];
-expressions.map(e => {
-    extractExpression(e);
-})
-
-const src =
-`for (int i=0; i < 10; i++) {
-    do {
-        if (i) {
-            System.out.println("1234");
-        }
-        #
-        switch(x) {
-            case 4:
-            case 5:
-                return x;
-            case 6:
-            default:
-                return;
-        }
-        while (x > 0) true;
-    } while (i > 0);
-    while (x > 0)
-        System.out.println("1234");
-}
-`
-
-class BlockRange {
-
-    get end() { return this.start + this.length }
-    get text() { return this.source.slice(this.start, this.end) }
-    /**
-     * 
-     * @param {string} source 
-     * @param {number} start 
-     * @param {number} length 
-     */
-    constructor(source, start, length) {
-        this.source = source;
-        this.start = start;
-        this.length = length;
-    }
-}
-
-class TextBlock {
-    /**
-     * @param {BlockRange|TextBlockArray} range
-     * @param {string} simplified
-     */
-    constructor(range, simplified) {
-        this.range = range;
-        this.simplified = simplified;
-    }
-
-    /**
-     * @param {string} source 
-     * @param {number} start 
-     * @param {number} length 
-     * @param {string} [simplified] 
-     */
-    static from(source, start, length, simplified) {
-        const range = new BlockRange(source, start, length);
-        return new TextBlock(range, simplified || range.text);
-    }
-
-    toSource() {
-        return this.range instanceof BlockRange
-            ? this.range.text
-            : this.range.toSource()
-    }
 }
 
 class ParsedExpressionBlock extends TextBlock {
@@ -375,55 +260,7 @@ class InvalidTextBlock extends TextBlock {
     }
 }
 
-class TextBlockArray {
-    /**
-     * @param {string} id
-     * @param {TextBlock[]} [blocks] 
-     */
-    constructor(id, blocks = []) {
-        this.id = id;
-        this.blocks = blocks;
-    }
 
-    get simplified() {
-        return this.blocks.map(tb => tb.simplified).join('');
-    }
-
-    sourcemap() {
-        let idx = 0;
-        const parts = [];
-        /** @type {number[]} */
-        const map = this.blocks.reduce((arr,tb,i) => {
-            arr[idx] = i;
-            parts.push(tb.simplified);
-            idx += tb.simplified.length;
-            return arr;
-        }, []);
-        map[idx] = this.blocks.length;
-        return {
-            simplified: parts.join(''),
-            map,
-        }
-    }
-
-    /**
-     * @param {string} id
-     * @param {number} start 
-     * @param {number} count 
-     * @param {string} simplified 
-     */
-    shrink(id, start, count, simplified) {
-        if (count <= 0) return;
-        const collapsed = new TextBlockArray(id, this.blocks.splice(start, count, null));
-        this.blocks[start] = new TextBlock(collapsed, simplified);
-    }
-
-    get source() { return this.toSource() }
-
-    toSource() {
-        return this.blocks.map(tb => tb.toSource()).join('');
-    }
+module.exports = {
+    parseBody,
 }
-
-
-parseBody(src);
