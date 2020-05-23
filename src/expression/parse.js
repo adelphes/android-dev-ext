@@ -387,7 +387,10 @@ function parseNewExpression(e) {
  */
 function parse_expression_term(e) {
     if (e.expr[0] === '(') {
-        return parseBracketOrCastExpression(new ExpressionText(e.expr));
+        const subexpr = new ExpressionText(e.expr);
+        const bexpr = parseBracketOrCastExpression(subexpr);
+        e.expr = subexpr.expr;
+        return bexpr;
     }
     const unop = e.expr.match(/^(?:(!\s?)+|(~\s?)+|(?:([+-]\s?)+(?![\d.])))/);
     if (unop) {
@@ -411,7 +414,7 @@ function parse_expression_term(e) {
  * @param {string} s 
  */
 function getBinaryOperator(s) {
-    const binary_op_match = s.match(/^([/%*&|^+-]=|<<=|>>>?=|[><!=]=|<<|>>>?|[><]|&&|\|\||[/%*&|^]|\+(?=[^+]|[+][\w\d.])|\-(?=[^-]|[-][\w\d.])|instanceof\b|\?)/);
+    const binary_op_match = s.match(/^([!=/%*&|^+-]=?|<<?=?|>>?[>=]?|&&|\|\||[/%*&|^]|\+(?=[^+]|[+][\w\d.])|\-(?=[^-]|[-][\w\d.])|instanceof\b|\?)/);
     return binary_op_match ? binary_op_match[0] : null;
 }
 
