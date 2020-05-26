@@ -16,10 +16,6 @@ function checkDuplicate(mods, probs) {
             m.set(mod.source, mod);
         } else {
             probs.push(ParseProblem.Error(mod, 'Duplicate modifier'));
-            if (firstmod !== null) {
-                probs.push(ParseProblem.Error(firstmod, 'Duplicate modifier'));
-                m.set(mod.source, null);
-            }
         }
     }
 }
@@ -72,13 +68,15 @@ function checkFieldModifiers(field, probs) {
 }
 
 /**
- * @param {Set<string>} ownertypemods
+ * @param {TypeDeclBlock} type
+ * @param {Map<string,*>} ownertypemods
  * @param {MethodBlock} method 
  * @param {ParseProblem[]} probs 
  */
-function checkMethodModifiers(ownertypemods, method, probs) {
+function checkMethodModifiers(type, ownertypemods, method, probs) {
     checkDuplicate(method.modifiers, probs);
     checkConflictingAccess(method.modifiers, probs);
+
     const allmods = new Map(method.modifiers.map(m => [m.source, m]));
     if (allmods.has('abstract') && allmods.has('final')) {
         probs.push(ParseProblem.Error(allmods.get('abstract'), 'Method declarations cannot be abstract and final'));
@@ -89,10 +87,10 @@ function checkMethodModifiers(ownertypemods, method, probs) {
     if (allmods.has('abstract') && method.body().simplified.startsWith('B')) {
         probs.push(ParseProblem.Error(allmods.get('abstract'), 'Method declarations marked as abstract cannot have a method body'));
     }
-    if (!allmods.has('abstract') && !allmods.has('native') && !method.body().simplified.startsWith('B')) {
+    if (type.kind() !== 'interface' && !allmods.has('abstract') && !allmods.has('native') && !method.body().simplified.startsWith('B')) {
         probs.push(ParseProblem.Error(method, `Method '${method.name}' must have an implementation or be defined as abstract or native`));
     }
-    if (allmods.has('abstract') && !ownertypemods.has('abstract')) {
+    if (type.kind() !== 'interface' && allmods.has('abstract') && !ownertypemods.has('abstract')) {
         probs.push(ParseProblem.Error(method, `Method '${method.name}' cannot be declared abstract inside a non-abstract type`));
     }
     if (allmods.has('native') && method.body().simplified.startsWith('B')) {
@@ -119,9 +117,27 @@ function checkInitialiserModifiers(initialiser, probs) {
  * @param {ParseProblem[]} probs 
  */
 function checkTypeModifiers(type, probs) {
-    const typemods = new Set(type.modifiers.map(m => m.source));
+    const typemods = new Map(type.modifiers.map(m => [m.source, m]));
+    checkDuplicate(type.modifiers, probs);
+
+    if (type.kind() === 'interface' && typemods.has('final')) {
+        probs.push(ParseProblem.Error(typemods.get('final'), 'Interface declarations cannot be marked as final'));
+    }
+    if (type.kind() === 'enum' && typemods.has('abstract')) {
+        probs.push(ParseProblem.Error(typemods.get('abstract'), 'Enum declarations cannot be marked as abstract'));
+    }
+    // top-level types cannot be private, protected or static
+    for (let mod of ['private','protected', 'static']) {
+        if (!type.outer_type && typemods.has(mod)) {
+            probs.push(ParseProblem.Error(typemods.get(mod), `Top-level declarations cannot be marked as ${mod}`));
+        }
+    }
+    if (type.outer_type) {
+        checkConflictingAccess(type.modifiers, probs);
+    }
+
     type.fields.forEach(field => checkFieldModifiers(field, probs));
-    type.methods.forEach(method => checkMethodModifiers(typemods, method, probs));
+    type.methods.forEach(method => checkMethodModifiers(type, typemods, method, probs));
     type.constructors.forEach(ctr => checkConstructorModifiers(ctr, probs));
     //type.initialisers.forEach(initer => checkInitModifiers(initer, probs));
     // check enclosed types

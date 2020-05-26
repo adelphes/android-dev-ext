@@ -329,6 +329,7 @@ const markers = {
     annotation: 'Q',
     brackets: 'R',
     typeArgs: 'T',
+    enumvalues: 'U',
     varDecl: 'V',
     typeDecl: 'Z',
     error: ' ',
@@ -342,9 +343,10 @@ const markers = {
  * @param {string} [marker] 
  * @param {boolean} [recursive] 
  * @param {{}} [parseClass]
+ * @param {{time:boolean}} [opts]
  */
-function group(sourceblocks, id, re, marker, recursive, parseClass) {
-    console.time(id);
+function group(sourceblocks, id, re, marker, recursive, parseClass, opts) {
+    if (opts && opts.time) console.time(id);
     let grouped = [];
     let sourcemap = sourceblocks.sourcemap();
     if (!re.global) {
@@ -356,7 +358,9 @@ function group(sourceblocks, id, re, marker, recursive, parseClass) {
         for (let m; m = re.exec(sourcemap.simplified); ) {
             // every group must start and end on a definite boundary
             const start = sourcemap.map[m.index];
-            const end = sourcemap.map[m.index + m[0].length -1];
+            let end = sourcemap.map[m.index + m[0].length - 1];
+            if (end === undefined)
+                end = sourcemap.map[m.index + m[0].length];
             if (start === undefined || end === undefined) {
                 throw new Error('undefined group boundary')
             }
@@ -380,7 +384,7 @@ function group(sourceblocks, id, re, marker, recursive, parseClass) {
         }
         break;
     }
-    console.timeEnd(id);
+    if (opts && opts.time) console.timeEnd(id);
     return grouped;
 }
 
@@ -439,6 +443,20 @@ class DeclaredVariableBlock extends DeclarationBlock {
 
 class FieldBlock extends DeclaredVariableBlock { }
 
+class EnumValueBlock extends TextBlock {
+
+    static parseRE = /(?<=^\{\s*)[W](\s*=[^,;]*)?(\s*,\s*[W](\s*=[^,;]*)?)*(\s*;)?/g
+
+    /**
+     * @param {TextBlockArray} section 
+     * @param {string} simplified 
+     */
+    constructor(section, simplified) {
+        super(section, simplified);
+    }
+
+}
+
 class ParameterBlock extends DeclaredVariableBlock {
     static parseRE = /([MQ](\s*[MQ])*\s+)?(V)/g
 }
@@ -476,19 +494,19 @@ class MCBlock extends DeclarationBlock {
             this.parsed.parameters = group(param_block, 'param', ParameterBlock.parseRE, markers.parameter, false, ParameterBlock);
             // parameters must be a comma-separated list
             const sm = param_block.sourcemap();
-            if (sm.simplified.search(/^\(( *F( *, *F)*)? *\)/) === 0) {
-                return;
+            if (sm.simplified.search(/^\((\s*F(\s*,\s*F)*)?\s*\)/) === 0) {
+                return this.parsed.parameters;
             }
-            let invalid = sm.simplified.match(/^(\( *)(F?)(?: *, *F)* */);
+            let invalid = sm.simplified.match(/^(\(\s*)(F?)(?:\s*,\s*F)*\s*/);
             if (!invalid) {
                 // should never happen, but ignore
-                return;
+                return this.parsed.parameters;
             }
             const token_idx = invalid[2]
               ? sm.map[invalid[0].length] // there's a problem with a subsequent declaration
               : sm.map[invalid[1].length] // there's a problem with the first declaration
             const token = param_block.blocks[token_idx];
-            if (!token) return;
+            if (!token) return this.parsed.parameters;
             this.parsed.errors = [token];
         }
         return this.parsed.parameters;
@@ -594,17 +612,21 @@ class TypeDeclBlock extends DeclarationBlock {
     static marker = 'Z';
 
     /**
-     * 
      * @param {TextBlockArray} blocks 
      * @param {string} simplified 
      */
     constructor(blocks, simplified) {
         super(blocks, simplified);
         this.decl = blocks;
+        this.kindToken = this.decl.blocks.find(b => !/^[MQ\s]/.test(b.simplified));
         this.name_token = this.decl.blocks.find(b => b.simplified.startsWith('W'));
         this.typevars_token = this.decl.blocks.find(b => b.simplified.startsWith('T'));
-        this.extends_token = this.decl.blocks.find(b => b.simplified.startsWith('J'));
-        this.implements_token = this.decl.blocks.find(b => b.simplified.startsWith('K'));
+        this.extends_decl = this.decl.blocks.find(b => b.simplified.startsWith('J'));
+        this.implements_decl = this.decl.blocks.find(b => b.simplified.startsWith('K'));
+        /** @type {TypeDeclBlock} */
+        this.outer_type = null;
+        /** @type {ModuleBlock} */
+        this.mod = null;
         this.parsed = {
             /** @type {{name: string, decl:(TextBlock|BoundedTypeVar)}[]} */
             typevars: null,
@@ -627,11 +649,22 @@ class TypeDeclBlock extends DeclarationBlock {
      * Return the kind of type declared
      */
     kind() {
-        const kindToken = this.decl.blocks.find(b => !/^[MQ\s]/.test(b.simplified));
         /** @type {'class'|'enum'|'interface'|'@'} */
         // @ts-ignore
-        const id = kindToken.toSource();
+        const id = this.kindToken.toSource();
         return id === '@' ? '@interface' : id;
+    }
+
+    get fullyDottedName() {
+        return this.shortSignature.replace(/[/$]/g, '.');
+    }
+
+    get shortSignature() {
+        if (this.outer_type) {
+            return `${this.outer_type.shortSignature}$${this.simpleName}`
+        }
+        const pkg = this.mod.packageName.replace(/\./g, '/');
+        return `${pkg}${pkg ? '/' : ''}${this.simpleName}`
     }
 
     /**
@@ -714,9 +747,13 @@ class TypeDeclBlock extends DeclarationBlock {
         parseAnnotations(body);
         parseEITDecls(body);
         /** @type {TypeDeclBlock[]} */
-        this.parsed.types = parseTypeDecls(body);
+        this.parsed.types = parseTypeDecls(body, this, this.mod);
 
         group(body, 'var-decl', VarDeclBlock.parseRE, markers.varDecl, false, VarDeclBlock);
+        if (this.kind() === 'enum') {
+            /** @type {EnumValueBlock[]} */
+            this.parsed.enums = group(body, 'enumvalue', EnumValueBlock.parseRE, markers.enumvalues, false, EnumValueBlock);
+        }
         /** @type {FieldBlock[]} */
         this.parsed.fields = group(body, 'field', FieldBlock.parseRE, markers.field, false, FieldBlock);
         /** @type {MethodBlock[]} */
@@ -725,9 +762,9 @@ class TypeDeclBlock extends DeclarationBlock {
         this.parsed.constructors = group(body, 'constructor', ConstructorBlock.parseRE, markers.constructor, false, ConstructorBlock);
         /** @type {InitialiserBlock[]} */
         this.parsed.initialisers = group(body, 'initialiser', InitialiserBlock.parseRE, markers.initialiser, false, InitialiserBlock);
-        // anything other than types, fields, methods, constructors and initialisers are errors
+        // anything other than types, fields, methods, constructors, enums and initialisers are errors
         /** @type {TextBlock[]} */
-        this.parsed.errors = group(body, 'type-body-error', /[^{}ZFGCE\s]/g, markers.error);
+        this.parsed.errors = group(body, 'type-body-error', /[^{}ZFGCEU\s;]+/g, markers.error);
     }
 }
 
@@ -838,6 +875,10 @@ class ModuleBlock extends TextBlockArray {
         return this._ensureParsed().types;
     }
 
+    get parseErrors() {
+        return this._ensureParsed().errors;
+    }
+
     _ensureParsed() {
         if (this._parsed) {
             return this._parsed;
@@ -848,11 +889,14 @@ class ModuleBlock extends TextBlockArray {
         parseTypeArgs(this);
         parseAnnotations(this);
         parseEITDecls(this);
-        const types = parseTypeDecls(this);
+        const types = parseTypeDecls(this, null, this);
+        // anything that's not a package, import or type declaration is an error
+        const errors = group(this, 'module-errors', /[^NOZ;\s]+/g, ' ');
         return this._parsed = {
             packages,
             imports,
             types,
+            errors,
         }
     }
 }
@@ -912,10 +956,17 @@ function parseEITDecls(sourceblocks) {
 
 /**
  * @param {TextBlockArray} sourceblocks 
- * @return {TypeDeclBlock[]}
+ * @param {TypeDeclBlock} outer_type
+ * @param {ModuleBlock} mod
  */
-function parseTypeDecls(sourceblocks) {
-    return group(sourceblocks, 'type-decl', TypeDeclBlock.parseRE, markers.typeDecl, false, TypeDeclBlock);
+function parseTypeDecls(sourceblocks, outer_type, mod) {
+    /** @type {TypeDeclBlock[]} */
+    const typedecls = group(sourceblocks, 'type-decl', TypeDeclBlock.parseRE, markers.typeDecl, false, TypeDeclBlock);
+    typedecls.forEach(td => {
+        td.outer_type = outer_type;
+        td.mod = mod;
+    });
+    return typedecls;
 }
 
 /**

@@ -1,36 +1,59 @@
 const { ModuleBlock, TypeDeclBlock } = require('./parser9');
 const { resolveImports } = require('../java/import-resolver');
-const MTI = require('./mti');
+const ResolvedImport = require('../java/parsetypes/resolved-import');
+const { resolveType } = require('../java/type-resolver');
+const { SourceType } = require('./source-type');
+const { JavaType } = require('java-mti');
 
 
 /**
- * @param {string} package_name
+ * @param {ModuleBlock} mod
  * @param {string} owner_typename
  * @param {ModuleBlock|TypeDeclBlock} parent 
- * @param {MTI.Type[]} mtis 
+ * @param {SourceType[]} source_types 
  */
-function getSourceMTIs(package_name, owner_typename, parent, mtis) {
+function getSourceTypes(mod, owner_typename, parent, source_types) {
     parent.types.forEach(type => {
-        const mods = type.modifiers.map(m => m.source);
         const qualifiedTypeName = `${owner_typename}${type.simpleName}`;
         // we add the names of type variables here, but we resolve any bounds later
-        const typevar_names = type.typevars.map(tv => tv.name);
-        const mti = new MTI().addType(package_name, '', mods, type.kind(), qualifiedTypeName, typevar_names);
-        mtis.push(mti);
-        getSourceMTIs(package_name, `${qualifiedTypeName}$`, type, mtis);
+        //const typevar_names = type.typevars.map(tv => tv.name);
+        //const mti = new MTI().addType(package_name, '', mods, type.kind(), qualifiedTypeName, typevar_names);
+        const t = new SourceType(mod, type, qualifiedTypeName);
+        source_types.push(t);
+        getSourceTypes(mod, `${qualifiedTypeName}$`, type, source_types);
     });
 }
 
 /**
+ * 
+ * @param {SourceType} source_type 
+ * @param {ResolvedImport[]} resolved_imports 
+ * @param {Map<string,JavaType>} typemap 
+ */
+function resolveResolvableTypes(source_type, resolved_imports, typemap) {
+    const fully_qualified_scope = source_type.shortSignature;
+    const resolvableTypes = source_type.getAllResolvableTypes();
+    resolvableTypes.forEach(rt => {
+        rt._resolved = resolveType(rt.label, fully_qualified_scope, resolved_imports, typemap);
+    })
+}
+
+/**
  * @param {ModuleBlock} mod 
+ * @param {Map<string, JavaType>} androidLibrary
  */
 function validate(mod, androidLibrary) {
     console.time('validation');
 
-    const source_mtis = [];
-    getSourceMTIs(mod.packageName, '', mod, source_mtis);
+    /** @type {SourceType[]} */
+    const source_types = [];
+    getSourceTypes(mod, '', mod, source_types);
 
-    const imports = resolveImports(androidLibrary, mod.imports, mod.packageName, source_mtis);
+    const imports = resolveImports(androidLibrary, source_types, mod.imports, mod.packageName);
+
+    source_types.forEach(t => {
+        resolveResolvableTypes(t, imports.resolved, imports.typemap);
+    });
 
     const module_validaters = [
         require('./validation/multiple-package-decls'),
@@ -39,10 +62,15 @@ function validate(mod, androidLibrary) {
         require('./validation/parse-errors'),
         require('./validation/modifier-errors'),
         require('./validation/unresolved-imports'),
-        require('./validation/resolved-types'),
+        require('./validation/unresolved-types'),
+        require('./validation/invalid-types'),
+        require('./validation/bad-extends'),
+        require('./validation/bad-implements'),
+        require('./validation/non-implemented-interfaces'),
+        require('./validation/bad-overrides'),
     ];
     let problems = [
-        module_validaters.map(v => v(mod, imports)),
+        module_validaters.map(v => v(mod, imports, source_types)),
     ];
     console.timeEnd('validation');
 

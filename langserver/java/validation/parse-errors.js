@@ -24,6 +24,7 @@ function checkMethodParseErrors(method, probs) {
  */
 module.exports = function(mod) {
     const probs = [];
+    mod.parseErrors.forEach(err => probs.push(ParseProblem.Error(err, `Invalid, incomplete or unsupported declaration`)));
     mod.types.forEach(type => checkTypeParseErrors(type, probs));
     return probs;
 }

@@ -1,0 +1,64 @@
+const { ModuleBlock } = require('../parser9');
+const ParseProblem = require('../parsetypes/parse-problem');
+const { SourceType } = require('../source-type');
+const {CEIType} = require('java-mti');
+
+function nonAbstractLabel(label) {
+    return label.replace(/\babstract /g, '');
+}
+
+/**
+ * @param {SourceType} source_type 
+ * @param {*} probs 
+ */
+function checkImplementedInterfaces(source_type, probs) {
+    if (source_type.implements_types.length === 0) {
+        return;
+    }
+    if (source_type.typeKind === 'interface') {
+        return;
+    }
+    if (source_type.modifiers.includes('abstract')) {
+        return;
+    }
+    const interfaces = new Set(), supers_done = new Set();
+    const supers = source_type.supers.slice();
+    while (supers.length) {
+        const s = supers.shift();
+        supers_done.add(s);
+        if (s.typeKind === 'interface') {
+            interfaces.add(s);
+        }
+        if (s instanceof CEIType) {
+            s.supers.filter(s => !supers_done.has(s)).forEach(s => supers.push(s));
+        }
+    }
+
+    const implemented = source_type.methods.map(m => `${m.name}${m.methodSignature}`);
+    interfaces.forEach((intf, i) => {
+        const missing_methods = [];
+        intf.methods.forEach(m => {
+            const namedsig = `${m.name}${m.methodSignature}`
+            if (implemented.indexOf(namedsig) < 0) {
+                missing_methods.push(nonAbstractLabel(m.label));
+            }
+        })
+        if (missing_methods.length) {
+            probs.push(ParseProblem.Error(source_type._decl.kindToken, `Non-abstract ${source_type.typeKind} '${source_type.fullyDottedRawName}' does not implement the following methods from interface '${intf.fullyDottedRawName}':\n${missing_methods.join('\n')}`));
+        }
+    });
+}
+
+/**
+ * @param {ModuleBlock} mod 
+ * @param {*} imports
+ * @param {SourceType[]} source_types
+ */
+module.exports = function(mod, imports, source_types) {
+    /** @type {ParseProblem[]} */
+    const probs = [];
+      
+    source_types.forEach(type => checkImplementedInterfaces(type, probs));
+      
+    return probs;
+}

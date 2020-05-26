@@ -1,5 +1,8 @@
+/**
+ * @typedef {Map<string,JavaType>} TypeMap
+ */
+const { JavaType, PrimitiveType, ArrayType, CEIType } = require('java-mti');
 const { ResolvedImport } = require('./import-resolver');
-const MTI = require('./mti');
 const ResolvedType = require('./parsetypes/resolved-type');
 
 /**
@@ -85,9 +88,6 @@ function createTypeScopeRegex(fully_qualified_scope, dotted_raw_typename) {
     // split the type name across enclosed type boundaries
     const scopes = fully_qualified_scope.split('$');
 
-    // the first scope is the dotted package name and top-level type - we need to escape the package-qualifier dots for regex
-    scopes[0] = scopes[0].replace(/\./g,'[.]');
-
     // if the typename we are searching represents an enclosed type, the type-qualifier dots must be replaced with $
     const enclosed_raw_typename = dotted_raw_typename.replace(/\./g,'[$]');
 
@@ -102,21 +102,21 @@ function createTypeScopeRegex(fully_qualified_scope, dotted_raw_typename) {
 }
 
 /**
-  * Locate MTIs that match a type.
-  * @param {string} typename The type to resolve
+  * Locate JavaTypes that match a type label.
+  * @param {string} type_label The type to resolve
   * @param {string} fully_qualified_scope The fully-qualified JRE name of the current type scope.
   * @param {ResolvedImport[]} resolved_imports The list of types resolved from the imports
-  * @param {Map<string,MTI.Type>} typemap the global list of types
+  * @param {TypeMap} typemap 
   */
-function resolveType(typename, fully_qualified_scope, resolved_imports, typemap) {
-    const { type, error } = parse_type(typename);
+function resolveType(type_label, fully_qualified_scope, resolved_imports, typemap) {
+    const { type, error } = parse_type(type_label);
     if (error) {
         // don't try to find the type if the parsing failed
         type.error = error;
         return type;
     }
 
-    // locate the MTIs for the type and type arguments
+    // locate the JavaTypes for the type and type arguments
     resolveCompleteType(type, fully_qualified_scope, resolved_imports, typemap);
     return type;
 }
@@ -126,11 +126,11 @@ function resolveType(typename, fully_qualified_scope, resolved_imports, typemap)
  * @param {ResolvedType} type 
  * @param {string} fully_qualified_scope 
  * @param {ResolvedImport[]} resolved_imports 
- * @param {Map<string,MTI.Type>} typemap 
+ * @param {TypeMap} typemap 
  */
 function resolveCompleteType(type, fully_qualified_scope, resolved_imports, typemap) {
 
-    type.mtis = findTypeMTIs(type.getDottedRawType(), type.arrdims, fully_qualified_scope, resolved_imports, typemap);
+    type.mtis = findJavaTypes(type.getDottedRawType(), type.arrdims, fully_qualified_scope, resolved_imports, typemap);
 
     // resolve type arguments
     type.parts.filter(p => p.typeargs).forEach(p => {
@@ -146,34 +146,34 @@ function resolveCompleteType(type, fully_qualified_scope, resolved_imports, type
  * @param {number} arraydims
  * @param {string} fully_qualified_scope The fully-qualified JRE name of the current type scope.
  * @param {ResolvedImport[]} resolved_imports The list of types resolved from the imports
- * @param {Map<string,MTI.Type>} typemap 
+ * @param {TypeMap} typemap 
  */
-function findTypeMTIs(dotted_raw_typename, arraydims, fully_qualified_scope, resolved_imports, typemap) {
-    let mtis = findRawTypeMTIs(dotted_raw_typename, fully_qualified_scope, resolved_imports, typemap);
+function findJavaTypes(dotted_raw_typename, arraydims, fully_qualified_scope, resolved_imports, typemap) {
+    let types = findRawJavaTypes(dotted_raw_typename, fully_qualified_scope, resolved_imports, typemap);
 
     if (arraydims > 0) {
-        // convert matches to array MTIs
-        mtis.forEach((mti,idx,arr) => {
-            arr[idx] = MTI.makeArrayType(mti, arraydims);
-        })
+        // convert matches to array types
+        const array_types = types.map(t => new ArrayType(t, arraydims));
+        return array_types;
     }
 
-    return mtis;
+    return types;
 }
 
 /**
- * Match a dotted type name to one or more MTIs
+ * Match a dotted type name to one or more JavaTypes
  * @param {string} dotted_raw_typename
  * @param {string} fully_qualified_scope The fully-qualified JRE name of the current type scope.
- * @param {Map<string,MTI.Type>} typemap 
+ * @param {TypeMap} typemap 
  * @param {ResolvedImport[]} resolved_imports The list of types resolved from the imports
+ * @returns {(PrimitiveType|CEIType)[]}
  */
-function findRawTypeMTIs(dotted_raw_typename, fully_qualified_scope, resolved_imports, typemap) {
+function findRawJavaTypes(dotted_raw_typename, fully_qualified_scope, resolved_imports, typemap) {
 
     // first check if it's a simple primitive
-    if (/^(int|char|boolean|void|long|byte|short|float|double)$/.test(dotted_raw_typename)) {
+    if (PrimitiveType.isPrimitiveTypeName(dotted_raw_typename)) {
         // return the primitive type
-        return [MTI.fromPrimitive(dotted_raw_typename)];
+        return [PrimitiveType.fromName(dotted_raw_typename)];
     }
 
     // create a regex to search for the type name
@@ -190,7 +190,7 @@ function findRawTypeMTIs(dotted_raw_typename, fully_qualified_scope, resolved_im
         // if the type was not found in the current type scope, construct a new search for the imported types.
         // - since we don't know if the type name includes package qualifiers or not, this regex allows for implicit
         //   package prefixes (todo - need to figure out static type imports)
-        search = new RegExp(`^(.+?[.])?${dotted_raw_typename.replace(/\./g,'[.$]')}$`);
+        search = new RegExp(`^(.+?/)?${dotted_raw_typename.replace(/\./g,'[/$]')}$`);
 
         // search the imports for the type
         matched_types = 
@@ -211,7 +211,7 @@ function findRawTypeMTIs(dotted_raw_typename, fully_qualified_scope, resolved_im
 
     if (!matched_types.length) {
         // if the type doesn't match any import, the final option is a fully qualified match across all types in all libraries
-        search = new RegExp(`^${dotted_raw_typename.replace(/\./g,'[.$]')}$`);
+        search = new RegExp(`^${dotted_raw_typename.replace(/\./g,'[/$]')}$`);
         for (let typename of typemap.keys()) {
             if (search.test(typename)) {
                 matched_types = [{
@@ -227,7 +227,8 @@ function findRawTypeMTIs(dotted_raw_typename, fully_qualified_scope, resolved_im
     // - if the matched_types array is empty, the type is not found
     // - if the matched_type array has more than one entry, the type matches types across multiple imports
     // - if the matched_type array has one entry and multiple MTIs, the type matches multiple types in a single import
-    return matched_types.reduce((mtis,mt) => [...mtis, ...mt.mtis] , []);
+    return matched_types
+        .reduce((types, type) => [...types, ...type.mtis] , [])
 }
 
 /**
@@ -235,7 +236,7 @@ function findRawTypeMTIs(dotted_raw_typename, fully_qualified_scope, resolved_im
  * @param {string[]} types
  * @param {string} fully_qualified_scope the JRE name of the type scope we are resolving in
  * @param {ResolvedImport[]} resolved_imports the list of resolved imports (and types associated with them)
- * @param {Map<string,MTI.Type>} typemap 
+ * @param {TypeMap} typemap 
  */
 function resolveTypes(types, fully_qualified_scope, resolved_imports, typemap) {
     return types.map(typename => resolveType(typename, fully_qualified_scope, resolved_imports, typemap));
@@ -246,7 +247,7 @@ function resolveTypes(types, fully_qualified_scope, resolved_imports, typemap) {
  * @param {import('./parsetypes/typeident')[]} types
  * @param {string} fully_qualified_scope the JRE name of the type scope we are resolving in
  * @param {ResolvedImport[]} resolved_imports the list of resolved imports (and types associated with them)
- * @param {Map<string,MTI.Type>} typemap 
+ * @param {TypeMap} typemap 
  */
 function resolveTypeIdents(types, fully_qualified_scope, resolved_imports, typemap) {
     const names = types.map(typeident => 
@@ -258,6 +259,7 @@ function resolveTypeIdents(types, fully_qualified_scope, resolved_imports, typem
 
 module.exports = {
     parse_type,
+    resolveType,
     resolveTypes,
     resolveTypeIdents,
     ResolvedType,

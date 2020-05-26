@@ -1,6 +1,7 @@
 /**
  * @typedef {import('./token')} Token
  * @typedef {import('./type')} TypeDeclaration
+ * @typedef {import('java-mti').JavaType} JavaType
  */
 
 /**
@@ -78,8 +79,8 @@ class ResolvedType {
     error = '';
 
     /**
-     * The resolved MTIs that match this type. This will be an empty array if the type cannot be found.
-     * @type {import('../mti').Type[]}
+     * The resolved JavaTypes that match this type. This will be an empty array if the type cannot be found.
+     * @type {JavaType[]}
      */
     mtis = [];
 

@@ -12,9 +12,9 @@ function fetchImportedTypes(typenames, dotted_import, demandload) {
     const matcher = demandload
         // for demand-load, we search for any types that begin with the specified import name
         // - note that after the import text, only words and $ are allowed (because additional dots would imply a subpackage)
-        ? new RegExp(`^${dotted_import.replace(/\./g, '[.$]')}[.$][\\w$]+$`, 'gm')
+        ? new RegExp(`^${dotted_import.replace(/\./g, '[/$]')}[/$][\\w$]+$`, 'gm')
         // for exact-load, we search for any types that precisely matches the specified import name
-        : new RegExp(`^${dotted_import.replace(/\./g, '[.$]')}$`, 'gm');
+        : new RegExp(`^${dotted_import.replace(/\./g, '[/$]')}$`, 'gm');
 
     // run the regex against the list of type names
     const matching_names = typenames.match(matcher);
@@ -37,23 +37,20 @@ function resolveImportTypes(typenames, import_decl) {
  *   - followed by import declarations (in order of declaration),
  *   - followed by implicit packages
  * 
- * @param {*} androidLibrary imported types from the Android platform library
+ * @param {Map<string, import('java-mti').JavaType>} androidLibrary
+ * @param {import('java-mti').JavaType[]} sourceTypes
  * @param {ImportBlock[]} imports list of declared imports in the module
  * @param {string} package_name package name of the module
- * @param {import('./mti').Type[]} source_mtis MTIs representing types declared in the source
  * @param {string[]} [implicitPackages] list of implicit demand-load packages
  */
-function resolveImports(androidLibrary, imports, package_name, source_mtis, implicitPackages = ['java.lang']) {
-    /**
-     * create a new Map that maps JRE type names to MTI instances
-     * @type {Map<string, import('./mti').Type>}
-     */
-    const typemap = new Map(
-        androidLibrary.types.map(mti => [`${mti.package}.${mti.name}`, mti])
-    );
-    // add the source MTIs
-    // todo - should we overwrite entries when source MTIs match types in the library?
-    source_mtis.forEach(mti => typemap.set(`${mti.package}.${mti.name}`, mti))
+function resolveImports(androidLibrary, sourceTypes, imports, package_name, implicitPackages = ['java.lang']) {
+
+    const typemap = new Map(androidLibrary);
+
+    sourceTypes.forEach(t => {
+        // todo - should we overwrite entries when source types match types in the library?
+        typemap.set(t.shortSignature, t);
+    })
 
     // construct the list of typenames
     const typenames = [...typemap.keys()].join('\n');

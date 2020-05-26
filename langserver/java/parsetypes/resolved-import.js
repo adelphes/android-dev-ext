@@ -1,17 +1,20 @@
+/**
+ * @typedef {import('java-mti').JavaType} JavaType
+ */
 const { ImportBlock } = require('../parser9');
 
  /**
   * Class representing a resolved import.
   * 
   * Each instance holds an array of types that would be resolved by the specified import.
-  * Each type is mapped to an MTI which lists the implementation details of the type (fields, methods, etc).
+  * Each type is mapped to a JavaType which lists the implementation details of the type (fields, methods, etc).
   * 
   */
  class ResolvedImport {
     /**
      * @param {ImportBlock} import_decl 
      * @param {RegExpMatchArray} matches 
-     * @param {Map<string,import('../mti').Type>} typemap
+     * @param {Map<string,JavaType>} typemap
      * @param {'owner-package'|'import'|'implicit-import'} import_kind
      */
     constructor(import_decl, matches, typemap, import_kind) {
@@ -27,7 +30,7 @@ const { ImportBlock } = require('../parser9');
         this.fullyQualifiedNames = Array.from(matches);
 
         /**
-         * THe map of fully-qualified type names to MTIs
+         * THe map of fully-qualified type names to JavaTypes
          */
         this.types = new Map(matches.map(name => [name, typemap.get(name)]));
 

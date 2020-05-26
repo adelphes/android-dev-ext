@@ -1,7 +1,5 @@
 const Declaration = require('./declaration');
-const ParseProblem = require('./parse-problem');
 const Token = require('./token');
-const TypeParameters = require('./type-parameters');
 
 /**
  * @typedef {import('./modifier')} Modifier
@@ -33,35 +31,6 @@ class ImportDeclaration extends Declaration {
 
     lastToken() {
         return this.semicolon || this.asterisk || this.nameparts.slice(-1)[0];
-    }
-
-    validate() {
-        const checkModifierIsStatic = () => {
-            if (this.static_ && this.static_.text !== 'static') {
-                return ParseProblem.syntaxError(this.static_);
-            }
-        }
-
-        const checkNoInvalidModifiers = () => {
-            return this.modifiers.map(modifier => {
-                if (modifier instanceof Token) {
-                    return ParseProblem.syntaxError(modifier);
-                }
-                if (modifier instanceof TypeParameters) {
-                    return ParseProblem.syntaxError(modifier.open);
-                }
-            })
-        }
-
-        /** @type {ParseProblem[]} */
-        const problems = [
-            checkModifierIsStatic(),
-            ...ParseProblem.checkNonKeywordIdents(this.nameparts),
-            ParseProblem.checkSemicolon(this),
-            ...checkNoInvalidModifiers(),
-        ];
-
-        return problems;
     }
 }
 

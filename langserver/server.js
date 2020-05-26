@@ -17,46 +17,17 @@ const {
 
 const { TextDocument } = require('vscode-languageserver-textdocument');
 
-const MTI = require('./java/mti');
+const { loadAndroidLibrary, JavaType } = require('java-mti');
+
 const { ParseProblem } = require('./java/parser');
 const { parse, ModuleBlock } = require('./java/parser9');
 const { validate } = require('./java/validater');
 
+/**
+ * @typedef {Map<string, JavaType>} AndroidLibrary
+ * @type {AndroidLibrary|Promise<AndroidLibrary>}
+ */
 let androidLibrary = null;
-function loadAndroidLibrary(retry) {
-    try {
-        androidLibrary = MTI.unpackJSON('/tmp/jarscanner/android-25/android-25.json');
-        connection.console.log(`Android type cache loaded: ${androidLibrary.types.length} types from ${androidLibrary.packages.length} packages.`);
-    } catch (e) {
-        connection.console.log(`Failed to load android type cache`);
-        if (retry) {
-            return;
-        }
-        connection.console.log(`Rebuilding type cache...`);
-        const jarscanner = require(`jarscanner/jarscanner`);
-        fs.mkdir('/tmp/jarscanner', (err) => {
-            if (err && err.errno !== -17) {
-                connection.console.log(`Cannot create type cache folder. ${err.message}.`);
-                return;
-            }
-            jarscanner.process_android_sdk_source(
-                {
-                    destpath: '/tmp/jarscanner',
-                    sdkpath: process.env['ANDROID_SDK'],
-                    api: 25,
-                    cleandest: true,
-                },
-                (err) => {
-                    if (err) {
-                        connection.console.log(`Android cache build failed. ${err.message}.`);
-                        return;
-                    }
-                    loadAndroidLibrary(true);
-                }
-            );
-        });
-    }
-}
 
 // Create a connection for the server. The connection uses Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -144,7 +115,7 @@ let documents = new TextDocuments({
      * @param {number} version
      */
     update(document, changes, version) {
-        connection.console.log(JSON.stringify({ what: 'update', changes, version }));
+        connection.console.log(JSON.stringify({ what: 'update', /* changes, */ version }));
         //connection.console.log(`update ${version}`);
         //return document;
         if (parsed && document && parsed.uri === document.uri) {
@@ -170,7 +141,14 @@ let hasWorkspaceFolderCapability = false;
 let hasDiagnosticRelatedInformationCapability = false;
 
 connection.onInitialize((params) => {
-    process.nextTick(loadAndroidLibrary);
+    console.time('android-library-load')
+    androidLibrary = loadAndroidLibrary('android-25').then(lib => {
+        console.timeEnd('android-library-load')
+        return androidLibrary = lib;
+    }, err => {
+        console.log(`android library load failed: ${err.message}`);
+        return androidLibrary = new Map();
+    });
     let capabilities = params.capabilities;
 
     // Does the client support the `workspace/configuration` request?
@@ -266,12 +244,20 @@ documents.onDidChangeContent((change) => {
  * @param {{uri}} textDocument
  */
 async function validateTextDocument(textDocument) {
+    if (androidLibrary instanceof Promise) {
+        connection.console.log('Waiting for Android Library load');
+        androidLibrary = await androidLibrary;
+    }
     /** @type {ParseProblem[]} */
     let problems = [];
     connection.console.log('validateTextDocument');
 
     if (parsed && parsed.result) {
-        problems = validate(parsed.result, androidLibrary);
+        try {
+            problems = validate(parsed.result, androidLibrary);
+        } catch(err) {
+            console.error(err);
+        }
     }
 
     const diagnostics = problems
@@ -353,10 +339,13 @@ connection.onCompletion(
     /**
      * @param {*} _textDocumentPosition TextDocumentPositionParams
      */
-    (_textDocumentPosition) => {
+    async (_textDocumentPosition) => {
         // The pass parameter contains the position of the text document in
         // which code complete got requested. For the example we ignore this
         // info and always provide the same completion items.
+        if (androidLibrary instanceof Promise) {
+            androidLibrary = await androidLibrary;
+        }
         const lib = androidLibrary;
         if (!lib) return [];
         const typeKindMap = {
@@ -383,13 +372,13 @@ connection.onCompletion(
                     kind: CompletionItemKind.Value,
                     data: -1,
                 })),
-                ...lib.types.map(
+                ...[...lib.values()].map(
                     (t, idx) =>
                         /** @type {CompletionItem} */
                         ({
-                            label: t.dottedRawName,
+                            label: t.dottedTypeName,
                             kind: typeKindMap[t.typeKind],
-                            data: idx,
+                            data: t.shortSignature,
                         })
                 ),
             ])
@@ -404,14 +393,17 @@ connection.onCompletionResolve(
      * @param {CompletionItem} item
      */
     (item) => {
-        const t = androidLibrary.types[item.data];
+        if (androidLibrary instanceof Promise) {
+            return item;
+        }
+        const t = androidLibrary.get(item.data);
         if (!t) {
             return item;
         }
-        item.detail = `${t.package}.${t.dottedRawName}`;
+        item.detail = t.fullyDottedRawName;
         item.documentation = t.docs && {
             kind: 'markdown',
-            value: `${t.typeKind} **${t.dottedName}**\n\n${
+            value: `${t.typeKind} **${t.dottedTypeName}**\n\n${
                 t.docs
                 .replace(/(<p ?.*?>)|(<\/?i>|<\/?em>)|(<\/?b>|<\/?strong>|<\/?dt>)|(<\/?tt>)|(<\/?code>|<\/?pre>)|(\{@link.+?\}|\{@code.+?\})|(<li>)|(<a href="\{@docRoot\}.*?">.+?<\/a>)|(<h\d>)|<\/?dd ?.*?>|<\/p ?.*?>|<\/h\d ?.*?>|<\/?div ?.*?>|<\/?[uo]l ?.*?>/gim, (_,p,i,b,tt,c,lc,li,a,h) => {
                     return p ? '\n\n' 
