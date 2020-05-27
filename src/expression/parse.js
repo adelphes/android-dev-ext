@@ -151,6 +151,10 @@ class BracketedExpression extends ParsedExpression {
     }
 }
 
+class ArrayLiteralExpression extends ParsedExpression {
+    elements = [];
+}
+
 class ParsedNewExpression extends ParsedExpression {}
 
 class NewObjectExpression extends ParsedNewExpression {
@@ -385,6 +389,25 @@ function parseNewExpression(e) {
 /**
  * @param {ExpressionText} e 
  */
+function parseArrayLiteral(e) {
+    const arr = new ArrayLiteralExpression();
+    if (!strip(e, '}')) {
+        for (let element; ;) {
+            if ((element = parse_expression(e)) === null) {
+                return null;
+            }
+            arr.elements.push(element);
+            if (strip(e, ',')) continue;
+            if (strip(e, '}')) break;
+            return null;
+        }
+    }
+    return arr;
+}
+
+/**
+ * @param {ExpressionText} e 
+ */
 function parse_expression_term(e) {
     if (e.expr[0] === '(') {
         const subexpr = new ExpressionText(e.expr);
@@ -419,14 +442,22 @@ function getBinaryOperator(s) {
 }
 
 /**
- * @param {ExpressionText} e 
+ * @param {ExpressionText|string} e 
  * @returns {ParsedExpression}
  */
 function parse_expression(e) {
+    if (typeof e === 'string') {
+        e = new ExpressionText(e);
+    }
     const newop = e.expr.match(/^new\b/);
     if (newop) {
         strip(e, 3);
         return parseNewExpression(e);
+    }
+    const arrayinit = e.expr.match(/^\{/);
+    if (arrayinit) {
+        strip(e, 1);
+        return parseArrayLiteral(e);
     }
     const prefix_incdec = e.expr.match(/^(?:(\+\+)|\-\-)(?=[a-zA-Z_])/);
     if (prefix_incdec) {
