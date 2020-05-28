@@ -272,7 +272,7 @@ function parseBracketOrCastExpression(e) {
     // double d = (double)(float)5; - is ok
     // XYZ xyz = (new XYZ)(1,2,3); - nope
     // - this will still need to be resolved for +/- e.g (int)+5 vs (some.field)+5
-    if (/^[\w"'(!~]/.test(e.expr)) {
+    if (/^[\w"'(!~]|^\.\d/.test(e.expr) && !/^!=/.test(e.expr)) {
         // typecast
         const castexpr = parse_expression(e);
         if (!castexpr) {
@@ -420,7 +420,7 @@ function parse_expression_term(e) {
         return parseUnaryExpression(e, unop[0]);
     }
     const root_term_types = ['boolean', 'boolean', 'null', 'ident', 'hexint', 'octint', 'decfloat', 'decint', 'char', 'echar', 'uchar', 'string'];
-    const root_term = e.expr.match(/^(?:(true(?![\w$]))|(false(?![\w$]))|(null(?![\w$]))|([a-zA-Z_$][a-zA-Z0-9_$]*)|([+-]?0x[0-9a-fA-F]+[lL]?)|([+-]?0[0-7]+[lL]?)|([+-]?\d+\.?\d*(?:[eE][+-]?\d+)?[fFdD]?)|([+-]?\d+(?:[eE]\+?\d+)?[lL]?)|('[^\\']')|('\\[bfrntv0]')|('\\u[0-9a-fA-F]{4}')|("[^"]*"))/);
+    let root_term = e.expr.match(/^(?:(true(?![\w$]))|(false(?![\w$]))|(null(?![\w$]))|([a-zA-Z_$][a-zA-Z0-9_$]*)|([+-]?0x[0-9a-fA-F]+[lL]?)|([+-]?0[0-7]+[lL]?)|([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?[fFdD]?)|([+-]?\d+(?:[eE]\+?\d+)?[lL]?)|('[^\\']')|('\\[bfrntv0]')|('\\u[0-9a-fA-F]{4}')|("[^"]*"))/);
     if (!root_term) {
         return null;
     }
@@ -437,7 +437,7 @@ function parse_expression_term(e) {
  * @param {string} s 
  */
 function getBinaryOperator(s) {
-    const binary_op_match = s.match(/^([!=/%*&|^+-]=?|<<?=?|>>?[>=]?|&&|\|\||[/%*&|^]|\+(?=[^+]|[+][\w\d.])|\-(?=[^-]|[-][\w\d.])|instanceof\b|\?)/);
+    const binary_op_match = s.match(/^([!=/%*^+-]=?|<<?=?|>>?[>=]?|&[&=]?|\|[|=]?|\+(?=[^+]|[+][\w\d.])|\-(?=[^-]|[-][\w\d.])|instanceof\b|\?)/);
     return binary_op_match ? binary_op_match[0] : null;
 }
 
