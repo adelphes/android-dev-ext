@@ -98,6 +98,11 @@ class SourceType extends CEIType {
             res.push(m._returnType);
             m.parameters.forEach(p => res.push(p._paramType));
         });
+        this.constructors.forEach(c => {
+            if (c instanceof SourceConstructor) {
+                c.parameters.forEach(p => res.push(p._paramType));
+            }
+        });
         return res;
     }
 }
