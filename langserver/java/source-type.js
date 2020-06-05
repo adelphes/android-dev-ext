@@ -52,7 +52,12 @@ class SourceType extends CEIType {
         
         this.fields = type.fields.map(f => new SourceField(this, f));
         this.methods = type.methods.map(m => new SourceMethod(this, m));
+        /** @type {Constructor[]} */
         this.constructors = type.constructors.map(c => new SourceConstructor(this, c));
+        if (!type.constructors[0] && type.kind() === 'class') {
+            // add a default public constructor if this is a class with no explicit constructors
+            this.constructors.push(new DefaultConstructor(this));
+        }
         super.typevars = type.typevars.map(tv => {
             const typevar = new TypeVariable(tv.name);
             // automatically add the Object bound
@@ -147,8 +152,29 @@ class SourceConstructor extends Constructor {
     get returnType() {
         return this._owner;
     }
-
 }
+
+class DefaultConstructor extends Constructor {
+    /**
+     * @param {SourceType} owner 
+     */
+    constructor(owner) {
+        super(['public']);
+        this._owner = owner;
+    }
+
+    get methodSignature() {
+        return `()V`;
+    }
+
+    /**
+     * @returns {SourceType}
+     */
+    get returnType() {
+        return this._owner;
+    }
+}
+
 
 class SourceMethod extends Method {
     /**
@@ -226,3 +252,4 @@ exports.SourceField = SourceField;
 exports.SourceMethod = SourceMethod;
 exports.SourceParameter = SourceParameter;
 exports.SourceConstructor = SourceConstructor;
+exports.DefaultConstructor = DefaultConstructor;

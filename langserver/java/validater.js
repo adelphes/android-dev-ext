@@ -3,7 +3,7 @@ const { ModuleBlock, TypeDeclBlock } = require('./parser9');
 const { resolveImports } = require('../java/import-resolver');
 const ResolvedImport = require('../java/parsetypes/resolved-import');
 const { resolveType } = require('../java/type-resolver');
-const { SourceType } = require('./source-type');
+const { SourceType, SourceConstructor } = require('./source-type');
 const { parseBody } = require('./body-parser3');
 
 
@@ -59,6 +59,10 @@ function validate(mod, androidLibrary) {
     let probs = [];
     source_types.forEach(t => {
         t.constructors.forEach(c => {
+            // ignore any default constructors
+            if (!(c instanceof SourceConstructor)) {
+                return;
+            }
             console.log(c.label);
             const parsed = parseBody(c._owner._decl.mod.source, c, imports.resolved, imports.typemap);
             if (parsed)
