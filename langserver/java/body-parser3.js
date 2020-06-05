@@ -908,19 +908,22 @@ function resolveAssignment(tokens, ident, lhs, op, rhs) {
             case "bitwise-operator":
                 // ^ is classed as a bitwise operator, but is also a logical operator
                 checkOperator(tokens, lhsvar, op, rhsvar, pre_assign_operator === '^' ? /^[BSIJCZ]{2}$/ : /^[BSIJC]{2}$/);
+                rhsvar = new Value(rhs.source, lhsvar.type);
                 break;
             case "logical-operator":
                 checkOperator(tokens, lhsvar, op, rhsvar, /^ZZ$/);
                 break;
             case "muldiv-operator":
-                checkOperator(tokens, lhsvar, op, rhsvar, /^[BSIJC]{2}$/);
+                checkOperator(tokens, lhsvar, op, rhsvar, /^([BSIJC]{2}|[FD][BSIJCFD])$/);
+                rhsvar = new Value(rhs.source, lhsvar.type);
                 break;
             case "plumin-operator":
                 if (pre_assign_operator === '+' && lhsvar.type.typeSignature === 'Ljava/lang/String;') {
                     // implicitly cast the rhs to a String value
                     rhsvar = new Value(rhs.source, lhsvar.type);
                 } else {
-                    checkOperator(tokens, lhsvar, op, rhsvar, /^[BSIJC]{2}$/);
+                    checkOperator(tokens, lhsvar, op, rhsvar, /^([BSIJC]{2}|[FD][BSIJCFD])$/);
+                    rhsvar = new Value(rhs.source, lhsvar.type);
                 }
                 break;
         }
