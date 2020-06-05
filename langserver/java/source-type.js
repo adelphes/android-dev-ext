@@ -1,5 +1,5 @@
-const { JavaType, CEIType, Method, Field, Parameter, TypeVariable, UnresolvedType } = require('java-mti');
-const { ModuleBlock, TypeDeclBlock, FieldBlock, MethodBlock, ParameterBlock, TextBlock } = require('./parser9');
+const { JavaType, CEIType, Constructor, Method, Field, Parameter, TypeVariable, UnresolvedType } = require('java-mti');
+const { ModuleBlock, TypeDeclBlock, FieldBlock, ConstructorBlock, MethodBlock, ParameterBlock, TextBlock, TextBlockArray } = require('./parser9');
 
 /**
  * 
@@ -44,23 +44,33 @@ class SourceType extends CEIType {
     constructor(mod, type, qualified_type_name) {
         super(type.shortSignature, type.kind(), mapmods(type), type.docs);
         this._decl = type;
-        super.packageName = mod.packageName;
-        super.simpleTypeName = type.simpleName;
-        super.dottedTypeName = qualified_type_name.replace(/\$/g, '.');
-        super.fullyDottedRawName = type.fullyDottedName;
+        this._dottedTypeName = qualified_type_name.replace(/\$/g, '.');
 
-        this.extends_types = type.extends_decl ? extractTypeList(type.extends_decl) : []
+        this.extends_types = type.extends_decl ? extractTypeList(type.extends_decl) : [];
         this.implements_types = type.implements_decl ? extractTypeList(type.implements_decl) : [];
         this.implicit_extend = !this.extends_types.length && !this.implements_types.length ? [new ResolvableType({type: 'java.lang.Object', typeTokens:[]})] : [];
         
         this.fields = type.fields.map(f => new SourceField(this, f));
         this.methods = type.methods.map(m => new SourceMethod(this, m));
+        this.constructors = type.constructors.map(c => new SourceConstructor(this, c));
         super.typevars = type.typevars.map(tv => {
             const typevar = new TypeVariable(tv.name);
             // automatically add the Object bound
             typevar.bounds.push(new TypeVariable.Bound(this, 'Ljava/lang/Object;', false));
             return typevar;
         });
+    }
+
+    get dottedTypeName() {
+        return this._dottedTypeName;
+    }
+
+    get fullyDottedRawName() {
+        return this._decl.fullyDottedName;
+    }
+
+    get fullyDottedTypeName() {
+        return this._decl.fullyDottedName;
     }
 
     get supers() {
@@ -106,6 +116,38 @@ class SourceField extends Field {
     get type() {
         return this._type.resolved;
     }
+}
+
+class SourceConstructor extends Constructor {
+    /**
+     * @param {SourceType} owner
+     * @param {ConstructorBlock} decl 
+     */
+    constructor(owner, decl) {
+        super(mapmods(decl), decl.docs);
+        this._owner = owner;
+        this._decl = decl;
+        this._parameters = decl.parameters.map((p,i) => new SourceParameter(p));
+    }
+
+    get methodSignature() {
+        return `(${this._parameters.map(p => p.type.typeSignature).join('')})V`;
+    }
+
+    /**
+     * @returns {SourceParameter[]}
+     */
+    get parameters() {
+        return this._parameters;
+    }
+
+    /**
+     * @returns {SourceType}
+     */
+    get returnType() {
+        return this._owner;
+    }
+
 }
 
 class SourceMethod extends Method {
@@ -180,3 +222,7 @@ class ResolvableType extends UnresolvedType {
 }
 
 exports.SourceType = SourceType;
+exports.SourceField = SourceField;
+exports.SourceMethod = SourceMethod;
+exports.SourceParameter = SourceParameter;
+exports.SourceConstructor = SourceConstructor;

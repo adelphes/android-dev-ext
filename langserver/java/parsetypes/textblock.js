@@ -114,11 +114,14 @@ class TextBlockArray {
      * @param {RegExpMatchArray} match
      * @param {string} marker 
      * @param {*} [parseClass] 
+     * @param {boolean} [pad] 
      */
-    shrink(id, start_block_idx, block_count, match, marker, parseClass) {
+    shrink(id, start_block_idx, block_count, match, marker, parseClass, pad=true) {
         if (block_count <= 0) return;
         const collapsed = new TextBlockArray(id, this.blocks.splice(start_block_idx, block_count, null));
-        const simplified = collapsed.source.replace(/./g, ' ').replace(/^./, marker);
+        const simplified = pad 
+            ? collapsed.source.replace(/./g, ' ').replace(/^./, marker)
+            : marker;
         return this.blocks[start_block_idx] = parseClass
             ? new parseClass(collapsed, simplified, match)
             : new TextBlock(collapsed, simplified);

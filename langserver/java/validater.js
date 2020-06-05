@@ -1,9 +1,10 @@
+const { JavaType } = require('java-mti');
 const { ModuleBlock, TypeDeclBlock } = require('./parser9');
 const { resolveImports } = require('../java/import-resolver');
 const ResolvedImport = require('../java/parsetypes/resolved-import');
 const { resolveType } = require('../java/type-resolver');
 const { SourceType } = require('./source-type');
-const { JavaType } = require('java-mti');
+const { parseBody } = require('./body-parser3');
 
 
 /**
@@ -55,6 +56,22 @@ function validate(mod, androidLibrary) {
         resolveResolvableTypes(t, imports.resolved, imports.typemap);
     });
 
+    let probs = [];
+    source_types.forEach(t => {
+        t.constructors.forEach(c => {
+            console.log(c.label);
+            const parsed = parseBody(c._owner._decl.mod.source, c, imports.resolved, androidLibrary);
+            if (parsed)
+                probs = probs.concat(parsed.problems)
+        })
+        t.methods.forEach(m => {
+            console.log(m.label);
+            const parsed = parseBody(m._owner._decl.mod.source, m, imports.resolved, androidLibrary);
+            if (parsed)
+                probs = probs.concat(parsed.problems)
+        })
+    })
+
     const module_validaters = [
         require('./validation/multiple-package-decls'),
         require('./validation/unit-decl-order'),
@@ -71,6 +88,7 @@ function validate(mod, androidLibrary) {
     ];
     let problems = [
         module_validaters.map(v => v(mod, imports, source_types)),
+        ...probs,
     ];
     console.timeEnd('validation');
 
