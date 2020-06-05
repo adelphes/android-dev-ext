@@ -1313,9 +1313,12 @@ function rootTerm(tokens, locals, method, imports, typemap) {
             matches = new ResolvedIdent(tokens.current.value, [new LiteralValue(tokens.current.value, PrimitiveType.map.Z)]);
             break;
         case 'object-literal':
-            // this or null
+            // this, super or null
             if (tokens.current.value === 'this') {
                 matches = new ResolvedIdent(tokens.current.value, [new Value(tokens.current.value, method._owner)]);
+            } else if (tokens.current.value === 'super') {
+                const supertype = method._owner.supers.find(s => s.typeKind === 'class') || typemap.get('java/lang/Object');
+                matches = new ResolvedIdent(tokens.current.value, [new Value(tokens.current.value, supertype)]);
             } else {
                 matches = new ResolvedIdent(tokens.current.value, [new LiteralValue(tokens.current.value, new NullType())]);
             }
@@ -2079,7 +2082,7 @@ function tokenize(source, offset = 0, length = source.length) {
      * \w+    word
      * ```
      */
-    const word_re = /(?:(true|false)|(this|null)|(int|long|short|byte|float|double|char|boolean|void)|(new)|(instanceof)|(public|private|protected|static|final|abstract|native|volatile|transient|synchronized)|(if|else|while|for|do|try|catch|finally|switch|case|default|return|break|continue|throw)|(class|enum|interface)|(package|import)|(\w+))\b/g;
+    const word_re = /(?:(true|false)|(this|super|null)|(int|long|short|byte|float|double|char|boolean|void)|(new)|(instanceof)|(public|private|protected|static|final|abstract|native|volatile|transient|synchronized)|(if|else|while|for|do|try|catch|finally|switch|case|default|return|break|continue|throw)|(class|enum|interface)|(package|import)|(\w+))\b/g;
     const word_token_types = [
         'boolean-literal',
         'object-literal',
