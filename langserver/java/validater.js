@@ -60,13 +60,13 @@ function validate(mod, androidLibrary) {
     source_types.forEach(t => {
         t.constructors.forEach(c => {
             console.log(c.label);
-            const parsed = parseBody(c._owner._decl.mod.source, c, imports.resolved, androidLibrary);
+            const parsed = parseBody(c._owner._decl.mod.source, c, imports.resolved, imports.typemap);
             if (parsed)
                 probs = probs.concat(parsed.problems)
         })
         t.methods.forEach(m => {
             console.log(m.label);
-            const parsed = parseBody(m._owner._decl.mod.source, m, imports.resolved, androidLibrary);
+            const parsed = parseBody(m._owner._decl.mod.source, m, imports.resolved, imports.typemap);
             if (parsed)
                 probs = probs.concat(parsed.problems)
         })
@@ -104,6 +104,7 @@ function validate(mod, androidLibrary) {
     }
 
     let flattened = flatten(problems).filter(x => x);
+    console.log(`Problems: ${flattened.length}`)
     return flattened;
 }
 

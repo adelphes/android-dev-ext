@@ -1445,15 +1445,16 @@ function expressionList(tokens, locals, method, imports, typemap) {
 
 /**
  * @param {TokenList} tokens 
+ * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function typeIdentList(tokens, imports, typemap) {
-    let type = typeIdent(tokens, imports, typemap);
+function typeIdentList(tokens, method, imports, typemap) {
+    let type = typeIdent(tokens, method, imports, typemap);
     const types = [type];
     while (tokens.current.value === ',') {
         tokens.inc();
-        type = typeIdent(tokens, imports, typemap);
+        type = typeIdent(tokens, method, imports, typemap);
         types.push(type);
     }
     return types;
@@ -1461,14 +1462,15 @@ function typeIdentList(tokens, imports, typemap) {
 
 /**
  * @param {TokenList} tokens 
+ * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function typeIdent(tokens, imports, typemap) {
+function typeIdent(tokens, method, imports, typemap) {
     if (tokens.current.kind !== 'ident') {
         return new UnresolvedType();
     }
-    const { types, package_name } = resolveTypeOrPackage(tokens.current.value, imports, typemap);
+    const { types, package_name } = resolveTypeOrPackage(tokens.current.value, method._owner, imports, typemap);
     let matches = new ResolvedIdent(tokens.current.value, [], [], types, package_name);
     for (;;) {
         tokens.inc();
@@ -1476,7 +1478,7 @@ function typeIdent(tokens, imports, typemap) {
             matches = parseDottedIdent(matches, tokens, typemap);
         } else if (tokens.isValue('<')) {
             if (!tokens.isValue('>')) {
-                typeIdentList(tokens, imports, typemap);
+                typeIdentList(tokens, method, imports, typemap);
                 tokens.expectValue('>');
             }
         } else {
@@ -1701,7 +1703,7 @@ function qualifiers(matches, tokens, locals, method, imports, typemap) {
                 tokens.inc();
                 let type_arguments = [];
                 if (!tokens.isValue('>')) {
-                    type_arguments = typeIdentList(tokens, imports, typemap);
+                    type_arguments = typeIdentList(tokens, method, imports, typemap);
                     tokens.expectValue('>');
                 }
                 matches.types = matches.types.map(t => {
@@ -1842,6 +1844,13 @@ function resolveIdentifier(tokens, locals, method, imports, typemap) {
     return matches;
 }
 
+/**
+ * @param {string} ident 
+ * @param {Local[]} locals 
+ * @param {SourceMC} method 
+ * @param {ResolvedImport[]} imports 
+ * @param {Map<String,JavaType>} typemap 
+ */
 function findIdentifier(ident, locals, method, imports, typemap) {
     const matches = new ResolvedIdent(ident);
 
@@ -1873,7 +1882,7 @@ function findIdentifier(ident, locals, method, imports, typemap) {
         });
     }
 
-    const { types, package_name } = resolveTypeOrPackage(ident, imports, typemap);
+    const { types, package_name } = resolveTypeOrPackage(ident, method._owner, imports, typemap);
     matches.types = types;
     matches.package_name = package_name;
 
@@ -1883,25 +1892,44 @@ function findIdentifier(ident, locals, method, imports, typemap) {
 /**
  * 
  * @param {string} ident 
+ * @param {CEIType} scoped_type 
  * @param {ResolvedImport[]} imports 
  * @param {Map<string,JavaType>} typemap 
  */
-function resolveTypeOrPackage(ident, imports, typemap) {
+function resolveTypeOrPackage(ident, scoped_type, imports, typemap) {
     const types = [];
     let package_name = '';
 
-    // is it a top-level type from the imports
-    const top_level_type = '/' + ident;
-    for (let i of imports) {
-        const fqn = i.fullyQualifiedNames.find(fqn => fqn.endsWith(top_level_type));
-        if (fqn) {
-            types.push(i.types.get(fqn));
+    // is it an enclosed type of the currently scoped type or any outer type
+    if (scoped_type) {
+        const scopes = scoped_type.shortSignature.split('$');
+        while (scopes.length) {
+            const enc_type = typemap.get(`${scopes.join('$')}$${ident}`);
+            if (enc_type) {
+                types.push(enc_type);
+                break;
+            }
+            scopes.pop();
         }
     }
-    // is it a default-package type 
-    const default_type = typemap.get(ident);
-    if (default_type) {
-        types.push(default_type);
+
+    if (!types[0]) {
+        // is it a top-level type from the imports
+        const top_level_type = '/' + ident;
+        for (let i of imports) {
+            const fqn = i.fullyQualifiedNames.find(fqn => fqn.endsWith(top_level_type));
+            if (fqn) {
+                types.push(i.types.get(fqn));
+            }
+        }
+    }
+
+    if (!types[0]) {
+        // is it a default-package type 
+        const default_type = typemap.get(ident);
+        if (default_type) {
+            types.push(default_type);
+        }
     }
 
     // the final option is the start of a package name

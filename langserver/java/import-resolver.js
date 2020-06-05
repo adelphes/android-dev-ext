@@ -38,7 +38,7 @@ function resolveImportTypes(typenames, import_decl) {
  *   - followed by implicit packages
  * 
  * @param {Map<string, import('java-mti').JavaType>} androidLibrary
- * @param {import('java-mti').JavaType[]} sourceTypes
+ * @param {import('./source-type').SourceType[]} sourceTypes
  * @param {ImportBlock[]} imports list of declared imports in the module
  * @param {string} package_name package name of the module
  * @param {string[]} [implicitPackages] list of implicit demand-load packages
