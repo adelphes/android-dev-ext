@@ -89,6 +89,7 @@ function validate(mod, androidLibrary) {
         require('./validation/bad-implements'),
         require('./validation/non-implemented-interfaces'),
         require('./validation/bad-overrides'),
+        require('./validation/missing-constructor'),
     ];
     let problems = [
         module_validaters.map(v => v(mod, imports, source_types)),
