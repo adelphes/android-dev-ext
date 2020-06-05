@@ -1354,7 +1354,12 @@ function rootTerm(tokens, locals, method, imports, typemap) {
                 return new ResolvedIdent(new_ident, [new Value(new_ident, ctr.types[0])]);
             }
             if (ctr.variables[0] instanceof ConstructorCall) {
+                const ctr_type = ctr.variables[0].type;
                 if (tokens.current.value === '{') {
+                    // final types cannot be inherited
+                    if (ctr_type.modifiers.includes('final') ) {
+                        addproblem(tokens, ParseProblem.Error(tokens.current, `Type '${ctr_type.fullyDottedTypeName}' is declared final and cannot be inherited from.`));
+                    }
                     // anonymous type - just skip for now
                     for (let balance = 0;;) {
                         if (tokens.isValue('{')) {
@@ -1364,6 +1369,11 @@ function rootTerm(tokens, locals, method, imports, typemap) {
                                 break;
                             }
                         } else tokens.inc();
+                    }
+                } else {
+                    // abstract and interface types must have a type body
+                    if (ctr_type.typeKind === 'interface' || ctr_type.modifiers.includes('abstract') ) {
+                        addproblem(tokens, ParseProblem.Error(tokens.current, `Type '${ctr_type.fullyDottedTypeName}' is abstract and cannot be instantiated without a body`));
                     }
                 }
                 return new ResolvedIdent(new_ident, [new Value(new_ident, ctr.variables[0].type)]);
@@ -1515,8 +1525,9 @@ function arrayElementOrConstructor(tokens, open_array, matches, index) {
  * @param {TokenList} tokens 
  * @param {ResolvedIdent} instance 
  * @param {ResolvedIdent[]} call_arguments
+ * @param {Map<String, JavaType>} typemap
  */
-function methodCallExpression(tokens, instance, call_arguments) {
+function methodCallExpression(tokens, instance, call_arguments, typemap) {
     const ident = `${instance.source}(${call_arguments.map(arg => arg.source).join(',')})`;
     // to keep this simple for now, only resolve if there is exactly one variable for each argument
     for (let arg of call_arguments) {
@@ -1532,7 +1543,13 @@ function methodCallExpression(tokens, instance, call_arguments) {
     const arg_types = call_arguments.map(arg => getParameterCompatibleTypeSignatures(arg.variables[0].type));
 
     const methods = instance.methods.filter(m => isCallCompatible(m, arg_types));
-    const types = instance.types.filter(t => t.constructors.find(c => isCallCompatible(c, arg_types)));
+    const types = instance.types.filter(t => {
+        // interfaces use Object constructors
+        const type = t.typeKind === 'interface'
+            ? typemap.get('java/lang/Object')
+            : t;
+        return type.constructors.find(c => isCallCompatible(c, arg_types));
+    });
 
     if (!types[0] && !methods[0]) {
         if (instance.methods[0]) {
@@ -1670,7 +1687,7 @@ function qualifiers(matches, tokens, locals, method, imports, typemap) {
                     args = expressionList(tokens, locals, method, imports, typemap);
                     tokens.expectValue(')');
                 }
-                matches = methodCallExpression(tokens, matches, args);
+                matches = methodCallExpression(tokens, matches, args, typemap);
                 break;
             case '<':
                 // generic type arguments - since this can be confused with less-than, only parse
