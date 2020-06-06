@@ -1573,13 +1573,22 @@ function methodCallExpression(tokens, instance, call_arguments, typemap) {
     });
 
     if (!types[0] && !methods[0]) {
+        const callargtypes = call_arguments.map(a => a.variables[0] ? a.variables[0].type.fullyDottedTypeName : '<unknown-type>').join(', ');
         if (instance.methods[0]) {
-            addproblem(tokens, ParseProblem.Error(tokens.current, `No compatible method found. Tried to match:\n${instance.methods.map(m => m.label).join('\n')}`))
+            const methodlist = instance.methods.map(m => m.label).join('\n-  ');
+            addproblem(tokens, ParseProblem.Error(tokens.current,
+                `No compatible method found. Tried to match:\n-  ${methodlist}\nagainst call argument types: (${callargtypes})`))
+            // fake a result with AnyMethod
+            methods.push(new AnyMethod(instance.source));
         } else if (instance.types[0]) {
+            const ctrlist = instance.types[0].constructors.map(c => c.label).join('\n-  ');
             const match_message = instance.types[0].constructors.length
-              ? `Tried to match:\n${instance.types[0].constructors.map(c => c.label).join('\n')}`
+              ? `Tried to match:\n-  ${ctrlist}\nagainst call argument types: (${callargtypes})`
               : 'The type has no accessible constructors';
-            addproblem(tokens, ParseProblem.Error(tokens.current, `No compatible constructor found for type '${instance.types[0].fullyDottedTypeName}'. ${match_message}`))
+            addproblem(tokens, ParseProblem.Error(tokens.current, 
+                `No compatible constructor found for type '${instance.types[0].fullyDottedTypeName}'. ${match_message}`));
+            // fake a result with AnyType
+            types.push(new AnyType(instance.source));
         }
     }
 
@@ -1975,7 +1984,7 @@ function resolveTypeOrPackage(ident, scoped_type, imports, typemap) {
 
 /**
  * AnyType is a special type that's used to fill in types that are missing.
- * To prevent cascading errors, AnyType should be fully assign/case/type-compatible
+ * To prevent cascading errors, AnyType should be fully assign/cast/type-compatible
  * with any other type
  */
 class AnyType extends JavaType {
