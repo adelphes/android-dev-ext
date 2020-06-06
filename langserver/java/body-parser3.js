@@ -818,7 +818,7 @@ function expression(tokens, locals, method, imports, typemap, precedence_stack =
     let matches = qualifiedTerm(tokens, locals, method, imports, typemap);
 
     for(;;) {
-        if (!/^(assignment|equality|comparison|bitwise|logical|muldiv|plumin|instanceof)-operator/.test(tokens.current.kind) && !/\?/.test(tokens.current.value)) {
+        if (!/^(assignment|equality|comparison|bitwise|shift|logical|muldiv|plumin|instanceof)-operator/.test(tokens.current.kind) && !/\?/.test(tokens.current.value)) {
             break;
         }
         const binary_operator = tokens.current;
@@ -880,6 +880,8 @@ function resolveBinaryOpExpression(tokens, lhs, op, rhs) {
             return resolveComparison(tokens, ident, lhs, op, rhs);
         case 'bitwise-operator':
             return resolveBitwise(tokens, ident, lhs, op, rhs);
+        case 'shift-operator':
+            return resolveShift(tokens, ident, lhs, op, rhs);
         case 'logical-operator':
             return resolveLogical(tokens, ident, lhs, op, rhs);
         case 'instanceof-operator':
@@ -909,8 +911,12 @@ function resolveAssignment(tokens, ident, lhs, op, rhs) {
     if (pre_assign_operator) {
         switch (getOperatorType(pre_assign_operator)) {
             case "bitwise-operator":
-                // ^ is classed as a bitwise operator, but is also a logical operator
-                checkOperator(tokens, lhsvar, op, rhsvar, pre_assign_operator === '^' ? /^[BSIJCZ]{2}$/ : /^[BSIJC]{2}$/);
+                // ^&| are both bitwise and logical operators
+                checkOperator(tokens, lhsvar, op, rhsvar, /^[BSIJCZ]{2}$/);
+                rhsvar = new Value(rhs.source, lhsvar.type);
+                break;
+            case "shift-operator":
+                checkOperator(tokens, lhsvar, op, rhsvar, /^[BSIJC]{2}$/);
                 rhsvar = new Value(rhs.source, lhsvar.type);
                 break;
             case "logical-operator":
@@ -1220,13 +1226,28 @@ function checkOperator(tokens, lhs, op, rhs, re) {
 function resolveBitwise(tokens, ident, lhs, op, rhs) {
     let type = PrimitiveType.map.I;
     if (lhs.variables[0] && rhs.variables[0]) {
-        // ^ is classed as a bitwise operator, but is also a logical operator
-        checkOperator(tokens, lhs.variables[0], op, rhs.variables[0], op.value === '^' ? /^[BSIJCZ]{2}$/ : /^[BSIJC]{2}$/);
-        if (op.value === '^' && lhs.variables[0].type.typeSignature === 'Z') {
+        // ^&| are both bitwse and logical operators
+        checkOperator(tokens, lhs.variables[0], op, rhs.variables[0], /^[BSIJCZ]{2}$/);
+        if (lhs.variables[0].type.typeSignature === 'Z') {
             type = PrimitiveType.map.Z;
         }
     }
     return new ResolvedIdent(ident, [Value.build(ident, lhs, rhs, type)]);
+}
+
+/**
+ * @param {TokenList} tokens
+ * @param {string} ident 
+ * @param {ResolvedIdent} lhs 
+ * @param {Token} op 
+ * @param {ResolvedIdent} rhs 
+ */
+function resolveShift(tokens, ident, lhs, op, rhs) {
+    if (lhs.variables[0] && rhs.variables[0]) {
+        // ^&| are both bitwse and logical operators
+        checkOperator(tokens, lhs.variables[0], op, rhs.variables[0], /^[BSIJC]{2}$/);
+    }
+    return new ResolvedIdent(ident, [Value.build(ident, lhs, rhs, PrimitiveType.map.I)]);
 }
 
 /**
@@ -2301,14 +2322,15 @@ function tokenize(source, offset = 0, length = source.length) {
  * \+\+|--   inc
  * [!=]=     equality
  * [<>]=?    comparison
- * [&|^]|<<|>>>?    bitwise
+ * [&|^]    bitwise
+ * <<|>>>?    shift
  * &&|[|][|]   logical
  * [*%/]   muldiv
  * [+-]   plumin
  * [~!]   unary
  * ```
  */
-const operator_re = /^(?:(=|[/%*&|^+-]=|>>>?=|<<=)|(\+\+|--)|([!=]=)|([<>]=?)|([&|^]|<<|>>>?)|(&&|[|][|])|([*%/])|([+-])|([~!]))$/;
+const operator_re = /^(?:(=|[/%*&|^+-]=|>>>?=|<<=)|(\+\+|--)|([!=]=)|([<>]=?)|([&|^])|(<<|>>>?)|(&&|[|][|])|([*%/])|([+-])|([~!]))$/;
 /**
  * @typedef {
     'assignment-operator'|
@@ -2316,6 +2338,7 @@ const operator_re = /^(?:(=|[/%*&|^+-]=|>>>?=|<<=)|(\+\+|--)|([!=]=)|([<>]=?)|([
     'equality-operator'|
     'comparison-operator'|
     'bitwise-operator'|
+    'shift-operator'|
     'logical-operator'|
     'muldiv-operator'|
     'plumin-operator'|
@@ -2328,6 +2351,7 @@ const operator_token_types = [
     'equality-operator',
     'comparison-operator',
     'bitwise-operator',
+    'shift-operator',
     'logical-operator',
     'muldiv-operator',
     'plumin-operator',
