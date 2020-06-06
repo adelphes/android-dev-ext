@@ -941,6 +941,9 @@ function resolveAssignment(tokens, ident, lhs, op, rhs) {
  * @param {Local|Parameter|Field|ArrayElement|Value} value 
  */
 function checkAssignmentExpression(tokens, variable, op, value) {
+    if (variable instanceof AnyValue || value instanceof AnyValue) {
+        return true;
+    }
     if (variable instanceof Value) {
         addproblem(tokens, ParseProblem.Error(op, `Invalid assignment: left-hand side is not a variable`));
         return;
@@ -1048,8 +1051,12 @@ function isTypeCastable(source_type, cast_type) {
                 }
             }
         }
-
     }
+
+    if (source_type instanceof AnyType || cast_type instanceof AnyType) {
+        return true;
+    }
+
     return false;
 }
     
@@ -1061,8 +1068,9 @@ function isTypeAssignable(dest_type, value_type) {
     let is_assignable = false;
     if (dest_type.typeSignature === value_type.typeSignature) {
         is_assignable = true;
-    }
-    else if (value_type instanceof PrimitiveType) {
+    } else if (dest_type instanceof AnyType || value_type instanceof AnyType) {
+        return true;
+    } else if (value_type instanceof PrimitiveType) {
         const valid_dest_types = {
             I: /^[IJFD]$/,
             J: /^[JFD]$/,
@@ -1119,8 +1127,9 @@ function checkEqualityComparison(tokens, lhs, op, rhs) {
     let is_comparable;
     if (lhs.type.typeSignature === rhs.type.typeSignature) {
         is_comparable = true;
-    }
-    else if (lhs.type instanceof PrimitiveType) {
+    } else if (lhs.type instanceof AnyType || rhs.type instanceof AnyType) {
+        is_comparable = true;
+    } else if (lhs.type instanceof PrimitiveType) {
         const valid_rhs_type = {
             Z: /^Z$/,
             V: /^$/,
@@ -1170,6 +1179,9 @@ function resolveComparison(tokens, ident, lhs, op, rhs) {
  * @param {Local|Parameter|Field|ArrayElement|Value} rhs 
  */
 function checkOperator(tokens, lhs, op, rhs, re) {
+    if (lhs.type instanceof AnyType || rhs.type instanceof AnyType) {
+        return;
+    }
     let is_comparable = re.test(`${lhs.type.typeSignature}${rhs.type.typeSignature}`);
     if (!is_comparable) {
         addproblem(tokens, ParseProblem.Error(op, `Operator ${op.value} cannot be applied to types '${lhs.type.fullyDottedTypeName}' and '${rhs.type.fullyDottedTypeName}'`));
@@ -1534,14 +1546,7 @@ function arrayElementOrConstructor(tokens, open_array, matches, index) {
  */
 function methodCallExpression(tokens, instance, call_arguments, typemap) {
     const ident = `${instance.source}(${call_arguments.map(arg => arg.source).join(',')})`;
-    // to keep this simple for now, only resolve if there is exactly one variable for each argument
-    for (let arg of call_arguments) {
-        switch(arg.variables.length) {
-            case 0:
-                return new ResolvedIdent(ident);
-            default: continue;
-        }
-    }
+
     // method call resolving is painful in Java - we need to match arguments against
     // possible types in the call, but this must include matching against inherited types and choosing the
     // most-specific match
@@ -1581,6 +1586,9 @@ function methodCallExpression(tokens, instance, call_arguments, typemap) {
  * @param {string[][]} arg_type_signatures 
  */
 function isCallCompatible(m, arg_type_signatures) {
+    if (m instanceof AnyMethod) {
+        return true;
+    }
     if (m.parameterCount !== arg_type_signatures.length) {
         return;
     }
@@ -1744,7 +1752,10 @@ function arrayTypeExpression(matches) {
  * @param {Map<string,JavaType>} typemap 
  */
 function parseDottedIdent(matches, tokens, typemap) {
-    let variables = [], methods = [], types = [], package_name = '';
+    let variables = [],
+    methods = [],
+    types = [],
+    package_name = '';
     const qualified_ident = `${matches.source}.${tokens.current.value}`;
 
     switch (tokens.current.value) {
@@ -1752,7 +1763,10 @@ function parseDottedIdent(matches, tokens, typemap) {
             // e.g int.class
             // convert the types to Class instances
             tokens.inc();
-            variables = matches.types.map(t => new Value(qualified_ident, signatureToType(`Ljava/lang/Class<${t.typeSignature}>;`, typemap)));
+            variables = matches.types.map(t => {
+                const type_signature = t instanceof AnyType ? '' : `<${t.typeSignature}>`
+                return new Value(qualified_ident, signatureToType(`Ljava/lang/Class${type_signature};`, typemap));
+            });
             return new ResolvedIdent(qualified_ident, variables);
         case 'this':
             // e.g Type.this - it must be an enclosing type
@@ -1776,6 +1790,15 @@ function parseDottedIdent(matches, tokens, typemap) {
     });
     /** @type {JavaType[]} */
     matches.types.forEach(t => {
+        // if there is an AnyType, then add a type, variable and method
+        // - this prevents multiple errors in dotted values/
+        // e.g R.layout.name wiil only error once (on R), not on all 3 idents
+        if (t instanceof AnyType) {
+            types.push(new AnyType(qualified_ident));
+            variables.push(new AnyValue(qualified_ident));
+            methods.push(new AnyMethod(tokens.current.value));
+            return;
+        }
         if (t instanceof CEIType) {
             const enclosed_type_signature = `${t.shortSignature}$${tokens.current.value}`;
             const enc_type = typemap.get(enclosed_type_signature);
@@ -1803,8 +1826,10 @@ function parseDottedIdent(matches, tokens, typemap) {
         }
     }
 
+    const match = new ResolvedIdent(qualified_ident, variables, methods, types, package_name);
+    checkIdentifierFound(tokens, tokens.current.value, match);
     tokens.inc();
-    return new ResolvedIdent(qualified_ident, variables, methods, types, package_name);
+    return match;
 }
 
 /**
@@ -1837,11 +1862,24 @@ function parseDottedIdent(matches, tokens, typemap) {
  * @param {Map<string,JavaType>} typemap 
  */
 function resolveIdentifier(tokens, locals, method, imports, typemap) {
-    const matches = findIdentifier(tokens.current.value, locals, method, imports, typemap);
-    if (!matches.variables[0] && !matches.methods[0] && !matches.types[0] && !matches.package_name) {
-        addproblem(tokens, ParseProblem.Error(tokens.current, `Undeclared identifier: ${tokens.current.value}`))
-    }
+    const ident = tokens.current.value;
+    const matches = findIdentifier(ident, locals, method, imports, typemap);
+    checkIdentifierFound(tokens, ident, matches);
     return matches;
+}
+
+/**
+ * @param {TokenList} tokens
+ * @param {ResolvedIdent} matches 
+ */
+function checkIdentifierFound(tokens, ident, matches) {
+    if (!matches.variables[0] && !matches.methods[0] && !matches.types[0] && !matches.package_name) {
+        addproblem(tokens, ParseProblem.Error(tokens.current, `Unresolved identifier: ${matches.source}`));
+        // pretend it matches everything
+        matches.variables = [new AnyValue(matches.source)];
+        matches.methods = [new AnyMethod(ident)];
+        matches.types = [new AnyType(matches.source)];
+    }
 }
 
 /**
@@ -1945,6 +1983,45 @@ function resolveTypeOrPackage(ident, scoped_type, imports, typemap) {
     }
 }
 
+/**
+ * AnyType is a special type that's used to fill in types that are missing.
+ * To prevent cascading errors, AnyType should be fully assign/case/type-compatible
+ * with any other type
+ */
+class AnyType extends JavaType {
+    /**
+     * 
+     * @param {String} label 
+     */
+    constructor(label) {
+        super("class", [], '');
+        super.simpleTypeName = label;
+    }
+
+    static Instance = new AnyType('');
+
+    get rawTypeSignature() {
+        return 'U';
+    }
+
+    get typeSignature() {
+        return 'U';
+    }
+}
+
+class AnyMethod extends Method {
+    /**
+     * @param {string} name 
+     */
+    constructor(name) {
+        super(name, [], '');
+    }
+
+    get returnType() {
+        return AnyType.Instance;
+    }
+}
+
 class Local {
     /**
      * @param {Token[]} modifiers 
@@ -2000,6 +2077,12 @@ class Value {
             ? new LiteralValue(ident, type)
             : new Value(ident, type);
         return value;
+    }
+}
+
+class AnyValue extends Value {
+    constructor(name) {
+        super(name, AnyType.Instance);
     }
 }
 
