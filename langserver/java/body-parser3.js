@@ -1550,15 +1550,13 @@ function methodCallExpression(tokens, instance, call_arguments, typemap) {
     // method call resolving is painful in Java - we need to match arguments against
     // possible types in the call, but this must include matching against inherited types and choosing the
     // most-specific match
-    const arg_types = call_arguments.map(arg => getParameterCompatibleTypeSignatures(arg.variables[0].type));
-
-    const methods = instance.methods.filter(m => isCallCompatible(m, arg_types));
+    const methods = instance.methods.filter(m => isCallCompatible(m, call_arguments));
     const types = instance.types.filter(t => {
         // interfaces use Object constructors
         const type = t.typeKind === 'interface'
             ? typemap.get('java/lang/Object')
             : t;
-        return type.constructors.find(c => isCallCompatible(c, arg_types));
+        return type.constructors.find(c => isCallCompatible(c, call_arguments));
     });
 
     if (!types[0] && !methods[0]) {
@@ -1581,53 +1579,32 @@ function methodCallExpression(tokens, instance, call_arguments, typemap) {
 }
 
 /**
- * 
+ * Returns true if the set of call arguments are assignable to the method or constructor parameters
  * @param {Method|Constructor} m 
- * @param {string[][]} arg_type_signatures 
+ * @param {ResolvedIdent[]} call_arguments 
  */
-function isCallCompatible(m, arg_type_signatures) {
+function isCallCompatible(m, call_arguments) {
     if (m instanceof AnyMethod) {
         return true;
     }
-    if (m.parameterCount !== arg_type_signatures.length) {
-        return;
+    if (m.parameterCount !== call_arguments.length) {
+        // wrong parameter count - this needs updating to support varargs
+        return false;
     }
     const p = m.parameters;
-    for (let i=0; i < arg_type_signatures.length; i++) {
-        if (arg_type_signatures[i].includes(p[i].type.typeSignature)) {
+    for (let i=0; i < p.length; i++) {
+        if (!call_arguments[i].variables[0]) {
+            // only variables can be passed - not types or methods
+            return false;
+        }
+        // is the argument assignable to the parameter
+        if (isTypeAssignable(p[i].type, call_arguments[i].variables[0].type)) {
             continue;
         }
         // mismatch parameter type
         return;
     }
     return true;
-}
-
-/**
- * @param {JavaType} type 
- */
-function getParameterCompatibleTypeSignatures(type) {
-    if (type instanceof NullType) {
-        return ['Ljava/lang/Object;'];
-    }
-    if (type instanceof CEIType) {
-        return getTypeInheritanceList(type).map(t => t.typeSignature);
-    }
-    if (type instanceof PrimitiveType) {
-        // some primitive types are implicitly castable
-        switch(type.simpleTypeName) {
-            case 'byte': return ['B','S','I','J','F','D',...'Object Byte Short Integer Long Float Double'.split(' ').map(n => `Ljava/lang/${n};`)];
-            case 'short': return ['S','I','J','F','D',...'Object Short Integer Long Float Double'.split(' ').map(n => `Ljava/lang/${n};`)];
-            case 'int': return ['I','J','F','D',...'Object Integer Long Float Double'.split(' ').map(n => `Ljava/lang/${n};`)];
-            case 'long': return ['J','F','D',...'Object Long Float Double'.split(' ').map(n => `Ljava/lang/${n};`)];
-            case 'char': return ['C','I','J','F','D',...'Object Character Integer Long Float Double'.split(' ').map(n => `Ljava/lang/${n};`)];
-            case 'float': return ['F','D',...'Object Float Double'.split(' ').map(n => `Ljava/lang/${n};`)];
-            case 'double': return ['D',...'Object Double'.split(' ').map(n => `Ljava/lang/${n};`)];
-            case 'void': return [];
-        }
-    }
-    // arrays and other primitives are only compatible with themselves or Object
-    return [type.typeSignature, 'Ljava/lang/Object;'];
 }
 
 /**
