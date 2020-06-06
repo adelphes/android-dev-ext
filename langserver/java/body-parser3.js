@@ -651,6 +651,9 @@ function isConstantValue(v) {
     if (v instanceof Field) {
         return v.modifiers.includes('final');
     }
+    if (v instanceof AnyValue) {
+        return true;
+    }
     // Parameters and ArrayElements are never constant
     return v instanceof LiteralValue;
 }
