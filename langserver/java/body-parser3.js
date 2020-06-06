@@ -1059,40 +1059,53 @@ function isTypeCastable(source_type, cast_type) {
 
     return false;
 }
-    
+
 /**
+ * Set of regexes to map source primitives to their destination types.
+ * eg, long (J) is type-assignable to long, float and double (and their boxed counterparts)
+ * Note that void (V) is never type-assignable to anything
+ */
+const valid_primitive_dest_types = {
+    I: /^[IJFD]$|^Ljava\/lang\/(Integer|Long|Float|Double);$/,
+    J: /^[JFD]$|^Ljava\/lang\/(Long|Float|Double);$/,
+    S: /^[SIJFD]$|^Ljava\/lang\/(Short|Integer|Long|Float|Double);$/,
+    B: /^[BSIJFD]$|^Ljava\/lang\/(Byte|Short|Integer|Long|Float|Double);$/,
+    F: /^[FD]$|^Ljava\/lang\/(Float|Double);$/,
+    D: /^D$|^Ljava\/lang\/(Double);$/,
+    C: /^C$|^Ljava\/lang\/(Character);$/,
+    Z: /^Z$|^Ljava\/lang\/(Boolean);$/,
+    V: /$^/,    // V.test() always returns false
+}
+
+/**
+ * Returns true if a value of value_type is assignable to a variable of dest_type
  * @param {JavaType} dest_type 
  * @param {JavaType} value_type 
  */
 function isTypeAssignable(dest_type, value_type) {
     let is_assignable = false;
     if (dest_type.typeSignature === value_type.typeSignature) {
+        // exact signature match
         is_assignable = true;
     } else if (dest_type instanceof AnyType || value_type instanceof AnyType) {
-        return true;
+        // everything is assignable to or from AnyType
+        is_assignable = true;
+    } else if (dest_type.rawTypeSignature === 'Ljava/lang/Object;') {
+        // everything is assignable to Object
+        is_assignable = true;
     } else if (value_type instanceof PrimitiveType) {
-        const valid_dest_types = {
-            I: /^[IJFD]$/,
-            J: /^[JFD]$/,
-            S: /^[SIJFD]$/,
-            B: /^[BSIJFD]$/,
-            F: /^[FD]$/,
-            D: /^D$/,
-            C: /^C$/,
-            Z: /^Z$/,
-            V: /^$/,
-        }[value_type.typeSignature];
-        is_assignable = valid_dest_types.test(dest_type.typeSignature);
+        // primitives can only be assinged to other widening primitives or their class equivilents
+        is_assignable = valid_primitive_dest_types[value_type.typeSignature].test(dest_type.typeSignature);
     } else if (value_type instanceof NullType) {
+        // null is assignable to any non-primitive
         is_assignable = !(dest_type instanceof PrimitiveType);
     } else if (value_type instanceof ArrayType) {
-        const base_type = value_type.base;
-        const valid_array_types = base_type instanceof CEIType ? getTypeInheritanceList(base_type) : [base_type];
-        is_assignable = dest_type.typeSignature === 'Ljava/lang/Object;'
-          || (dest_type instanceof ArrayType 
+        // arrays are assignable to other arrays with the same dimensionality and type-assignable bases
+        is_assignable = dest_type instanceof ArrayType 
                 && dest_type.arrdims === value_type.arrdims
-                && valid_array_types.includes(dest_type));
+                &&  isTypeAssignable(dest_type.base, value_type.base);
     } else if (value_type instanceof CEIType && dest_type instanceof CEIType) {
+        // class/interfaces types are assignable to any class/interface types in their inheritence tree
         const valid_types = getTypeInheritanceList(value_type);
         is_assignable = valid_types.includes(dest_type);
         if (!is_assignable) {
