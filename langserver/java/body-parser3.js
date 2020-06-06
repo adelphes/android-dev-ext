@@ -347,8 +347,8 @@ function statementKeyword(tokens, locals, method, imports, typemap) {
 function bracketedTest(tokens, locals, method, imports, typemap) {
     tokens.expectValue('(');
     const e = expression(tokens, locals, method, imports, typemap);
-    if (e.variables[0] && e.variables[0].type.typeSignature !== 'Z') {
-        addproblem(tokens, ParseProblem.Error(tokens.current, `Type of expression must be boolean`));
+    if (e.variables[0] && !isTypeAssignable(PrimitiveType.map.Z, e.variables[0].type)) {
+        addproblem(tokens, ParseProblem.Error(tokens.current, `Boolean expression expected, but type '${e.variables[0].type.fullyDottedTypeName}' found`));
     }
     tokens.expectValue(')');
     return e;
