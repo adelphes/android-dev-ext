@@ -1020,7 +1020,13 @@ function isTypeCastable(source_type, cast_type) {
         return true;
     }
     if (source_type instanceof CEIType && cast_type instanceof CEIType) {
-        // for class casts, one type must be in the inheritence tree of the other
+        if (source_type.typeKind === 'interface') {
+            // interfaces are castable to any non-final class type (derived types might implement the interface)
+            if (cast_type.typeKind === 'class' && !cast_type.modifiers.includes('final')) {
+                return true;
+            }
+        }
+        // for other class casts, one type must be in the inheritence tree of the other
         if (getTypeInheritanceList(source_type).includes(cast_type)) {
             return true;
         }
