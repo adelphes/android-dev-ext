@@ -187,15 +187,11 @@ class SourceMethod extends Method {
      * @param {MethodBlock} decl 
      */
     constructor(owner, decl) {
-        super(mapmods(decl), decl.docs);
+        super(decl.name, mapmods(decl), decl.docs);
         this._owner = owner;
         this._decl = decl;
         this._parameters = decl.parameters.map((p,i) => new SourceParameter(p));
         this._returnType = new ResolvableType(decl);
-    }
-
-    get name() {
-        return this._decl.name;
     }
 
     /**
