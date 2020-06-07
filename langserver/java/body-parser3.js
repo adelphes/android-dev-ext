@@ -1512,7 +1512,7 @@ function rootTerm(tokens, locals, method, imports, typemap) {
                 if (!type) {
                     addproblem(tokens, ParseProblem.Error(close_bracket, 'Type expected'));
                 }
-                const cast_matches = expression(tokens, locals, method, imports, typemap)
+                const cast_matches = qualifiedTerm(tokens, locals, method, imports, typemap)
                 // cast any variables as values with the new type
                 const vars = cast_matches.variables.map(v => {
                     if (type && !isTypeCastable(v.type, type)) {
