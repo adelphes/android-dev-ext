@@ -1063,10 +1063,13 @@ function isTypeCastable(source_type, cast_type) {
             case 'B':
             case 'S':
             case 'I':
-            case 'J': return /^([BSIJCFD]|Ljava\/lang\/(Byte|Short|Integer|Long|Character);)$/.test(source_type.typeSignature);
+            case 'J': 
+            case 'C': 
             case 'F':
-            case 'D': return /^([BSIJCFD]|Ljava\/lang\/(Byte|Short|Integer|Long|Character|Float|Double);)$/.test(source_type.typeSignature);
-            case 'Z': return /^([Z]|Ljava\/lang\/(Boolean);)$/.test(source_type.typeSignature);
+            case 'D':
+                return /^([BSIJCFD]|Ljava\/lang\/(Byte|Short|Integer|Long|Character|Float|Double);)$/.test(source_type.typeSignature);
+            case 'Z':
+                return /^([Z]|Ljava\/lang\/(Boolean);)$/.test(source_type.typeSignature);
         }
         return false;
     }
