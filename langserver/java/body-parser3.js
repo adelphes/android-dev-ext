@@ -226,6 +226,9 @@ class SynchronizedStatement extends Statement {
     /** @type {Statement} */
     statement = null;
 }
+class AssertStatement extends Statement {
+    expression = null;
+}
 
 /**
  * @param {TokenList} tokens 
@@ -343,6 +346,12 @@ function statementKeyword(tokens, locals, method, imports, typemap) {
             tokens.inc();
             s = new SynchronizedStatement();
             synchronizedStatement(s, tokens, locals, method, imports, typemap);
+            break;
+        case 'assert':
+            tokens.inc();
+            s = new AssertStatement();
+            s.expression = expression(tokens, locals, method, imports, typemap);
+            semicolon(tokens);
             break;
         default:
             s = new InvalidStatement();
@@ -2703,7 +2712,7 @@ function tokenize(source, offset = 0, length = source.length) {
      * \w+    word
      * ```
      */
-    const word_re = /^(?:(true|false)|(this|super|null)|(int|long|short|byte|float|double|char|boolean|void)|(new)|(instanceof)|(public|private|protected|static|final|abstract|native|volatile|transient)|(if|else|while|for|do|try|catch|finally|switch|case|default|return|break|continue|throw|synchronized)|(class|enum|interface)|(package|import)|(.+))$/;
+    const word_re = /^(?:(true|false)|(this|super|null)|(int|long|short|byte|float|double|char|boolean|void)|(new)|(instanceof)|(public|private|protected|static|final|abstract|native|volatile|transient)|(if|else|while|for|do|try|catch|finally|switch|case|default|return|break|continue|throw|synchronized|assert)|(class|enum|interface)|(package|import)|(.+))$/;
     const word_token_types = [
         'boolean-literal',
         'object-literal',
