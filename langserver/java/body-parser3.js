@@ -4,7 +4,7 @@
  * 
  * Each token also contains detailed state information used for completion suggestions.
  */
-const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, Field, Method, Parameter, Constructor, signatureToType } = require('java-mti');
+const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, WildcardType, TypeVariable, Field, Method, Parameter, Constructor, signatureToType } = require('java-mti');
 const { SourceMethod, SourceConstructor } = require('./source-type');
 const ResolvedImport = require('./parsetypes/resolved-import');
 const ParseProblem = require('./parsetypes/parse-problem');
@@ -1203,9 +1203,39 @@ function isTypeAssignable(dest_type, value_type) {
             // generic types are also assignable to their raw counterparts
             const valid_raw_types = valid_types.map(t => t.getRawType());
             is_assignable = valid_raw_types.includes(dest_type);
+            if (!is_assignable) {
+                // generic types are also assignable to compatible wildcard type bounds
+                if (dest_type.rawTypeSignature === value_type.rawTypeSignature) {
+                    is_assignable = dest_type.typevars.every((dest_tv, idx) => isTypeArgumentCompatible(dest_tv, value_type.typevars[idx].type));
+                }
+            }
         }
     }
     return is_assignable;
+}
+
+/**
+ * @param {TypeVariable} dest_typevar 
+ * @param {JavaType} value_typevar_type
+ */
+function isTypeArgumentCompatible(dest_typevar, value_typevar_type) {
+    if (dest_typevar.type instanceof WildcardType) {
+        if (!dest_typevar.type.bound) {
+            // unbounded wildcard types are compatible with everything
+            return true;
+        }
+        if (dest_typevar.type.bound.type === value_typevar_type) {
+            return true;
+        }
+        switch (dest_typevar.type.bound.kind) {
+            case 'extends':
+                return isTypeAssignable(dest_typevar.type.bound.type, value_typevar_type);
+            case 'super':;
+                return isTypeAssignable(value_typevar_type, dest_typevar.type.bound.type);
+        }
+        return false;
+    }
+    return dest_typevar.type === value_typevar_type;
 }
 
 /**
@@ -1222,37 +1252,126 @@ function resolveEquality(tokens, ident, lhs, op, rhs) {
 }
 
 /**
+ * @param {JavaType} lhs_type 
+ * @param {JavaType} rhs_type 
+ */
+function isTypeComparable(lhs_type, rhs_type) {
+    let is_comparable;
+    if (lhs_type.typeSignature === rhs_type.typeSignature) {
+        is_comparable = true;
+    } else if (lhs_type instanceof AnyType || rhs_type instanceof AnyType) {
+        is_comparable = true;
+    } else if (lhs_type instanceof PrimitiveType) {
+        const valid_rhs_type = {
+            Z: /^Z$/,
+            V: /^$/,
+        }[lhs_type.typeSignature] || /^[BSIJFDC]$/;
+        is_comparable = valid_rhs_type.test(rhs_type.typeSignature);
+    } else if (lhs_type instanceof NullType || rhs_type instanceof NullType) {
+        is_comparable = !(rhs_type instanceof PrimitiveType);
+    } else if (lhs_type instanceof ArrayType) {
+        const base_type = lhs_type.base;
+        const valid_array_types = base_type instanceof CEIType ? getTypeInheritanceList(base_type) : [base_type];
+        is_comparable = rhs_type.typeSignature === 'Ljava/lang/Object;'
+          || (rhs_type instanceof ArrayType 
+                && rhs_type.arrdims === rhs_type.arrdims
+                && valid_array_types.includes(rhs_type));
+    } else if (lhs_type instanceof CEIType && rhs_type instanceof CEIType) {
+        const lhs_types = getTypeInheritanceList(lhs_type);
+        const rhs_types = getTypeInheritanceList(rhs_type);
+        is_comparable = lhs_types.includes(rhs_type) || rhs_types.includes(lhs_type);
+        if (!is_comparable) {
+            if (lhs_type.rawTypeSignature === rhs_type.rawTypeSignature) {
+                is_comparable = lhs_type.typevars.every((tv, idx) => isTypeArgumentComparable(tv, rhs_type.typevars[idx]));
+            }
+        }
+    }
+    return is_comparable;
+}
+
+/**
+ * @param {TypeVariable} a 
+ * @param {TypeVariable} b
+ */
+function isTypeArgumentComparable(a, b) {
+    let a_type = a.type, b_type = b.type;
+    if (a_type === b_type) {
+        return true;
+    }
+    if (a_type instanceof WildcardType) {
+        if (!a_type.bound)
+            return true; // unbounded wildcard types are comparable with everything
+        if (a_type.bound.type.typeKind === 'interface')
+            return true; // interface bounds are comparable with everything
+    }
+    if (b_type instanceof WildcardType) {
+        if (!b_type.bound)
+            return true; // unbounded wildcard types are comparable with everything
+        if (b_type.bound.type.typeKind === 'interface')
+            return true; // interface bounds are comparable with everything
+    }
+    /**
+     * 
+     * @param {JavaType} type 
+     * @param {JavaType} list_type 
+     */
+    function extendsFrom(type, list_type) {
+        if (!(list_type instanceof CEIType)) {
+            return false;
+        }
+        return list_type === type || getTypeInheritanceList(list_type).includes(type);
+    }
+    // each type argument can have 3 possible states
+    // - a extends, a super, a (exact)
+    // - b extends, b super, b (exact)
+    // we need to cover all combinations of a and b...
+    if (a_type instanceof WildcardType && a_type.bound.kind === 'extends') {
+        if (b_type instanceof WildcardType && b_type.bound.kind === 'extends') {
+            // both are extends - one must extend from the other
+            return extendsFrom(a_type.bound.type, b_type.bound.type) || extendsFrom(b_type.bound.type, a_type.bound.type);
+        }
+        else if (b_type instanceof WildcardType && b_type.bound.kind === 'super') {
+            // a extends, b super - b must extend from a
+            return extendsFrom(a_type.bound.type, b_type.bound.type);
+        } else {
+            // b is an exact type - b must extend from a
+            return extendsFrom(a_type.bound.type, b_type);
+        }
+    }
+    else if (a_type instanceof WildcardType && a_type.bound.kind === 'super') {
+        if (b_type instanceof WildcardType && b_type.bound.kind === 'super') {
+            // both are super - one must extend from the other
+            return extendsFrom(a_type.bound.type, b_type.bound.type) || extendsFrom(b_type.bound.type, a_type.bound.type);
+        }
+        else if (b_type instanceof WildcardType && b_type.bound.kind === 'extends') {
+            // a super, b extends - a must extend from b
+            return extendsFrom(b_type.bound.type, a_type.bound.type);
+        } else {
+            // b is an exact type - a must extend from b
+            return extendsFrom(b_type, a_type.bound.type);
+        }
+    } else {
+        // a is an exact type
+        if (b_type instanceof WildcardType && b_type.bound.kind === 'extends') {
+            // a exact, b extends - a must extend from b
+            return extendsFrom(b_type.bound.type, a_type);
+        }
+        else if (b_type instanceof WildcardType && b_type.bound.kind === 'super') {
+            // a exact, b super - b must extend from a
+            return extendsFrom(a_type, b_type.bound.type);
+        }
+    }
+    return false;
+}
+
+/**
  * @param {TokenList} tokens
  * @param {Local|Parameter|Field|ArrayElement|Value} lhs 
  * @param {Token} op
  * @param {Local|Parameter|Field|ArrayElement|Value} rhs 
  */
 function checkEqualityComparison(tokens, lhs, op, rhs) {
-    let is_comparable;
-    if (lhs.type.typeSignature === rhs.type.typeSignature) {
-        is_comparable = true;
-    } else if (lhs.type instanceof AnyType || rhs.type instanceof AnyType) {
-        is_comparable = true;
-    } else if (lhs.type instanceof PrimitiveType) {
-        const valid_rhs_type = {
-            Z: /^Z$/,
-            V: /^$/,
-        }[lhs.type.typeSignature] || /^[BSIJFDC]$/;
-        is_comparable = valid_rhs_type.test(rhs.type.typeSignature);
-    } else if (lhs.type instanceof NullType || rhs.type instanceof NullType) {
-        is_comparable = !(rhs.type instanceof PrimitiveType);
-    } else if (lhs.type instanceof ArrayType) {
-        const base_type = lhs.type.base;
-        const valid_array_types = base_type instanceof CEIType ? getTypeInheritanceList(base_type) : [base_type];
-        is_comparable = rhs.type.typeSignature === 'Ljava/lang/Object;'
-          || (rhs.type instanceof ArrayType 
-                && rhs.type.arrdims === rhs.type.arrdims
-                && valid_array_types.includes(rhs.type));
-    } else if (lhs.type instanceof CEIType && rhs.type instanceof CEIType) {
-        const lhs_types = getTypeInheritanceList(lhs.type);
-        const rhs_types = getTypeInheritanceList(rhs.type);
-        is_comparable = lhs_types.includes(rhs.type) || rhs_types.includes(lhs.type);
-    }
+    const is_comparable = isTypeComparable(lhs.type, rhs.type);
     if (!is_comparable) {
         addproblem(tokens, ParseProblem.Error(op, `Incomparable types: '${lhs.type.fullyDottedTypeName}' and '${rhs.type.fullyDottedTypeName}'`));
     }
@@ -1649,7 +1768,10 @@ function typeIdentList(tokens, method, imports, typemap) {
  */
 function typeIdent(tokens, method, imports, typemap) {
     if (tokens.current.kind !== 'ident') {
-        return new UnresolvedType();
+        if (tokens.current.value === '?') {
+            return wildcardTypeArgument(tokens, method, imports, typemap);
+        }
+        return AnyType.Instance;
     }
     const { types, package_name } = resolveTypeOrPackage(tokens.current.value, method._owner, imports, typemap);
     let matches = new ResolvedIdent(tokens.current.value, [], [], types, package_name);
@@ -1667,6 +1789,29 @@ function typeIdent(tokens, method, imports, typemap) {
         }
     }
     return matches.types[0] || new UnresolvedType(matches.source);
+}
+
+/**
+ * @param {TokenList} tokens 
+ * @param {SourceMC} method 
+ * @param {ResolvedImport[]} imports
+ * @param {Map<string,JavaType>} typemap 
+ */
+function wildcardTypeArgument(tokens, method, imports, typemap) {
+    tokens.expectValue('?');
+    let bound = null;
+    switch (tokens.current.value) {
+        case 'extends':
+        case 'super':
+            const kind = tokens.current.value;
+            tokens.inc();
+            bound = {
+                kind,
+                type: typeIdent(tokens, method, imports, typemap),
+            }
+            break;
+    }
+    return new WildcardType(bound);
 }
 
 /**
