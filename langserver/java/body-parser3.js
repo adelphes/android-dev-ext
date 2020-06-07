@@ -215,6 +215,12 @@ class ForStatement extends Statement {
     /** @type {Statement} */
     statement = null;
 }
+class SynchronizedStatement extends Statement {
+    /** @type {ResolvedIdent} */
+    expression = null;
+    /** @type {Statement} */
+    statement = null;
+}
 
 /**
  * @param {TokenList} tokens 
@@ -327,6 +333,11 @@ function statementKeyword(tokens, locals, method, imports, typemap) {
             tokens.inc();
             s = new ForStatement();
             forStatement(s, tokens, locals.slice(), method, imports, typemap);
+            break;
+        case 'synchronized':
+            tokens.inc();
+            s = new SynchronizedStatement();
+            synchronizedStatement(s, tokens, locals, method, imports, typemap);
             break;
         default:
             s = new InvalidStatement();
@@ -441,6 +452,26 @@ function enhancedFor(s, tokens, locals, method, imports, typemap) {
         }
         else if (!is_assignable) {
             addproblem(tokens, ParseProblem.Error(tokens.current, `Variable of type '${iter_var.type.fullyDottedTypeName}' is not compatible with iterable expression of type '${value.type.fullyDottedTypeName}'`));
+        }
+    }
+    tokens.expectValue(')');
+    s.statement = nonVarDeclStatement(tokens, locals, method, imports, typemap);
+}
+
+/**
+* @param {SynchronizedStatement} s
+* @param {TokenList} tokens 
+* @param {Local[]} locals
+* @param {SourceMC} method 
+* @param {ResolvedImport[]} imports
+* @param {Map<string,JavaType>} typemap 
+*/
+function synchronizedStatement(s, tokens, locals, method, imports, typemap) {
+    tokens.expectValue('(');
+    s.expression = expression(tokens, locals, method, imports, typemap);
+    if (s.expression.variables[0]) {
+        if (s.expression.variables[0].type instanceof PrimitiveType) {
+            addproblem(tokens, ParseProblem.Error(tokens.current, `synchronized lock expression must be a reference type`));
         }
     }
     tokens.expectValue(')');
@@ -2462,14 +2493,14 @@ function tokenize(source, offset = 0, length = source.length) {
      * int|long|short|byte|float|double|char|boolean|void   primitive type
      * new
      * instanceof
-     * public|private|protected|static|final|abstract|native|volatile|transient|synchronized   modifier
-     * if|else|while|for|do|try|catch|finally|switch|case|default|return|break|continue    statement keyword
+     * public|private|protected|static|final|abstract|native|volatile|transient   modifier
+     * if|else|while|for|do|try|catch|finally|switch|case|default|return|break|continue|throw|synchronized    statement keyword
      * class|enum|interface    type keyword
      * package|import    package keyword
      * \w+    word
      * ```
      */
-    const word_re = /(?:(true|false)|(this|super|null)|(int|long|short|byte|float|double|char|boolean|void)|(new)|(instanceof)|(public|private|protected|static|final|abstract|native|volatile|transient|synchronized)|(if|else|while|for|do|try|catch|finally|switch|case|default|return|break|continue|throw)|(class|enum|interface)|(package|import)|(\w+))\b/g;
+    const word_re = /(?:(true|false)|(this|super|null)|(int|long|short|byte|float|double|char|boolean|void)|(new)|(instanceof)|(public|private|protected|static|final|abstract|native|volatile|transient)|(if|else|while|for|do|try|catch|finally|switch|case|default|return|break|continue|throw|synchronized)|(class|enum|interface)|(package|import)|(\w+))\b/g;
     const word_token_types = [
         'boolean-literal',
         'object-literal',
