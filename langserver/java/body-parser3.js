@@ -1702,7 +1702,8 @@ function arrayElementOrConstructor(tokens, open_array, matches, index) {
     const types = matches.types.map(t => t instanceof ArrayType ? new ArrayType(t.base, t.arrdims+1) : new ArrayType(t, 1));
 
     if (!variables[0] && !types[0]) {
-        addproblem(tokens, ParseProblem.Error(open_array, `Invalid array expression`));
+        addproblem(tokens, ParseProblem.Error(open_array, `Invalid array expression: '${matches.source}' is not an array type`));
+        variables.push(new ArrayElement(new Value(matches.source, new ArrayType(AnyType.Instance, 1)), index));
     }
     return new ResolvedIdent(ident, variables, [], types);
 }
