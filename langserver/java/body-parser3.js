@@ -2075,8 +2075,15 @@ function parseDottedIdent(matches, tokens, typemap) {
             // e.g int.class
             // convert the types to Class instances
             tokens.inc();
+            const prim_map = {
+                B:'Byte',S:'Short',I:'Integer',J:'Long',F:'Float',D:'Double',C:'Character',Z:'Boolean',V:'Void',
+            }
             variables = matches.types.map(t => {
-                const type_signature = t instanceof AnyType ? '' : `<${t.typeSignature}>`
+                const type_signature = t instanceof AnyType
+                    ? ''
+                    : t instanceof PrimitiveType
+                    ? `<Ljava/lang/${prim_map[t.typeSignature]};>`
+                    : `<${t.typeSignature}>`
                 return new Value(qualified_ident, signatureToType(`Ljava/lang/Class${type_signature};`, typemap));
             });
             return new ResolvedIdent(qualified_ident, variables);
