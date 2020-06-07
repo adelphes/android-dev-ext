@@ -1127,16 +1127,31 @@ function isTypeCastable(source_type, cast_type) {
  * eg, long (J) is type-assignable to long, float and double (and their boxed counterparts)
  * Note that void (V) is never type-assignable to anything
  */
-const valid_primitive_dest_types = {
-    I: /^[IJFD]$|^Ljava\/lang\/(Integer|Long|Float|Double);$/,
-    J: /^[JFD]$|^Ljava\/lang\/(Long|Float|Double);$/,
-    S: /^[SIJFD]$|^Ljava\/lang\/(Short|Integer|Long|Float|Double);$/,
-    B: /^[BSIJFD]$|^Ljava\/lang\/(Byte|Short|Integer|Long|Float|Double);$/,
-    F: /^[FD]$|^Ljava\/lang\/(Float|Double);$/,
-    D: /^D$|^Ljava\/lang\/(Double);$/,
-    C: /^C$|^Ljava\/lang\/(Character);$/,
-    Z: /^Z$|^Ljava\/lang\/(Boolean);$/,
-    V: /$^/,    // V.test() always returns false
+const valid_primitive_types = {
+    // conversions from a primitive to a value
+    from: {
+        B: /^[BSIJFD]$|^Ljava\/lang\/(Byte|Short|Integer|Long|Float|Double);$/,
+        S: /^[SIJFD]$|^Ljava\/lang\/(Short|Integer|Long|Float|Double);$/,
+        I: /^[IJFD]$|^Ljava\/lang\/(Integer|Long|Float|Double);$/,
+        J: /^[JFD]$|^Ljava\/lang\/(Long|Float|Double);$/,
+        F: /^[FD]$|^Ljava\/lang\/(Float|Double);$/,
+        D: /^D$|^Ljava\/lang\/(Double);$/,
+        C: /^C$|^Ljava\/lang\/(Character);$/,
+        Z: /^Z$|^Ljava\/lang\/(Boolean);$/,
+        V: /$^/,    // V.test() always returns false
+    },
+    // conversions to a primitive from a value
+    to: {
+        B: /^[B]$|^Ljava\/lang\/(Byte);$/,
+        S: /^[BS]$|^Ljava\/lang\/(Byte|Short);$/,
+        I: /^[BSIC]$|^Ljava\/lang\/(Byte|Short|Integer|Character);$/,
+        J: /^[BSIJC]$|^Ljava\/lang\/(Byte|Short|Integer|Long|Character);$/,
+        F: /^[BSIJCF]$|^Ljava\/lang\/(Byte|Short|Integer|Long|Character|Float);$/,
+        D: /^[BSIJCFD]$|^Ljava\/lang\/(Byte|Short|Integer|Long|Character|Float|Double);$/,
+        C: /^C$|^Ljava\/lang\/(Character);$/,
+        Z: /^Z$|^Ljava\/lang\/(Boolean);$/,
+        V: /$^/,    // V.test() always returns false
+    }
 }
 
 /**
@@ -1156,8 +1171,11 @@ function isTypeAssignable(dest_type, value_type) {
         // everything is assignable to Object
         is_assignable = true;
     } else if (value_type instanceof PrimitiveType) {
-        // primitives can only be assinged to other widening primitives or their class equivilents
-        is_assignable = valid_primitive_dest_types[value_type.typeSignature].test(dest_type.typeSignature);
+        // primitive values can only be assigned to wider primitives or their class equivilents
+        is_assignable = valid_primitive_types.from[value_type.typeSignature].test(dest_type.typeSignature);
+    } else if (dest_type instanceof PrimitiveType) {
+        // primitive variables can only be assigned from narrower primitives or their class equivilents
+        is_assignable = valid_primitive_types.to[dest_type.typeSignature].test(value_type.typeSignature);
     } else if (value_type instanceof NullType) {
         // null is assignable to any non-primitive
         is_assignable = !(dest_type instanceof PrimitiveType);
