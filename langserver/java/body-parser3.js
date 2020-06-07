@@ -1210,7 +1210,8 @@ function isTypeAssignable(dest_type, value_type) {
             is_assignable = valid_raw_types.includes(dest_type);
             if (!is_assignable) {
                 // generic types are also assignable to compatible wildcard type bounds
-                if (dest_type.rawTypeSignature === value_type.rawTypeSignature) {
+                const raw_type = valid_raw_types.find(rt => rt.rawTypeSignature === dest_type.rawTypeSignature);
+                if (raw_type instanceof CEIType && raw_type.typevars.length === value_type.typevars.length) {
                     is_assignable = dest_type.typevars.every((dest_tv, idx) => isTypeArgumentCompatible(dest_tv, value_type.typevars[idx].type));
                 }
             }
