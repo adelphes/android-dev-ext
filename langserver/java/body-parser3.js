@@ -625,7 +625,7 @@ function caseExpression(cases, test_type, tokens, locals, method, imports, typem
         if (tokens.isValue('case')) {
             e = expression(tokens, locals, method, imports, typemap);
             if (e.variables[0]) {
-                if (test_type && !isTypeAssignable(e.variables[0].type, test_type)) {
+                if (test_type && !isAssignable(test_type, e.variables[0])) {
                     addproblem(tokens, ParseProblem.Error(tokens.current, `Incompatible types: Expression of type '${e.variables[0].type.fullyDottedTypeName}' is not comparable to an expression of type '${test_type.fullyDottedTypeName}'`));
                 }
                 if (!isConstantValue(e.variables[0])) {
@@ -675,14 +675,14 @@ function checkReturnExpression(tokens, method, return_expression) {
         addproblem(tokens, ParseProblem.Error(tokens.current, `Method must return a value of type '${method.returnType.fullyDottedTypeName}'`));
         return;
     }
-    if (!return_expression.variables[0]) {
+    const expr = return_expression.variables[0];
+    if (!expr) {
         addproblem(tokens, ParseProblem.Error(tokens.current, `Method must return a value of type '${method.returnType.fullyDottedTypeName}'`));
         return;
     }
-    const expr_type = return_expression.variables[0].type;
-    const is_assignable = isTypeAssignable(method.returnType, expr_type);
+    const is_assignable = isAssignable(method.returnType, expr);
     if (!is_assignable) {
-        addproblem(tokens, ParseProblem.Error(tokens.current, `Incompatible types: Expression of type '${expr_type.fullyDottedTypeName}' cannot be returned from a method of type '${method.returnType.fullyDottedTypeName}'`));
+        addproblem(tokens, ParseProblem.Error(tokens.current, `Incompatible types: Expression of type '${expr.type.fullyDottedTypeName}' cannot be returned from a method of type '${method.returnType.fullyDottedTypeName}'`));
     }
 }
 
@@ -695,7 +695,7 @@ function checkThrowExpression(tokens, throw_expression, typemap) {
     if (!throw_expression.variables[0]) {
         return;
     }
-    let is_throwable = isTypeAssignable(typemap.get('java/lang/Throwable'), throw_expression.variables[0].type);
+    let is_throwable = isAssignable(typemap.get('java/lang/Throwable'), throw_expression.variables[0]);
     if (!is_throwable) {
         addproblem(tokens, ParseProblem.Error(tokens.current, `Incompatible types: throw expression must inherit from java.lang.Throwable`));
     }
@@ -967,7 +967,7 @@ function checkAssignmentExpression(tokens, variable, op, value) {
         return;
     }
 
-    is_assignable = isTypeAssignable(variable.type, value.type);
+    is_assignable = isAssignable(variable.type, value);
     if (!is_assignable) {
         addproblem(tokens, ParseProblem.Error(op, `Incompatible types: Expression of type '${value.type.fullyDottedTypeName}' cannot be assigned to a variable of type '${variable.type.fullyDottedTypeName}'`));
     }
@@ -998,14 +998,14 @@ function isArrayAssignable(variable_type, value) {
             if (element instanceof ArrayLiteral) {
                 is_assignable = isArrayAssignable(required_element_type, element);
             } else {
-                is_assignable = element.variables[0] ? isTypeAssignable(required_element_type, element.variables[0].type) : false;
+                is_assignable = element.variables[0] ? isAssignable(required_element_type, element.variables[0]) : false;
             }
         } else {
             // base type = the element must match the (non-array) type
             if (element instanceof ArrayLiteral) {
                 is_assignable = false;
             } else {
-                is_assignable = element.variables[0] ? isTypeAssignable(required_element_type, element.variables[0].type) : false;
+                is_assignable = element.variables[0] ? isAssignable(required_element_type, element.variables[0]) : false;
             }
         }
         if (!is_assignable) {
@@ -1013,6 +1013,19 @@ function isArrayAssignable(variable_type, value) {
         }
     }
     return true;
+}
+
+/**
+ * 
+ * @param {JavaType} type 
+ * @param {Local|Parameter|Field|ArrayElement|Value} value 
+ */
+function isAssignable(type, value) {
+    if (value instanceof LiteralNumber) {
+        return value.isCompatibleWith(type);
+    }
+
+    return isTypeAssignable(type, value.type);
 }
 
 /**
@@ -1225,11 +1238,18 @@ function checkOperator(tokens, lhs, op, rhs, re) {
  */
 function resolveBitwise(tokens, ident, lhs, op, rhs) {
     let type = PrimitiveType.map.I;
-    if (lhs.variables[0] && rhs.variables[0]) {
+    const lhsvar = lhs.variables[0], rhsvar = rhs.variables[0];
+    if (lhsvar && rhsvar) {
         // ^&| are both bitwse and logical operators
-        checkOperator(tokens, lhs.variables[0], op, rhs.variables[0], /^[BSIJCZ]{2}$/);
-        if (lhs.variables[0].type.typeSignature === 'Z') {
+        checkOperator(tokens, lhsvar, op, rhsvar, /^[BSIJCZ]{2}$/);
+        if (lhsvar.type.typeSignature === 'Z') {
             type = PrimitiveType.map.Z;
+        }
+        else if (lhsvar instanceof LiteralNumber && rhsvar instanceof LiteralNumber) {
+            const result = LiteralNumber[op.value](lhsvar, rhsvar);
+            if (result) {
+                return new ResolvedIdent(ident, [result]);
+            }
         }
     }
     return new ResolvedIdent(ident, [Value.build(ident, lhs, rhs, type)]);
@@ -1243,12 +1263,20 @@ function resolveBitwise(tokens, ident, lhs, op, rhs) {
  * @param {ResolvedIdent} rhs 
  */
 function resolveShift(tokens, ident, lhs, op, rhs) {
-    if (lhs.variables[0] && rhs.variables[0]) {
+    const lhsvar = lhs.variables[0], rhsvar = rhs.variables[0];
+    if (lhsvar && rhsvar) {
         // ^&| are both bitwse and logical operators
-        checkOperator(tokens, lhs.variables[0], op, rhs.variables[0], /^[BSIJC]{2}$/);
+        checkOperator(tokens, lhsvar, op, rhsvar, /^[BSIJC]{2}$/);
+        if (lhsvar instanceof LiteralNumber && rhsvar instanceof LiteralNumber) {
+            const result = LiteralNumber[op.value](lhsvar, rhsvar);
+            if (result) {
+                return new ResolvedIdent(ident, [result]);
+            }
+        }
     }
     return new ResolvedIdent(ident, [Value.build(ident, lhs, rhs, PrimitiveType.map.I)]);
 }
+
 
 /**
  * @param {TokenList} tokens
@@ -1286,7 +1314,8 @@ function resolveInstanceOf(tokens, ident, lhs, op, rhs) {
  * @param {ResolvedIdent} rhs 
  */
 function resolveMath(tokens, ident, lhs, op, rhs) {
-    if (!lhs.variables[0] || !rhs.variables[0]) {
+    const lhsvar = lhs.variables[0], rhsvar = rhs.variables[0];
+    if (!lhsvar || !rhsvar) {
         return new ResolvedIdent(ident);
     }
     if (op.value === '+') {
@@ -1296,17 +1325,23 @@ function resolveMath(tokens, ident, lhs, op, rhs) {
                 return new ResolvedIdent(ident, [Value.build(ident, lhs, rhs, operand.variables[0].type)]);
             }
     }
-    checkOperator(tokens, lhs.variables[0], op, rhs.variables[0], /^[BISJFDC]{2}$/);
-    /** @type {JavaType} */
+    checkOperator(tokens, lhsvar, op, rhsvar, /^[BISJFDC]{2}$/);
+    if (lhsvar instanceof LiteralNumber && rhsvar instanceof LiteralNumber) {
+        const result = LiteralNumber[op.value](lhsvar, rhsvar);
+        if (result) {
+            return new ResolvedIdent(ident, [result]);
+        }
+    }
+/** @type {JavaType} */
     let type;
-    const typekey = `${lhs.variables[0].type.typeSignature}${rhs.variables[0].type.typeSignature}`;
+    const typekey = `${lhsvar.type.typeSignature}${rhsvar.type.typeSignature}`;
     const lhtypematches = 'SB,IB,JB,FB,DB,IS,JS,FS,DS,JI,FI,DI,FJ,DJ,DF';
     if (lhtypematches.indexOf(typekey) >= 0) {
-        type = lhs.variables[0].type;
+        type = lhsvar.type;
     } else if (/^(C.|.C)$/.test(typekey)) {
         type = PrimitiveType.map.I;
     } else {
-        type = rhs.variables[0].type;
+        type = rhsvar.type;
     }
 
     return new ResolvedIdent(ident, [Value.build(ident, lhs, rhs, type)]);
@@ -1382,7 +1417,7 @@ function rootTerm(tokens, locals, method, imports, typemap) {
             }
             break;
         case /number-literal/.test(tokens.current.kind) && tokens.current.kind:
-            matches = new ResolvedIdent(tokens.current.value, [new LiteralValue(tokens.current.value, PrimitiveType.map.I)]);
+            matches = new ResolvedIdent(tokens.current.value, [LiteralNumber.from(tokens.current)]);
             break;
         case 'inc-operator':
             let incop = tokens.current;
@@ -1650,7 +1685,7 @@ function isCallCompatible(m, call_arguments) {
             return false;
         }
         // is the argument assignable to the parameter
-        if (isTypeAssignable(p[i].type, call_arguments[i].variables[0].type)) {
+        if (isAssignable(p[i].type, call_arguments[i].variables[0])) {
             continue;
         }
         // mismatch parameter type
@@ -2012,6 +2047,7 @@ function resolveTypeOrPackage(ident, scoped_type, imports, typemap) {
     }
 }
 
+
 /**
  * AnyType is a special type that's used to fill in types that are missing.
  * To prevent cascading errors, AnyType should be fully assign/cast/type-compatible
@@ -2102,10 +2138,13 @@ class Value {
      * @param {JavaType} type 
      */
     static build(ident, lhs, rhs, type) {
-        const value = lhs.variables && lhs.variables[0] instanceof LiteralValue && rhs.variables && rhs.variables[0] instanceof LiteralValue
-            ? new LiteralValue(ident, type)
-            : new Value(ident, type);
-        return value;
+        if (!lhs.variables[0] || !rhs.variables[0]) {
+            return new Value(ident, type);
+        }
+        if (lhs.variables[0] instanceof LiteralValue && rhs.variables && rhs.variables[0] instanceof LiteralValue) {
+            new LiteralValue(ident, type);
+        }
+        return new Value(ident, type);
     }
 }
 
@@ -2116,6 +2155,163 @@ class AnyValue extends Value {
 }
 
 class LiteralValue extends Value { }
+
+/**
+ * LiteralNumberType is a value representing literal numbers (like 0, 5.3, -0.1e+12, etc).
+ * 
+ * It's used to allow literal numbers to be type-assignable to variables with different primitive types.
+ * For example, 200 is type-assignable to short, int, long, float and double, but not byte.
+ */
+class LiteralNumber extends LiteralValue {
+    /**
+     * @param {string} value
+     * @param {string} kind
+     * @param {PrimitiveType} default_type 
+     */
+    constructor(value, kind, default_type) {
+        super(value, default_type);
+        this.numberValue = value;
+        this.numberKind = kind;
+    }
+
+    static shift(a, b, op) {
+        const ai = a.toInt(), bi = b.toInt();
+        if (ai === null || bi === null) {
+            return null;
+        }
+        const val = op(ai, bi);
+        const type = a.type.typeSignature === 'J' ? PrimitiveType.map.J : PrimitiveType.map.I;
+        return new LiteralNumber(val.toString(), 'int-number-literal', type);
+    }
+
+    static bitwise(a, b, op) {
+        const ai = a.toInt(), bi = b.toInt();
+        if (ai === null || bi === null) {
+            return null;
+        }
+        const val = op(ai, bi);
+        const typekey = a.type.typeSignature+ b.type.typeSignature;
+        let type = /J/.test(typekey) ? PrimitiveType.map.J : PrimitiveType.map.I;
+        return new LiteralNumber(val.toString(), 'int-number-literal', type);
+    }
+
+    static math(a, b, op, divmod) {
+        const ai = a.toNumber(), bi = b.toNumber();
+        if (bi === 0 && divmod) {
+            return null;
+        }
+        let val = op(ai, bi);
+        const typekey = a.type.typeSignature+ b.type.typeSignature;
+        if (!/[FD]/.test(typekey) && divmod) {
+            val = Math.trunc(val);
+        }
+        let type;
+        if (/^(D|F[^D]|J[^FD])/.test(typekey)) {
+            type = a.type;
+        } else {
+            type = b.type;
+        }
+        return new LiteralNumber(val.toString(), 'int-number-literal', type);
+    }
+
+    static '+'(lhs, rhs) { return  LiteralNumber.math(lhs, rhs, (a,b) => a + b) }
+    static '-'(lhs, rhs) { return  LiteralNumber.math(lhs, rhs, (a,b) => a - b) }
+    static '*'(lhs, rhs) { return  LiteralNumber.math(lhs, rhs, (a,b) => a * b) }
+    static '/'(lhs, rhs) { return  LiteralNumber.math(lhs, rhs, (a,b) => a / b, true) }
+    static '%'(lhs, rhs) { return  LiteralNumber.math(lhs, rhs, (a,b) => a % b, true) }
+    static '&'(lhs, rhs) { return  LiteralNumber.bitwise(lhs, rhs, (a,b) => a & b) }
+    static '|'(lhs, rhs) { return  LiteralNumber.bitwise(lhs, rhs, (a,b) => a | b) }
+    static '^'(lhs, rhs) { return  LiteralNumber.bitwise(lhs, rhs, (a,b) => a ^ b) }
+    static '>>'(lhs, rhs) { return  LiteralNumber.shift(lhs, rhs, (a,b) => a >> b) }
+    static '>>>'(lhs, rhs) { return  LiteralNumber.shift(lhs, rhs, (a,b) => {
+        // unsigned shift (>>>) is not supported by bigints
+        // @ts-ignore
+        return (a >> b) & ~(-1n << (64n - b));
+    }) }
+    static '<<'(lhs, rhs) { return  LiteralNumber.shift(lhs, rhs, (a,b) => a << b) }
+
+    toInt() {
+        switch (this.numberKind) {
+            case 'hex-number-literal':
+            case 'int-number-literal':
+                return BigInt(this.name);
+        }
+        return null;
+    }
+
+    toNumber() {
+        return parseFloat(this.name);
+    }
+
+    /**
+     * @param {JavaType} type 
+     */
+    isCompatibleWith(type) {
+        if (this.type === type) {
+            return true;
+        }
+        switch(this.type.simpleTypeName) {
+            case 'double':
+                return /^([D]|Ljava\/lang\/(Double);)$/.test(type.typeSignature);
+            case 'float':
+                return /^([FD]|Ljava\/lang\/(Float|Double);)$/.test(type.typeSignature);
+        }
+        // all integral types are all compatible with long, float and double variables
+        if (/^([JFD]|Ljava\/lang\/(Long|Float|Double);)$/.test(type.typeSignature)) {
+            return true;
+        }
+        // the desintation type must be a number primitive or one of the corresponding boxed classes
+        if (!/^([BSIJFDC]|Ljava\/lang\/(Byte|Short|Integer|Long|Float|Double|Character);)$/.test(type.typeSignature)) {
+            return false;
+        }
+        let number = 0;
+        if (this.numberKind === 'hex-number-literal') {
+            if (this.numberValue !== '0x') {
+                const non_leading_zero_digits = this.numberValue.match(/0x0*(.+)/)[1];
+                number = non_leading_zero_digits.length > 8 ? Number.MAX_SAFE_INTEGER : parseInt(non_leading_zero_digits, 16);
+            }
+        } else if (this.numberKind === 'int-number-literal') {
+            const non_leading_zero_digits = this.numberValue.match(/0*(.+)/)[1];
+            number = non_leading_zero_digits.length > 10 ? Number.MAX_SAFE_INTEGER : parseInt(non_leading_zero_digits, 10);
+        }
+        if (number >= -128 && number <= 127) {
+            return true;    // byte values are compatible with all other numbers
+        }
+        if (number >= -32768 && number <= 32767) {
+            return !/^([B]|Ljava\/lang\/(Byte);)$/.test(type.typeSignature);    // anything except byte
+        }
+        return !/^([BSC]|Ljava\/lang\/(Byte|Short|Character);)$/.test(type.typeSignature);    // anything except byte, short and character
+    }
+
+    /**
+     * @param {Token} token 
+     */
+    static from(token) {
+        function suffix(which) {
+            switch(which.indexOf(token.value.slice(-1))) {
+                case 0:
+                case 1:
+                    return PrimitiveType.map.F;
+                case 2:
+                case 3:
+                    return PrimitiveType.map.D;
+                case 4:
+                case 5:
+                    return PrimitiveType.map.J;
+            }
+        }
+        switch(token.kind) {
+            case 'dec-exp-number-literal':
+            case 'dec-number-literal':
+                return new LiteralNumber(token.value, token.kind, suffix('FfDdLl') || PrimitiveType.map.D);
+            case 'hex-number-literal':
+                return new LiteralNumber(token.value, token.kind, suffix('    Ll') || PrimitiveType.map.I);
+            case 'int-number-literal':
+            default:
+                return new LiteralNumber(token.value, token.kind, suffix('FfDdLl') || PrimitiveType.map.I);
+        }
+    }
+}
 
 class MethodCall extends Value {
     /**
