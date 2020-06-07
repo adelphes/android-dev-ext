@@ -241,8 +241,8 @@ function tokenize(source) {
         }
         if (m[4]) {
             // ident or keyword
-            const KEYWORDS = /^(assert|break|case|catch|class|const|continue|default|do|else|enum|extends|finally|for|goto|if|implements|import|interface|new|package|return|super|switch|throw|throws|try|while)$/;
-            const MODIFIER_KEYWORDS = /^(abstract|final|native|private|protected|public|static|strictfp|synchronized|transient|volatile)$/;
+            const KEYWORDS = /^(assert|break|case|catch|class|const|continue|do|else|enum|extends|finally|for|goto|if|implements|import|interface|new|package|return|super|switch|throw|throws|try|while)$/;
+            const MODIFIER_KEYWORDS = /^(abstract|final|native|private|protected|public|static|strictfp|synchronized|transient|volatile|default)$/;
             const PRIMITIVE_TYPE_KEYWORDS = /^(int|boolean|byte|char|double|float|long|short|void)$/
             const LITERAL_VALUE_KEYWORDS = /^(this|true|false|null)$/;
             const OPERATOR_KEYWORDS = /^(instanceof)$/;

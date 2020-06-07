@@ -96,6 +96,13 @@ function checkMethodModifiers(type, ownertypemods, method, probs) {
     if (allmods.has('native') && method.body().simplified.startsWith('B')) {
         probs.push(ParseProblem.Error(allmods.get('native'), 'Method declarations marked as native cannot have a method body'));
     }
+    // JLS8
+    if (type.kind() !== 'interface' && allmods.has('default')) {
+        probs.push(ParseProblem.Error(method, `Default method declarations are only allowed inside interfaces`));
+    }
+    if (allmods.has('default') && !method.body().simplified.startsWith('B')) {
+        probs.push(ParseProblem.Error(method, `Default method declarations must have an implementation`));
+    }
 }
 
 /**
