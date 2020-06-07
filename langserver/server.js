@@ -228,9 +228,10 @@ function getDocumentSettings(resource) {
 
 // Only keep settings for open documents
 documents.onDidClose((e) => {
-    connection.console.log('doc closed');
+    connection.console.log(`doc closed ${e.document.uri}`);
     parsed = null;
     documentSettings.delete(e.document.uri);
+    connection.sendDiagnostics({ uri: e.document.uri, diagnostics: [] });
 });
 
 // The content of a text document has changed. This event is emitted
