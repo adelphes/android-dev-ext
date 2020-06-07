@@ -1140,7 +1140,7 @@ const valid_primitive_types = {
         J: /^[JFD]$|^Ljava\/lang\/(Long|Float|Double);$/,
         F: /^[FD]$|^Ljava\/lang\/(Float|Double);$/,
         D: /^D$|^Ljava\/lang\/(Double);$/,
-        C: /^C$|^Ljava\/lang\/(Character);$/,
+        C: /^[CIJFD]$|^Ljava\/lang\/(Character|Integer|Long|Float|Double);$/,
         Z: /^Z$|^Ljava\/lang\/(Boolean);$/,
         V: /$^/,    // V.test() always returns false
     },
