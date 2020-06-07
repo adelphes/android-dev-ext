@@ -1072,6 +1072,10 @@ function isTypeCastable(source_type, cast_type) {
         // everything is castable to Object
         return true;
     }
+    if (source_type instanceof NullType) {
+        // null is castable to any non-primitive
+        return !(cast_type instanceof PrimitiveType);
+    }
     if (source_type instanceof CEIType && cast_type instanceof CEIType) {
         if (source_type.typeKind === 'interface') {
             // interfaces are castable to any non-final class type (derived types might implement the interface)
