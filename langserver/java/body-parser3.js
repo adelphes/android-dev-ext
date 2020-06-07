@@ -115,6 +115,11 @@ class TokenList {
             }
         }
     }
+
+    splice(start, delete_count, ...add) {
+        this.tokens.splice(start, delete_count, ...add);
+        this.current = this.tokens[this.idx];
+    }
 }
 
 /**
@@ -1775,13 +1780,18 @@ function typeIdent(tokens, method, imports, typemap) {
     }
     const { types, package_name } = resolveTypeOrPackage(tokens.current.value, method._owner, imports, typemap);
     let matches = new ResolvedIdent(tokens.current.value, [], [], types, package_name);
+    tokens.inc();
     for (;;) {
-        tokens.inc();
         if (tokens.isValue('.')) {
             matches = parseDottedIdent(matches, tokens, typemap);
         } else if (tokens.isValue('<')) {
             if (!tokens.isValue('>')) {
                 typeIdentList(tokens, method, imports, typemap);
+                if (/>>>?/.test(tokens.current.value)) {
+                    // we need to split >> and >>> into separate > tokens to handle things like List<Class<?>>
+                    const new_tokens = tokens.current.value.split('').map((gt,i) => new Token(tokens.current.range.source, tokens.current.range.start + i, 1, 'comparison-operator'));
+                    tokens.splice(tokens.idx, 1, ...new_tokens);
+                }
                 tokens.expectValue('>');
             }
         } else {
