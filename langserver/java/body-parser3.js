@@ -523,7 +523,7 @@ function catchFinallyBlocks(s, tokens, locals, method, imports, typemap) {
             let exceptionVar;
             if (catchinfo.types[0] && catchinfo.name) {
                 checkLocalModifiers(tokens, mods);
-                exceptionVar = new Local(mods, catchinfo.name.value, catchinfo.name, catchinfo.types[0]);
+                exceptionVar = new Local(mods, catchinfo.name.value, catchinfo.name, catchinfo.types[0], 0);
             }
             catchinfo.block = statementBlock(tokens, [...locals, exceptionVar], method, imports, typemap);
             s.catches.push(catchinfo);
@@ -755,8 +755,15 @@ function expression_or_var_decl(tokens, locals, method, imports, typemap) {
         const new_locals = [];
         checkLocalModifiers(tokens, mods);
         for (;;) {
-            let local = new Local(mods, tokens.current.value, tokens.current, matches.types[0]);
+            const name = tokens.current;
             tokens.inc();
+            // look for [] after the variable name
+            let postnamearrdims = 0;
+            while (tokens.isValue('[')) {
+                postnamearrdims += 1;
+                tokens.expectValue(']');
+            }
+            let local = new Local(mods, name.value, name, matches.types[0], postnamearrdims);
             if (tokens.isValue('=')) {
                 const op = tokens.previous;
                 local.init = expression(tokens, locals, method, imports, typemap);
@@ -2177,12 +2184,20 @@ class Local {
      * @param {string} name 
      * @param {Token} decltoken 
      * @param {JavaType} type 
+     * @param {JavaType} type 
+     * @param {number} postnamearrdims 
      */
-    constructor(modifiers, name, decltoken, type) {
+    constructor(modifiers, name, decltoken, type, postnamearrdims) {
         this.finalToken = modifiers.find(m => m.source === 'final') || null;
         this.name = name;
         this.decltoken = decltoken;
-        this.type = type;
+        if (postnamearrdims > 0) {
+            this.type = (type instanceof ArrayType)
+                ? new ArrayType(type.base, type.arrdims + postnamearrdims)
+                : new ArrayType(type, postnamearrdims);
+        } else {
+            this.type = type;
+        }
         this.init = null;
     }
 }
