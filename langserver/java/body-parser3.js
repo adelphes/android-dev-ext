@@ -2646,7 +2646,7 @@ class ResolvedIdent {
  *   ".*       unterminated string literal
  *   '\\?.?'?  character literal - possibly unterminated and/or with invalid escape
  *   \.?\d     number literal (start) - further processing extracts the value
- *   \w+       word - keyword or identifier
+ *   [\p{L}\p{N}_$]*       word - keyword or identifier
  *   [;,?:(){}\[\]]   single-character symbols and operators
  *   \.(\.\.)?    . ...
  * 
@@ -2670,7 +2670,7 @@ class ResolvedIdent {
  */
 function tokenize(source, offset = 0, length = source.length) {
     const text = source.slice(offset, offset + length);
-    const raw_token_re = /(\s+|\/\/.*|\/\*[\d\D]*?\*\/)|("[^\r\n\\"]*(?:\\.[^\r\n\\"]*)*")|(".*)|('\\?.?'?)|(\.?\d)|(\w+)|(\()|([;,?:(){}\[\]@]|\.(?:\.\.)?)|([!=/%*^]=?|<<?=?|>>?>?=?|&[&=]?|\|[|=]?|(\+\+|--)|[+-]=?|~)|$/g;
+    const raw_token_re = /(\s+|\/\/.*|\/\*[\d\D]*?\*\/)|("[^\r\n\\"]*(?:\\.[^\r\n\\"]*)*")|(".*)|('\\?.?'?)|(\.?\d)|([\p{L}\p{N}$_]+)|(\()|([;,?:(){}\[\]@]|\.(?:\.\.)?)|([!=/%*^]=?|<<?=?|>>?>?=?|&[&=]?|\|[|=]?|(\+\+|--)|[+-]=?|~)|$/gu;
     const raw_token_types = [
         'wsc',
         'string-literal',
@@ -2696,7 +2696,7 @@ function tokenize(source, offset = 0, length = source.length) {
      * \w+    word
      * ```
      */
-    const word_re = /(?:(true|false)|(this|super|null)|(int|long|short|byte|float|double|char|boolean|void)|(new)|(instanceof)|(public|private|protected|static|final|abstract|native|volatile|transient)|(if|else|while|for|do|try|catch|finally|switch|case|default|return|break|continue|throw|synchronized)|(class|enum|interface)|(package|import)|(\w+))\b/g;
+    const word_re = /^(?:(true|false)|(this|super|null)|(int|long|short|byte|float|double|char|boolean|void)|(new)|(instanceof)|(public|private|protected|static|final|abstract|native|volatile|transient)|(if|else|while|for|do|try|catch|finally|switch|case|default|return|break|continue|throw|synchronized)|(class|enum|interface)|(package|import)|(.+))$/;
     const word_token_types = [
         'boolean-literal',
         'object-literal',
@@ -2753,9 +2753,8 @@ function tokenize(source, offset = 0, length = source.length) {
                 break;
             case 'word':
                 // we need to work out what kind of keyword, literal or ident this is
-                word_re.lastIndex = m.index;
-                m = word_re.exec(text);
-                idx = m.findIndex((match,i) => i && match) - 1;
+                let word_m = m[0].match(word_re);
+                idx = word_m.findIndex((match,i) => i && match) - 1;
                 tokentype = word_token_types[idx];        
                 break;
             case 'operator':
