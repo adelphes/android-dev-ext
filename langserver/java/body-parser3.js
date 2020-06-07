@@ -2686,7 +2686,7 @@ class ResolvedIdent {
  */
 function tokenize(source, offset = 0, length = source.length) {
     const text = source.slice(offset, offset + length);
-    const raw_token_re = /(\s+|\/\/.*|\/\*[\d\D]*?\*\/)|("[^\r\n\\"]*(?:\\.[^\r\n\\"]*)*")|(".*)|('\\?.?'?)|(\.?\d)|([\p{L}\p{N}$_]+)|(\()|([;,?:(){}\[\]@]|\.(?:\.\.)?)|([!=/%*^]=?|<<?=?|>>?>?=?|&[&=]?|\|[|=]?|(\+\+|--)|[+-]=?|~)|$/gu;
+    const raw_token_re = /(\s+|\/\/.*|\/\*[\d\D]*?\*\/)|("[^\r\n\\"]*(?:\\.[^\r\n\\"]*)*")|(".*)|('\\u[\da-fA-F]{0,4}'?|'\\?.?'?)|(\.?\d)|([\p{L}\p{N}$_]+)|(\()|([;,?:(){}\[\]@]|\.(?:\.\.)?)|([!=/%*^]=?|<<?=?|>>?>?=?|&[&=]?|\|[|=]?|(\+\+|--)|[+-]=?|~)|$/gu;
     const raw_token_types = [
         'wsc',
         'string-literal',
