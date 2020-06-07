@@ -2333,7 +2333,9 @@ class LiteralNumber extends LiteralValue {
         switch (this.numberKind) {
             case 'hex-number-literal':
             case 'int-number-literal':
-                return BigInt(this.name);
+                // unlike parseInt, BigInt doesn't like invalid characters, so
+                // ensure we strip any trailing long specifier
+                return BigInt(this.name.match(/(.+?)[lL]?$/)[1]);
         }
         return null;
     }
