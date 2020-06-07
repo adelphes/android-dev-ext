@@ -1379,6 +1379,34 @@ function isExpressionStart(token) {
 }
 
 /**
+ * @param {Token} token first token following the close bracket
+ * @param {ResolvedIdent} matches - the bracketed expression
+ */
+function isCastExpression(token, matches) {
+    // working out if this is supposed to be a cast expression is problematic.
+    //   (a) + b     -> cast or binary expression (depends on how a is resolved)
+    // if the bracketed expression cannot be resolved:
+    //   (a) b     -> assumed to be a cast
+    //   (a) + b   -> assumed to be an expression
+    //   (a) 5   -> assumed to be a cast
+    //   (a) + 5   -> assumed to be an expression
+    if (matches.types[0] && !(matches.types[0] instanceof AnyType)) {
+        // resolved type - this must be a cast
+        return true;
+    }
+    if (!matches.types[0]) {
+        // not a type - this must be an expression
+        return false;
+    }
+    // if we reach here, the type is AnyType - we assume a cast if the next
+    // value is the start of an expression, except for +/-
+    if (token.kind === 'plumin-operator') {
+        return false;
+    }
+    return this.isExpressionStart(token);
+}
+
+/**
  * @param {TokenList} tokens 
  * @param {Local[]} locals
  * @param {SourceMC} method 
@@ -1478,7 +1506,7 @@ function rootTerm(tokens, locals, method, imports, typemap) {
             matches = expression(tokens, locals, method, imports, typemap);
             const close_bracket = tokens.current;
             tokens.expectValue(')');
-            if (isExpressionStart(tokens.current)) {
+            if (isCastExpression(tokens.current, matches)) {
                 // typecast
                 const type = matches.types[0];
                 if (!type) {
