@@ -504,6 +504,15 @@ class InitialiserBlock extends DeclarationBlock {
     constructor(section, simplified, match) {
         super(section, simplified);
     }
+
+    /**
+     * Returns the TextBlock associated with the method body
+     */
+    body() {
+        // always the last block atm
+        const blocks = this.blockArray();
+        return blocks.blocks[blocks.blocks.length - 1];
+    }
 }
 
 class TypeDeclBlock extends DeclarationBlock {
@@ -599,6 +608,11 @@ class TypeDeclBlock extends DeclarationBlock {
     get constructors() {
         this._ensureParsed();
         return this.parsed.constructors;
+    }
+
+    get initialisers() {
+        this._ensureParsed();
+        return this.parsed.initialisers;
     }
 
     get types() {

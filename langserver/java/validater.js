@@ -58,6 +58,12 @@ function validate(mod, androidLibrary) {
 
     let probs = [];
     source_types.forEach(t => {
+        t.initers.forEach(i => {
+            console.log('<clinit>()');
+            const parsed = parseBody(i, imports.resolved, imports.typemap);
+            if (parsed)
+                probs = probs.concat(parsed.problems)
+        })
         t.constructors.forEach(c => {
             // ignore any default constructors
             if (!(c instanceof SourceConstructor)) {

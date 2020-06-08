@@ -1,5 +1,5 @@
-const { JavaType, CEIType, Constructor, Method, Field, Parameter, TypeVariable, UnresolvedType } = require('java-mti');
-const { ModuleBlock, TypeDeclBlock, FieldBlock, ConstructorBlock, MethodBlock, ParameterBlock, TextBlock, TextBlockArray } = require('./parser9');
+const { JavaType, CEIType, PrimitiveType, Constructor, Method, MethodBase, Field, Parameter, TypeVariable, UnresolvedType } = require('java-mti');
+const { ModuleBlock, TypeDeclBlock, FieldBlock, ConstructorBlock, MethodBlock, InitialiserBlock, ParameterBlock, TextBlock } = require('./parser9');
 
 /**
  * 
@@ -58,8 +58,9 @@ class SourceType extends CEIType {
             // add a default public constructor if this is a class with no explicit constructors
             this.constructors.push(new DefaultConstructor(this));
         }
+        this.initers = type.initialisers.map(i => new SourceInitialiser(this, i));
         super.typevars = type.typevars.map(tv => {
-            const typevar = new TypeVariable(tv.name);
+            const typevar = new TypeVariable(this, tv.name);
             // automatically add the Object bound
             typevar.bounds.push(new TypeVariable.Bound(this, 'Ljava/lang/Object;', false));
             return typevar;
@@ -181,6 +182,22 @@ class DefaultConstructor extends Constructor {
 }
 
 
+class SourceInitialiser extends MethodBase {
+    /**
+     * @param {SourceType} owner
+     * @param {InitialiserBlock} decl 
+     */
+    constructor(owner, decl) {
+        super(mapmods(decl), decl.docs);
+        this._owner = owner;
+        this._decl = decl;
+    }
+
+    get returnType() {
+        return PrimitiveType.map.V;
+    }
+}
+
 class SourceMethod extends Method {
     /**
      * @param {SourceType} owner
@@ -254,3 +271,4 @@ exports.SourceMethod = SourceMethod;
 exports.SourceParameter = SourceParameter;
 exports.SourceConstructor = SourceConstructor;
 exports.DefaultConstructor = DefaultConstructor;
+exports.SourceInitialiser = SourceInitialiser;

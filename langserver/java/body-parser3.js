@@ -5,13 +5,13 @@
  * Each token also contains detailed state information used for completion suggestions.
  */
 const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, WildcardType, TypeVariable, Field, Method, Parameter, Constructor, signatureToType } = require('java-mti');
-const { SourceMethod, SourceConstructor } = require('./source-type');
+const { SourceMethod, SourceConstructor, SourceInitialiser } = require('./source-type');
 const ResolvedImport = require('./parsetypes/resolved-import');
 const ParseProblem = require('./parsetypes/parse-problem');
 const { getOperatorType, Token } = require('./tokenizer');
 
 /**
- * @typedef {SourceMethod|SourceConstructor} SourceMC
+ * @typedef {SourceMethod|SourceConstructor|SourceInitialiser} SourceMC
  */
 
 
@@ -44,7 +44,7 @@ function parseBody(method, imports, typemap) {
     const tokenlist = new TokenList(flattenBlocks(body.blocks));
     let block = null;
     try {
-        statementBlock(tokenlist, [], method, imports, typemap);
+        block = statementBlock(tokenlist, [], method, imports, typemap);
     } catch (err) {
         addproblem(tokenlist, ParseProblem.Information(tokenlist.current, `Parse failed: ${err.message}`));
 
