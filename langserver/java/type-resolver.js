@@ -257,10 +257,109 @@ function resolveTypeIdents(types, fully_qualified_scope, resolved_imports, typem
 }
 
 
+/**
+ * 
+ * @param {string} ident 
+ * @param {CEIType} scoped_type 
+ * @param {ResolvedImport[]} imports 
+ * @param {Map<string,JavaType>} typemap 
+ */
+function resolveTypeOrPackage(ident, scoped_type, imports, typemap) {
+    const types = [];
+    let package_name = '';
+
+    // is it an enclosed type of the currently scoped type or any outer type
+    if (scoped_type) {
+        const scopes = scoped_type.shortSignature.split('$');
+        while (scopes.length) {
+            const enc_type = typemap.get(`${scopes.join('$')}$${ident}`);
+            if (enc_type) {
+                types.push(enc_type);
+                break;
+            }
+            scopes.pop();
+        }
+    }
+
+    if (!types[0]) {
+        // is it a top-level type from the imports
+        const top_level_type = '/' + ident;
+        for (let i of imports) {
+            const fqn = i.fullyQualifiedNames.find(fqn => fqn.endsWith(top_level_type));
+            if (fqn) {
+                types.push(i.types.get(fqn));
+            }
+        }
+    }
+
+    if (!types[0]) {
+        // is it a default-package type 
+        const default_type = typemap.get(ident);
+        if (default_type) {
+            types.push(default_type);
+        }
+    }
+
+    // the final option is the start of a package name
+    const package_root = ident + '/';
+    const typelist = [...typemap.keys()];
+    if (typelist.find(fqn => fqn.startsWith(package_root))) {
+        package_name = ident;        
+    }
+
+    return {
+        types,
+        package_name,
+    }
+}
+
+/**
+ * 
+ * @param {string} ident 
+ * @param {JavaType[]} outer_types 
+ * @param {string} outer_package_name 
+ * @param {Map<string,JavaType>} typemap 
+ */
+function resolveNextTypeOrPackage(ident, outer_types, outer_package_name, typemap) {
+    const types = [];
+    let package_name = '';
+
+    outer_types.forEach(type => {
+        if (type instanceof CEIType) {
+            const enclosed_type_signature = `${type.shortSignature}$${ident}`;
+            const enclosed_type = typemap.get(enclosed_type_signature);
+            if (enclosed_type) {
+                // it matches an inner/enclosed type
+                types.push(enclosed_type);
+            }
+        }
+    })
+
+    if (outer_package_name) {
+        const type_match = `${outer_package_name}/${ident}`;
+        if (typemap.has(type_match)) {
+            // it matches a type
+            types.push(typemap.get(type_match));
+        }
+        const package_match = type_match + '/';
+        if ([...typemap.keys()].find(fqn => fqn.startsWith(package_match))) {
+            // it matches a sub-package
+            package_name = type_match;
+        }
+    }
+
+    return {
+        types,
+        package_name,
+    }
+}
+
 module.exports = {
     parse_type,
     resolveType,
     resolveTypes,
     resolveTypeIdents,
     ResolvedType,
+    resolveTypeOrPackage,
+    resolveNextTypeOrPackage,
 }
