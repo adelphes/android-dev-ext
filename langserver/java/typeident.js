@@ -1,9 +1,9 @@
-const { JavaType, WildcardType } = require('java-mti');
+const { ArrayType, JavaType, WildcardType } = require('java-mti');
 const { SourceMethod, SourceConstructor, SourceInitialiser } = require('./source-type');
 const ResolvedImport = require('./parsetypes/resolved-import');
 const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resolver');
 const { Token } = require('./tokenizer');
-const { AnyType, ResolvedIdent } = require("./body-types");
+const { AnyType } = require("./body-types");
 
 /**
  * @typedef {SourceMethod|SourceConstructor|SourceInitialiser} SourceMC
@@ -40,7 +40,7 @@ function typeIdent(tokens, method, imports, typemap) {
         }
         return AnyType.Instance;
     }
-    const { types, package_name } = resolveTypeOrPackage(tokens.current.value, method._owner, imports, typemap);
+    let { types, package_name } = resolveTypeOrPackage(tokens.current.value, method._owner, imports, typemap);
     tokens.inc();
     for (;;) {
         if (tokens.isValue('.')) {
@@ -58,6 +58,19 @@ function typeIdent(tokens, method, imports, typemap) {
                 }
                 tokens.expectValue('>');
             }
+        } else if (tokens.isValue('[')) {
+            let arrdims = 0;
+            for(;;) {
+                arrdims++;
+                tokens.expectValue(']');
+                if (!tokens.isValue('[')) {
+                    break;
+                }
+            }
+            if (!types[0]) {
+                types.push(AnyType.Instance);
+            }
+            types = types.map(t => new ArrayType(t, arrdims));
         } else {
             break;
         }
