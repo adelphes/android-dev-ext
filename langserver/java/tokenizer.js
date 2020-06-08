@@ -115,7 +115,7 @@ function tokenize(source, offset = 0, length = source.length) {
      * \w+    word
      * ```
      */
-    const word_re = /^(?:(true|false)|(this|super|null)|(int|long|short|byte|float|double|char|boolean|void)|(new)|(instanceof)|(public|private|protected|static|final|abstract|native|volatile|transient)|(if|else|while|for|do|try|catch|finally|switch|case|default|return|break|continue|throw|synchronized|assert)|(class|enum|interface)|(extends|implements)|(package|import)|(.+))$/;
+    const word_re = /^(?:(true|false)|(this|super|null)|(int|long|short|byte|float|double|char|boolean|void)|(new)|(instanceof)|(public|private|protected|static|final|abstract|native|volatile|transient)|(if|else|while|for|do|try|catch|finally|switch|case|default|return|break|continue|throw|synchronized|assert)|(class|enum|interface)|(extends|implements|throws)|(package|import)|(.+))$/;
     const word_token_types = [
         'boolean-literal',
         'object-literal',
@@ -126,7 +126,7 @@ function tokenize(source, offset = 0, length = source.length) {
         'statement-kw',
         'type-kw',
         'package-kw',
-        'extimp-kw',
+        'eit-kw',
         'ident'
     ]
     /**
