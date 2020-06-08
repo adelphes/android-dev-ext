@@ -926,7 +926,7 @@ class BoundedTypeVar extends TextBlock {
 class VarDeclBlock extends TextBlock {
     // this definition is used for fields, parameters and locals
     // - it includes (...) for variable-arity parameters
-    static parseRE = /([PWD](?: *T)?(?: *\. *[PWD](?: *T)?)*(?: *(A))?)( +| *(\.{3}) *)(W)(?: *(A))?/g;
+    static parseRE = /([PWD](?: *T)?(?: *\. *[PWD](?: *T)?)*(?: *(A))?)( +| *(\.{3}) *)(W)(?:( *)(A))?/g;
     static marker = 'V';
 
     /**
@@ -940,6 +940,7 @@ class VarDeclBlock extends TextBlock {
         const sm = section.sourcemap();
         const name_idx = sm.map[match[1].length + match[3].length];
         this.name_token = section.blocks[name_idx];
+        this.post_name_arr_token = match[7] ? section.blocks[sm.map[match[0].lastIndexOf('A')]] : null;
         const varargs_idx = sm.map[match[0].indexOf('...')];
         this.varargs_token = section.blocks[varargs_idx];
         let end_of_type_tokens = (varargs_idx || name_idx);
@@ -948,6 +949,9 @@ class VarDeclBlock extends TextBlock {
             end_of_type_tokens -= 1;
         }
         this.type_tokens = section.blocks.slice(0, end_of_type_tokens);
+        if (this.post_name_arr_token) {
+            this.type_tokens.push(this.post_name_arr_token);
+        }
     }
 
     get name() {
