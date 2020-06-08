@@ -1915,7 +1915,7 @@ function qualifiers(matches, tokens, locals, method, imports, typemap) {
                 tokens.inc();
                 let type_arguments = [];
                 if (!tokens.isValue('>')) {
-                    type_arguments = typeIdentList(tokens, method, imports, typemap);
+                    type_arguments = typeIdentList(tokens, method._owner, imports, typemap);
                     tokens.expectValue('>');
                 }
                 matches.types = matches.types.map(t => {
