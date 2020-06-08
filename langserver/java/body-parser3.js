@@ -8,26 +8,35 @@ const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, WildcardTyp
 const { SourceMethod, SourceConstructor } = require('./source-type');
 const ResolvedImport = require('./parsetypes/resolved-import');
 const ParseProblem = require('./parsetypes/parse-problem');
-const { getOperatorType, tokenize, Token } = require('./tokenizer');
+const { getOperatorType, Token } = require('./tokenizer');
 
 /**
  * @typedef {SourceMethod|SourceConstructor} SourceMC
  */
 
+
+function flattenBlocks(blocks) {
+    return blocks.reduce((arr,block) => {
+        if (block instanceof Token) {
+            arr.push(block);
+        } else {
+            arr = [...arr, ...flattenBlocks(block.blockArray().blocks)];
+        }
+        return arr;
+    }, [])
+}
+
 /**
- * @param {string} source 
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function parseBody(source, method, imports, typemap) {
+function parseBody(method, imports, typemap) {
     const body = method._decl.body().blockArray();
-    if (!body || !body.simplified.startsWith('{')) {
+    if (!body || body.blocks[0].value !== '{') {
         return null;
     }
-
-    const tokens = tokenize(source, body.start, body.length);
-    const tokenlist = new TokenList(tokens);
+    const tokenlist = new TokenList(flattenBlocks(body.blocks));
     let block = null;
     try {
         statementBlock(tokenlist, [], method, imports, typemap);
@@ -37,7 +46,6 @@ function parseBody(source, method, imports, typemap) {
     }
     return {
         block,
-        tokens,
         problems: tokenlist.problems,
     }
 }
@@ -65,6 +73,9 @@ function addLocals(tokens, locals, new_locals) {
 }
 
 class TokenList {
+    /**
+     * @param {Token[]} tokens 
+     */
     constructor(tokens) {
         this.tokens = tokens;
         this.idx = -1;

@@ -732,7 +732,7 @@ class ImportBlock extends DeclarationBlock {
 
 class ModuleBlock extends TextBlockArray {
     /**
-     * @param {TextBlock[]} blocks 
+     * @param {Token[]} blocks 
      */
     constructor(blocks) {
         super('module', blocks);

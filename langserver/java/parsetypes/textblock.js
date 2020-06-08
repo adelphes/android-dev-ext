@@ -63,7 +63,7 @@ class TextBlock {
 class TextBlockArray {
     /**
      * @param {string} id
-     * @param {TextBlock[]} [blocks] 
+     * @param {import('../tokenizer').Token[]} [blocks] 
      */
     constructor(id, blocks = []) {
         this.id = id;

@@ -64,13 +64,13 @@ function validate(mod, androidLibrary) {
                 return;
             }
             console.log(c.label);
-            const parsed = parseBody(c._owner._decl.mod.source, c, imports.resolved, imports.typemap);
+            const parsed = parseBody(c, imports.resolved, imports.typemap);
             if (parsed)
                 probs = probs.concat(parsed.problems)
         })
         t.methods.forEach(m => {
             console.log(m.label);
-            const parsed = parseBody(m._owner._decl.mod.source, m, imports.resolved, imports.typemap);
+            const parsed = parseBody(m, imports.resolved, imports.typemap);
             if (parsed)
                 probs = probs.concat(parsed.problems)
         })
