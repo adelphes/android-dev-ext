@@ -1,4 +1,5 @@
 const { TextBlock, TextBlockArray } = require('./parsetypes/textblock');
+const { tokenize, Token } = require('./tokenizer');
 
 /**
  *    Normalises comments, whitespace, string and character literals.
@@ -205,109 +206,6 @@ function parse2(source) {
 
 }
 
-/**
- * @param {string} source 
- */
-function tokenize(source) {
-    const blocks = [];
-    const re = /(\/\*[\d\D]*?\*\/)|(\/\/.*)|(\s+)|([a-zA-Z_]\w*)|("[^\r\n\\"]*(?:\\.[^\r\n\\"]*)*")|('\\?.')|(\d\w*)|(::|\.{3}|[(){}\[\];,.@])|([=!~*/%^]=?|[?:]|>>?>?=?|<<?<?=?|[&][&=]?|[|][|=]?|\+[+=]?|-[-=>]?)|(.)|$/g;
-    let lastIndex = 0;
-    for (let m; m = re.exec(source);) {
-        if (m.index > lastIndex) {
-            blocks.push(TextBlock.from(source, lastIndex, m.index-lastIndex));
-            throw "er"
-        }
-        lastIndex = m.index + m[0].length;
-        const len = m[0].length;
-        if (m[1]) {
-            // mlc
-            // - MLCs are replaced with tab instead of space. This makes them easy to differentiate (for JavaDocs)
-            // whilst still being treated as general whitespace.
-            const mlc = TextBlock.from(source, m.index, len, m[0].replace(/./g, '\t'));
-            blocks.push(mlc);
-            continue;
-        }
-        if (m[2]) {
-            // slc
-            const slc = TextBlock.from(source, m.index, len, m[0].replace(/./g, ' '));
-            blocks.push(slc);
-            continue;
-        }
-        if (m[3]) {
-            // whitespace (other than space and newline)
-            const ws = TextBlock.from(source, m.index, len, m[0].replace(/./g, ' '));
-            blocks.push(ws);
-            continue;
-        }
-        if (m[4]) {
-            // ident or keyword
-            const KEYWORDS = /^(assert|break|case|catch|class|const|continue|do|else|enum|extends|finally|for|goto|if|implements|import|interface|new|package|return|super|switch|throw|throws|try|while)$/;
-            const MODIFIER_KEYWORDS = /^(abstract|final|native|private|protected|public|static|strictfp|synchronized|transient|volatile|default)$/;
-            const PRIMITIVE_TYPE_KEYWORDS = /^(int|boolean|byte|char|double|float|long|short|void)$/
-            const LITERAL_VALUE_KEYWORDS = /^(this|true|false|null)$/;
-            const OPERATOR_KEYWORDS = /^(instanceof)$/;
-            let simplified;
-            let space = ' '.repeat(len-1);
-            if (KEYWORDS.test(m[0])) {
-                
-            } else if (MODIFIER_KEYWORDS.test(m[0])) {
-                simplified = 'M' + space;
-            } else if (PRIMITIVE_TYPE_KEYWORDS.test(m[0])) {
-                simplified = 'P' + space;
-            } else if (LITERAL_VALUE_KEYWORDS.test(m[0])) {
-                simplified = 'W' + space;
-            } else if (OPERATOR_KEYWORDS.test(m[0])) {
-                simplified = m[0];
-            } else {
-                simplified = 'W' + space;
-            }
-            const word = TextBlock.from(source, m.index, len, simplified);
-            blocks.push(word);
-            continue;
-        }
-        if (m[5]) {
-            // string literal
-            const str = TextBlock.from(source, m.index, len, `"${'#'.repeat(m[0].length - 2)}"`);
-            blocks.push(str);
-            continue;
-        }
-        if (m[6]) {
-            // char literal
-            const char = TextBlock.from(source, m.index, len, `'#'`);
-            blocks.push(char);
-            continue;
-        }
-        if (m[7]) {
-            // number literal
-            const number = TextBlock.from(source, m.index, len, `0${' '.repeat(m[0].length-1)}`);
-            blocks.push(number);
-            continue;
-        }
-        if (m[8]) {
-            // separator
-            const separator = TextBlock.from(source, m.index, m[0].length);
-            blocks.push(separator);
-            continue;
-        }
-        if (m[9]) {
-            // operator
-            const operator = TextBlock.from(source, m.index, m[0].length);
-            blocks.push(operator);
-            continue;
-        }
-        if (m[10]) {
-            // invalid source char
-            const invalid = TextBlock.from(source, m.index, m[0].length);
-            blocks.push(invalid);
-            continue;
-        }
-        // end of file
-        break;
-    }
-
-    return blocks;
-}
-
 const markers = {
     arrayQualifier: 'A',
     blocks: 'B',
@@ -331,6 +229,7 @@ const markers = {
     typeArgs: 'T',
     enumvalues: 'U',
     varDecl: 'V',
+    ident: 'W',
     typeDecl: 'Z',
     error: ' ',
 }
