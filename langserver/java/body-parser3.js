@@ -18,6 +18,11 @@ const { getOperatorType, Token } = require('./tokenizer');
 function flattenBlocks(blocks) {
     return blocks.reduce((arr,block) => {
         if (block instanceof Token) {
+            // 'default' and 'synchronised' are not modifiers inside method bodies
+            if (block.kind === 'modifier' && /^(default|synchronized)$/.test(block.value)) {
+                block.kind = 'statement-kw'
+                block.simplified = block.value;
+            }
             arr.push(block);
         } else {
             arr = [...arr, ...flattenBlocks(block.blockArray().blocks)];

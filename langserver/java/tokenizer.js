@@ -102,20 +102,26 @@ function tokenize(source, offset = 0, length = source.length) {
         'operator',
     ];
     /**
+     * Note that some keywords have context-dependant meanings:
+     *   default - modifier or statement-keyword
+     *   synchronized - modifier or statement-keyword
+     * They are treated as modifiers and updated with their new token-type when method bodies are parsed
+     * 
      * ```
      * true|false    boolean
      * this|null     object
      * int|long|short|byte|float|double|char|boolean|void   primitive type
      * new
      * instanceof
-     * public|private|protected|static|final|abstract|native|volatile|transient   modifier
-     * if|else|while|for|do|try|catch|finally|switch|case|default|return|break|continue|throw|synchronized    statement keyword
+     * public|private|protected|static|final|abstract|native|volatile|transient|default|synchronized   modifier
+     * if|else|while|for|do|try|catch|finally|switch|case|return|break|continue|throw    statement keyword
      * class|enum|interface    type keyword
      * package|import    package keyword
      * \w+    word
      * ```
      */
-    const word_re = /^(?:(true|false)|(this|super|null)|(int|long|short|byte|float|double|char|boolean|void)|(new)|(instanceof)|(public|private|protected|static|final|abstract|native|volatile|transient)|(if|else|while|for|do|try|catch|finally|switch|case|default|return|break|continue|throw|synchronized|assert)|(class|enum|interface)|(extends|implements|throws)|(package|import)|(.+))$/;
+    const word_re = /^(?:(true|false)|(this|super|null)|(int|long|short|byte|float|double|char|boolean|void)|(new)|(instanceof)|(public|private|protected|static|final|abstract|native|volatile|transient|default|synchronized)|(if|else|while|for|do|try|catch|finally|switch|case|return|break|continue|throw|assert)|(class|enum|interface)|(extends|implements|throws)|(package|import)|(.+))$/;
+
     const word_token_types = [
         'boolean-literal',
         'object-literal',
