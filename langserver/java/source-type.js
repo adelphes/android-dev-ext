@@ -40,15 +40,16 @@ class SourceType extends CEIType {
      * @param {ModuleBlock} mod 
      * @param {TypeDeclBlock} type
      * @param {string} qualified_type_name qualified $-separated type name
+     * @param {Map<string,JavaType>} typemap
      */
-    constructor(mod, type, qualified_type_name) {
+    constructor(mod, type, qualified_type_name, typemap) {
         super(type.shortSignature, type.kind(), mapmods(type), type.docs);
         this._decl = type;
         this._dottedTypeName = qualified_type_name.replace(/\$/g, '.');
 
         this.extends_types = type.extends_decl ? extractTypeList(type.extends_decl) : [];
         this.implements_types = type.implements_decl ? extractTypeList(type.implements_decl) : [];
-        this.implicit_extend = !this.extends_types.length && !this.implements_types.length ? [new ResolvableType({type: 'java.lang.Object', typeTokens:[]})] : [];
+        this.implicit_extend = !this.extends_types.length && !this.implements_types.length ? [typemap.get('java/lang/Object')] : [];
         
         this.fields = type.fields.map(f => new SourceField(this, f));
         this.methods = type.methods.map(m => new SourceMethod(this, m));
@@ -81,7 +82,7 @@ class SourceType extends CEIType {
 
     get supers() {
         return [
-            ...this.implicit_extend.map(t => t.resolved),
+            ...this.implicit_extend,
             ...this.extends_types.map(t => t.resolved),
             ...this.implements_types.map(t => t.resolved)
         ];
@@ -90,7 +91,6 @@ class SourceType extends CEIType {
     getAllResolvableTypes() {
         /** @type {ResolvableType[]} */
         const res = [
-            ...this.implicit_extend,
             ...this.extends_types,
             ...this.implements_types,
         ];
@@ -247,7 +247,7 @@ class ResolvableType extends UnresolvedType {
     constructor(decl) {
         super(decl.type);
         this._decl = decl;
-        /** @type {import('../java/parsetypes/resolved-type')} */
+        /** @type {JavaType} */
         this._resolved = null;
     }
 
@@ -255,9 +255,7 @@ class ResolvableType extends UnresolvedType {
      * @returns {JavaType}
      */
     get resolved() {
-        if (!this._resolved) return this;
-        if (!this._resolved.mtis.length) return this;
-        return this._resolved.mtis[0];
+        return this._resolved || this;
     }
 
     get typeTokens() {

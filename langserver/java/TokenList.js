@@ -30,7 +30,7 @@ class TokenList {
      * @param {string} value
      */
     isValue(value) {
-        if (this.current.value === value) {
+        if (this.current && this.current.value === value) {
             this.inc();
             return true;
         }
@@ -45,14 +45,18 @@ class TokenList {
         if (this.isValue(value)) {
             return true;
         }
+        const token = this.current || this.tokens[this.tokens.length - 1];
         const addproblem = require("./body-parser3").addproblem;
-        addproblem(this, ParseProblem.Error(this.current, `${value} expected`));
+        addproblem(this, ParseProblem.Error(token, `${value} expected`));
         return false;
     }
 
     get previous() {
         for (let idx = this.idx - 1; idx >= 0; idx--) {
-            if (idx === 0 || this.tokens[idx].kind !== 'wsc') {
+            if (idx <= 0) {
+                return this.tokens[0];
+            }
+            if (this.tokens[idx].kind !== 'wsc') {
                 return this.tokens[idx];
             }
         }

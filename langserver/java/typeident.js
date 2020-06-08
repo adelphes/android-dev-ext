@@ -1,4 +1,4 @@
-const { ArrayType, CEIType, JavaType, WildcardType } = require('java-mti');
+const { ArrayType, CEIType, JavaType, PrimitiveType, WildcardType } = require('java-mti');
 const { SourceMethod, SourceConstructor, SourceInitialiser } = require('./source-type');
 const ResolvedImport = require('./parsetypes/resolved-import');
 const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resolver');
@@ -34,30 +34,29 @@ function typeIdentList(tokens, scoped_type, imports, typemap) {
  * @param {Map<string,JavaType>} typemap 
  */
 function typeIdent(tokens, scoped_type, imports, typemap) {
-    if (tokens.current.kind !== 'ident') {
-        if (tokens.current.value === '?') {
-            return wildcardTypeArgument(tokens, scoped_type, imports, typemap);
-        }
-        return AnyType.Instance;
+    let types = [], package_name = '';
+    switch(tokens.current.kind) {
+        case 'ident':
+            ({ types, package_name } = resolveTypeOrPackage(tokens.current.value, scoped_type, imports, typemap));
+            break;
+        case 'primitive-type':
+            types.push(PrimitiveType.fromName(tokens.current.value));
+            break;
+        default:
+            return tokens.current.value === '?'
+                ? wildcardTypeArgument(tokens, scoped_type, imports, typemap)
+                : AnyType.Instance;
     }
-    let { types, package_name } = resolveTypeOrPackage(tokens.current.value, scoped_type, imports, typemap);
     tokens.inc();
     for (;;) {
         if (tokens.isValue('.')) {
             if (tokens.current.kind !== 'ident') {
                 break;
             }
-            resolveNextTypeOrPackage(tokens.current.value, types, package_name, typemap);
+            ({ types, package_name } = resolveNextTypeOrPackage(tokens.current.value, types, package_name, typemap));
+            tokens.inc();
         } else if (tokens.isValue('<')) {
-            if (!tokens.isValue('>')) {
-                typeIdentList(tokens, scoped_type, imports, typemap);
-                if (/>>>?/.test(tokens.current.value)) {
-                    // we need to split >> and >>> into separate > tokens to handle things like List<Class<?>>
-                    const new_tokens = tokens.current.value.split('').map((gt,i) => new Token(tokens.current.range.source, tokens.current.range.start + i, 1, 'comparison-operator'));
-                    tokens.splice(tokens.idx, 1, ...new_tokens);
-                }
-                tokens.expectValue('>');
-            }
+            genericTypeArgs(tokens, types, scoped_type, imports, typemap);
         } else if (tokens.isValue('[')) {
             let arrdims = 0;
             for(;;) {
@@ -77,6 +76,37 @@ function typeIdent(tokens, scoped_type, imports, typemap) {
     }
 
     return types[0] || AnyType.Instance;
+}
+
+/**
+ * 
+ * @param {TokenList} tokens 
+ * @param {JavaType[]} types 
+ * @param {CEIType} scoped_type 
+ * @param {ResolvedImport[]} imports 
+ * @param {Map<string,JavaType>} typemap 
+ */
+function genericTypeArgs(tokens, types, scoped_type, imports, typemap) {
+    if (!tokens.isValue('>')) {
+        const type_arguments = typeIdentList(tokens, scoped_type, imports, typemap);
+        types.forEach((t,i,arr) => {
+            if (t instanceof CEIType) {
+                let specialised = t.specialise(type_arguments);
+                if (typemap.has(specialised.shortSignature)) {
+                    arr[i] = typemap.get(specialised.shortSignature);
+                    return;
+                }
+                typemap.set(specialised.shortSignature, specialised);
+                arr[i] = specialised;
+            }
+        });
+        if (/>>>?/.test(tokens.current.value)) {
+            // we need to split >> and >>> into separate > tokens to handle things like List<Class<?>>
+            const new_tokens = tokens.current.value.split('').map((gt,i) => new Token(tokens.current.range.source, tokens.current.range.start + i, 1, 'comparison-operator'));
+            tokens.splice(tokens.idx, 1, ...new_tokens);
+        }
+        tokens.expectValue('>');
+    }
 }
 
 /**
@@ -105,3 +135,4 @@ function wildcardTypeArgument(tokens, scoped_type, imports, typemap) {
 
 exports.typeIdent = typeIdent;
 exports.typeIdentList = typeIdentList;
+exports.genericTypeArgs = genericTypeArgs;

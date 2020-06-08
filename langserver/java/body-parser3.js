@@ -10,7 +10,7 @@ const ResolvedImport = require('./parsetypes/resolved-import');
 const ParseProblem = require('./parsetypes/parse-problem');
 const { getOperatorType, Token } = require('./tokenizer');
 const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resolver');
-const { typeIdentList } = require('./typeident');
+const { genericTypeArgs } = require('./typeident');
 const { TokenList } = require("./TokenList");
 const { AnyMethod, AnyType, AnyValue, ArrayElement, ArrayLiteral, ConstructorCall, LiteralNumber, LiteralValue, Local, MethodCall, ResolvedIdent, TernaryValue, Value } = require("./body-types");
 
@@ -19,17 +19,21 @@ const { AnyMethod, AnyType, AnyValue, ArrayElement, ArrayLiteral, ConstructorCal
  */
 
 
-function flattenBlocks(blocks) {
+/**
+ * @param {*[]} blocks 
+ * @param {boolean} isMethod 
+ */
+function flattenBlocks(blocks, isMethod) {
     return blocks.reduce((arr,block) => {
         if (block instanceof Token) {
             // 'default' and 'synchronised' are not modifiers inside method bodies
-            if (block.kind === 'modifier' && /^(default|synchronized)$/.test(block.value)) {
+            if (isMethod && block.kind === 'modifier' && /^(default|synchronized)$/.test(block.value)) {
                 block.kind = 'statement-kw'
                 block.simplified = block.value;
             }
             arr.push(block);
         } else {
-            arr = [...arr, ...flattenBlocks(block.blockArray().blocks)];
+            arr = [...arr, ...flattenBlocks(block.blockArray().blocks, isMethod)];
         }
         return arr;
     }, [])
@@ -45,7 +49,7 @@ function parseBody(method, imports, typemap) {
     if (!body || body.blocks[0].value !== '{') {
         return null;
     }
-    const tokenlist = new TokenList(flattenBlocks(body.blocks));
+    const tokenlist = new TokenList(flattenBlocks(body.blocks, true));
     let block = null;
     try {
         block = statementBlock(tokenlist, [], method, imports, typemap);
@@ -1913,21 +1917,7 @@ function qualifiers(matches, tokens, locals, method, imports, typemap) {
                     return matches;
                 }
                 tokens.inc();
-                let type_arguments = [];
-                if (!tokens.isValue('>')) {
-                    type_arguments = typeIdentList(tokens, method._owner, imports, typemap);
-                    tokens.expectValue('>');
-                }
-                matches.types = matches.types.map(t => {
-                    if (t instanceof CEIType) {
-                        if (t.typevars.length) {
-                            const specialised_type = t.specialise(type_arguments);
-                            typemap.set(specialised_type.shortSignature, specialised_type);
-                            return specialised_type;
-                        }
-                    }
-                    return t;
-                });
+                genericTypeArgs(tokens, matches.types, method._owner, imports, typemap);
                 break;
             default:
                 return matches;
@@ -2122,3 +2112,4 @@ function findIdentifier(ident, locals, method, imports, typemap) {
 
 exports.addproblem = addproblem;
 exports.parseBody = parseBody;
+exports.flattenBlocks = flattenBlocks;

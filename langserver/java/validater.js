@@ -4,7 +4,9 @@ const { resolveImports } = require('../java/import-resolver');
 const ResolvedImport = require('../java/parsetypes/resolved-import');
 const { resolveType } = require('../java/type-resolver');
 const { SourceType, SourceConstructor } = require('./source-type');
-const { parseBody } = require('./body-parser3');
+const { parseBody, flattenBlocks } = require('./body-parser3');
+const { TokenList } = require('./TokenList');
+const { typeIdent } = require('./typeident');
 
 
 /**
@@ -12,16 +14,17 @@ const { parseBody } = require('./body-parser3');
  * @param {string} owner_typename
  * @param {ModuleBlock|TypeDeclBlock} parent 
  * @param {SourceType[]} source_types 
+ * @param {Map<string,JavaType>} typemap
  */
-function getSourceTypes(mod, owner_typename, parent, source_types) {
+function getSourceTypes(mod, owner_typename, parent, source_types, typemap) {
     parent.types.forEach(type => {
         const qualifiedTypeName = `${owner_typename}${type.simpleName}`;
         // we add the names of type variables here, but we resolve any bounds later
         //const typevar_names = type.typevars.map(tv => tv.name);
         //const mti = new MTI().addType(package_name, '', mods, type.kind(), qualifiedTypeName, typevar_names);
-        const t = new SourceType(mod, type, qualifiedTypeName);
+        const t = new SourceType(mod, type, qualifiedTypeName, typemap);
         source_types.push(t);
-        getSourceTypes(mod, `${qualifiedTypeName}$`, type, source_types);
+        getSourceTypes(mod, `${qualifiedTypeName}$`, type, source_types, typemap);
     });
 }
 
@@ -32,10 +35,10 @@ function getSourceTypes(mod, owner_typename, parent, source_types) {
  * @param {Map<string,JavaType>} typemap 
  */
 function resolveResolvableTypes(source_type, resolved_imports, typemap) {
-    const fully_qualified_scope = source_type.shortSignature;
     const resolvableTypes = source_type.getAllResolvableTypes();
     resolvableTypes.forEach(rt => {
-        rt._resolved = resolveType(rt.label, fully_qualified_scope, resolved_imports, typemap);
+        const tokens = new TokenList(flattenBlocks(rt.typeTokens, false));
+        rt._resolved = typeIdent(tokens, source_type, resolved_imports, typemap);
     })
 }
 
@@ -48,7 +51,7 @@ function validate(mod, androidLibrary) {
 
     /** @type {SourceType[]} */
     const source_types = [];
-    getSourceTypes(mod, '', mod, source_types);
+    getSourceTypes(mod, '', mod, source_types, androidLibrary);
 
     const imports = resolveImports(androidLibrary, source_types, mod.imports, mod.packageName);
 
