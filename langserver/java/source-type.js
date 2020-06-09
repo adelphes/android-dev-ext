@@ -209,6 +209,12 @@ class SourceMethod extends Method {
         this._decl = decl;
         this._parameters = decl.parameters.map((p,i) => new SourceParameter(p));
         this._returnType = new ResolvableType(decl);
+        this._typevars = decl.typeVariables.map(tv => {
+            const typevar = new TypeVariable(owner, tv.name);
+            // automatically add the Object bound
+            typevar.bounds.push(new TypeVariable.Bound(owner, 'Ljava/lang/Object;', false));
+            return typevar;
+        });
     }
 
     /**
@@ -220,6 +226,10 @@ class SourceMethod extends Method {
 
     get returnType() {
         return this._returnType.resolved;
+    }
+
+    get typeVariables() {
+        return this._typevars;
     }
 }
 

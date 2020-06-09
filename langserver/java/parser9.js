@@ -373,10 +373,12 @@ class MCBlock extends DeclarationBlock {
         super(section, simplified);
         const sm = section.sourcemap();
         this.paramBlock = section.blocks[sm.map[match[0].indexOf('R')]];
+        this.typevarsBlock = section.blocks[sm.map[match[0].indexOf('T')]];
         this.parsed = {
+            typevars: null,
             parameters: null,
             /** @type {TextBlock[]} */
-            errors: null,
+            errors: [],
         }
     }
 
@@ -384,30 +386,7 @@ class MCBlock extends DeclarationBlock {
      * @return {ParameterBlock[]}
      */
     get parameters() {
-        if (!this.parsed.parameters) {
-            const param_block = this.paramBlock.blockArray();
-            parseArrayTypes(param_block);
-            parseAnnotations(param_block);
-            parseTypeArgs(param_block);
-            const vars = group(param_block, 'var-decl', VarDeclBlock.parseRE, markers.varDecl, false, VarDeclBlock);
-            this.parsed.parameters = group(param_block, 'param', ParameterBlock.parseRE, markers.parameter, false, ParameterBlock);
-            // parameters must be a comma-separated list
-            const sm = param_block.sourcemap();
-            if (sm.simplified.search(/^\((\s*F(\s*,\s*F)*)?\s*\)/) === 0) {
-                return this.parsed.parameters;
-            }
-            let invalid = sm.simplified.match(/^(\(\s*)(F?)(?:\s*,\s*F)*\s*/);
-            if (!invalid) {
-                // should never happen, but ignore
-                return this.parsed.parameters;
-            }
-            const token_idx = invalid[2]
-              ? sm.map[invalid[0].length] // there's a problem with a subsequent declaration
-              : sm.map[invalid[1].length] // there's a problem with the first declaration
-            const token = param_block.blocks[token_idx];
-            if (!token) return this.parsed.parameters;
-            this.parsed.errors = [token];
-        }
+        this._ensureParsed();
         return this.parsed.parameters;
     }
 
@@ -433,8 +412,42 @@ class MCBlock extends DeclarationBlock {
     }
 
     get parseErrors() {
-        this.parameters;
+        this._ensureParsed();
         return this.parsed.errors;
+    }
+
+    get typeVariables() {
+        this._ensureParsed();
+        return this.parsed.typevars;
+    }
+
+    _ensureParsed() {
+        if (this.parsed.parameters) {
+            return;
+        }
+        const param_block = this.paramBlock.blockArray();
+        parseArrayTypes(param_block);
+        parseAnnotations(param_block);
+        parseTypeArgs(param_block);
+        const vars = group(param_block, 'var-decl', VarDeclBlock.parseRE, markers.varDecl, false, VarDeclBlock);
+        this.parsed.parameters = group(param_block, 'param', ParameterBlock.parseRE, markers.parameter, false, ParameterBlock);
+        // parameters must be a comma-separated list
+        const sm = param_block.sourcemap();
+        if (sm.simplified.search(/^\((\s*F(\s*,\s*F)*)?\s*\)/) !== 0) {
+            let invalid = sm.simplified.match(/^(\(\s*)(F?)(?:\s*,\s*F)*\s*/);
+            if (invalid) {
+                const token_idx = invalid[2]
+                    ? sm.map[invalid[0].length] // there's a problem with a subsequent declaration
+                    : sm.map[invalid[1].length] // there's a problem with the first declaration
+                const token = param_block.blocks[token_idx];
+                if (token) {
+                    this.parsed.errors.push(token);
+                }
+            }
+        }
+
+        // parse type arguments
+        this.parsed.typevars = this.typevarsBlock ? parseTypeVariables(this.typevarsBlock.blockArray()) : [];
     }
 }
 
@@ -631,29 +644,9 @@ class TypeDeclBlock extends DeclarationBlock {
         if (this.parsed.fields) {
             return;
         }
-        this.parsed.typevars = [];
-        if (this.typevars_token) {
-            // split the token into a list of typevars
-            // - each type var must be a simple ident (W), a bounded var (I)
-            // or anonymous (?)
-            this.parsed.typevars = this.typevars_token.blockArray()
-                .blocks.reduce((arr,b) => {
-                    if (/^[WI?]/.test(b.simplified)) {
-                        arr.push({
-                            decl: b,
-                            get name_token() {
-                                return this.decl instanceof BoundedTypeVar
-                                    ? this.decl.range.blocks[0]
-                                    : this.decl
-                            },
-                            get name() {
-                                return this.name_token.source;
-                            },
-                        })
-                    }
-                    return arr;
-                }, []);
-        }
+        this.parsed.typevars = this.typevars_token
+          ? parseTypeVariables(this.typevars_token.blockArray())
+          : [];
         const body = this.body().blockArray();
         parseArrayTypes(body);
         parseTypeArgs(body);
@@ -832,6 +825,33 @@ function parseImports(sourceblocks) {
 
 function parseArrayTypes(sourceblocks) {
     group(sourceblocks, 'array-type', /\[ *\](( *\[ *\])*)/g, markers.arrayQualifier);
+}
+
+/**
+ * @param {TextBlockArray} sourceblocks 
+ * @returns {{decl: TextBlock|BoundedTypeVar, name_token: TextBlockArray, name: string}[]}
+ */
+function parseTypeVariables(sourceblocks) {
+    // split the token into a list of typevars
+    // - each type var must be a simple ident (W), a bounded var (I)
+    // or a wildcard (?)
+    return sourceblocks.blocks.reduce((arr,b) => {
+        if (/^[WI?]/.test(b.simplified)) {
+            arr.push({
+                decl: b,
+                get name_token() {
+                    return this.decl instanceof BoundedTypeVar
+                        ? this.decl.range.blocks[0]
+                        : this.decl
+                },
+                get name() {
+                    return this.name_token.source;
+                },
+            })
+        }
+        return arr;
+    }, []);
+
 }
 
 function parseTypeArgs(sourceblocks) {
