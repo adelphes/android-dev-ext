@@ -439,7 +439,7 @@ class MCBlock extends DeclarationBlock {
 }
 
 class MethodBlock extends MCBlock {
-    static parseRE = /([MQT](?:\s*[MQT])*\s+)?(V\s*)R(\s*L)?\s*[B;]/g;
+    static parseRE = /([MQT](?:\s*[MQT])*\s+)?(V\s*)R(\s*A)?(\s*L)?\s*[B;]/g;
 
     /**
      * 
@@ -449,25 +449,25 @@ class MethodBlock extends MCBlock {
     constructor(section, simplified, match) {
         super(section, simplified, match);
         const sm = section.sourcemap();
-        const varoffset = match[1] ? match[1].length : 0;
         /** @type {VarDeclBlock} */
         // @ts-ignore
-        this.varBlock = section.blocks[sm.map[varoffset]];
+        this.varBlock = section.blocks[sm.map[match[0].lastIndexOf('V')]];
+        this.postNameArrToken = section.blocks[sm.map[match[0].lastIndexOf('A')]];
     }
 
     /**
      * Return the method name
      */
     get name() {
-        return this.varBlock ? this.varBlock.name : '';
+        return this.varBlock.name;
     }
 
     get type() {
-        return this.varBlock ? this.varBlock.type : '';
+        return this.varBlock.type + (this.postNameArrToken ? this.postNameArrToken.source : '');
     }
 
     get typeTokens() {
-        return this.varBlock ? this.varBlock.typeTokens : [];
+        return this.postNameArrToken ? [...this.varBlock.typeTokens, this.postNameArrToken] : this.varBlock.typeTokens;
     }
 }
 
