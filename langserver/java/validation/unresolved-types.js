@@ -12,7 +12,7 @@ function checkType(type, typeTokens, probs) {
         return;
     }
     if (type instanceof CEIType) {
-        type.typevars.forEach(tv => {
+        type.typeVariables.forEach(tv => {
             if (tv instanceof TypeArgument) {
                 checkType(tv.type, typeTokens, probs);
             }

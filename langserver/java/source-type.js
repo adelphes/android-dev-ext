@@ -1,4 +1,4 @@
-const { JavaType, CEIType, PrimitiveType, Constructor, Method, MethodBase, Field, Parameter, TypeVariable, UnresolvedType } = require('java-mti');
+const { JavaType, CEIType, PrimitiveType, Constructor, Method, MethodBase, Field, Parameter, TypeVariable, UnresolvedType, signatureToType } = require('java-mti');
 const { ModuleBlock, TypeDeclBlock, FieldBlock, ConstructorBlock, MethodBlock, InitialiserBlock, ParameterBlock, TextBlock } = require('./parser9');
 
 /**
@@ -38,29 +38,45 @@ function extractTypeList(decl) {
 class SourceType extends CEIType {
     /**
      * @param {ModuleBlock} mod 
-     * @param {TypeDeclBlock} type
+     * @param {TypeDeclBlock} decl
      * @param {string} qualified_type_name qualified $-separated type name
      * @param {Map<string,JavaType>} typemap
      */
-    constructor(mod, type, qualified_type_name, typemap) {
-        super(type.shortSignature, type.kind(), mapmods(type), type.docs);
-        this._decl = type;
+    constructor(mod, decl, qualified_type_name, typemap) {
+        super(decl.shortSignature, decl.kind(), mapmods(decl), decl.docs);
+        this._typemap = typemap;
+        this._decl = decl;
         this._dottedTypeName = qualified_type_name.replace(/\$/g, '.');
 
-        this.extends_types = type.extends_decl ? extractTypeList(type.extends_decl) : [];
-        this.implements_types = type.implements_decl ? extractTypeList(type.implements_decl) : [];
+        this.extends_types = decl.extends_decl ? extractTypeList(decl.extends_decl) : [];
+        this.implements_types = decl.implements_decl ? extractTypeList(decl.implements_decl) : [];
         this.implicit_extend = !this.extends_types.length && !this.implements_types.length ? [typemap.get('java/lang/Object')] : [];
         
-        this.fields = type.fields.map(f => new SourceField(this, f));
-        this.methods = type.methods.map(m => new SourceMethod(this, m));
-        /** @type {Constructor[]} */
-        this.constructors = type.constructors.map(c => new SourceConstructor(this, c));
-        if (!type.constructors[0] && type.kind() === 'class') {
+        this.fields = decl.fields.map(f => new SourceField(this, f));
+        this.methods = decl.methods.map(m => new SourceMethod(this, m));
+
+        /**
+         * constructors coded in the source
+         */
+        this.declaredConstructors = decl.constructors.map(c => new SourceConstructor(this, c));
+
+        /**
+         * Callable constructors for the type - if the type does not explicitly declare
+         * any constructors, an implicit default constructor is included
+         * @type {Constructor[]}
+         * */
+        this.constructors = this.declaredConstructors;
+        if (!decl.constructors[0] && decl.kind() === 'class') {
             // add a default public constructor if this is a class with no explicit constructors
-            this.constructors.push(new DefaultConstructor(this));
+            this.constructors = [new DefaultConstructor(this)];
         }
-        this.initers = type.initialisers.map(i => new SourceInitialiser(this, i));
-        super.typevars = type.typevars.map(tv => {
+
+        /**
+         * The class initialisers
+         */
+        this.initers = decl.initialisers.map(i => new SourceInitialiser(this, i));
+
+        super.typeVariables = decl.typevars.map(tv => {
             const typevar = new TypeVariable(this, tv.name);
             // automatically add the Object bound
             typevar.bounds.push(new TypeVariable.Bound(this, 'Ljava/lang/Object;', false));
@@ -88,23 +104,13 @@ class SourceType extends CEIType {
         ];
     }
 
-    getAllResolvableTypes() {
-        /** @type {ResolvableType[]} */
-        const res = [
-            ...this.extends_types,
-            ...this.implements_types,
-        ];
-        this.fields.forEach(f => res.push(f._type));
-        this.methods.forEach(m => {
-            res.push(m._returnType);
-            m.parameters.forEach(p => res.push(p._paramType));
-        });
-        this.constructors.forEach(c => {
-            if (c instanceof SourceConstructor) {
-                c.parameters.forEach(p => res.push(p._paramType));
-            }
-        });
-        return res;
+    /**
+     * @param {string} signature 
+     * @param {TypeVariable[]} [typevars]
+     * @returns {JavaType}
+     */
+    resolveType(signature, typevars = []) {
+        return signatureToType(signature, this._typemap, [...typevars, ...this.typeVariables]);
     }
 }
 
@@ -115,7 +121,6 @@ class SourceField extends Field {
      */
     constructor(owner, decl) {
         super(mapmods(decl), decl.docs);
-        this._owner = owner;
         this._decl = decl;
         this._type = new ResolvableType(decl);
     }
@@ -135,7 +140,7 @@ class SourceConstructor extends Constructor {
      * @param {ConstructorBlock} decl 
      */
     constructor(owner, decl) {
-        super(mapmods(decl), decl.docs);
+        super(owner, mapmods(decl), decl.docs);
         this._owner = owner;
         this._decl = decl;
         this._parameters = decl.parameters.map((p,i) => new SourceParameter(p));
@@ -165,8 +170,8 @@ class DefaultConstructor extends Constructor {
      * @param {SourceType} owner 
      */
     constructor(owner) {
-        super(['public']);
-        this._owner = owner;
+        super(owner, ['public'], '');
+        this.owner = owner;
     }
 
     get methodSignature() {
@@ -177,7 +182,7 @@ class DefaultConstructor extends Constructor {
      * @returns {SourceType}
      */
     get returnType() {
-        return this._owner;
+        return this.owner;
     }
 }
 
@@ -188,8 +193,8 @@ class SourceInitialiser extends MethodBase {
      * @param {InitialiserBlock} decl 
      */
     constructor(owner, decl) {
-        super(mapmods(decl), decl.docs);
-        this._owner = owner;
+        super(owner, mapmods(decl), decl.docs);
+        this.owner = owner;
         this._decl = decl;
     }
 
@@ -204,8 +209,8 @@ class SourceMethod extends Method {
      * @param {MethodBlock} decl 
      */
     constructor(owner, decl) {
-        super(decl.name, mapmods(decl), decl.docs);
-        this._owner = owner;
+        super(owner, decl.name, mapmods(decl), decl.docs);
+        this.owner = owner;
         this._decl = decl;
         this._parameters = decl.parameters.map((p,i) => new SourceParameter(p));
         this._returnType = new ResolvableType(decl);
@@ -280,3 +285,4 @@ exports.SourceParameter = SourceParameter;
 exports.SourceConstructor = SourceConstructor;
 exports.DefaultConstructor = DefaultConstructor;
 exports.SourceInitialiser = SourceInitialiser;
+exports.ResolvableType = ResolvableType;

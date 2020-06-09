@@ -1,4 +1,4 @@
-const { ArrayType, CEIType, JavaType, PrimitiveType, WildcardType } = require('java-mti');
+const { ArrayType, CEIType, JavaType, PrimitiveType, MethodBase, WildcardType } = require('java-mti');
 const { SourceMethod, SourceConstructor, SourceInitialiser } = require('./source-type');
 const ResolvedImport = require('./parsetypes/resolved-import');
 const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resolver');
@@ -12,16 +12,16 @@ const { AnyType } = require("./body-types");
 
  /**
  * @param {TokenList} tokens 
- * @param {CEIType} scoped_type 
+ * @param {CEIType|MethodBase} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function typeIdentList(tokens, scoped_type, imports, typemap) {
-    let type = typeIdent(tokens, scoped_type, imports, typemap);
+function typeIdentList(tokens, scope, imports, typemap) {
+    let type = typeIdent(tokens, scope, imports, typemap);
     const types = [type];
     while (tokens.current.value === ',') {
         tokens.inc();
-        type = typeIdent(tokens, scoped_type, imports, typemap);
+        type = typeIdent(tokens, scope, imports, typemap);
         types.push(type);
     }
     return types;
@@ -29,22 +29,22 @@ function typeIdentList(tokens, scoped_type, imports, typemap) {
 
 /**
  * @param {TokenList} tokens 
- * @param {CEIType} scoped_type 
+ * @param {CEIType|MethodBase} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function typeIdent(tokens, scoped_type, imports, typemap) {
+function typeIdent(tokens, scope, imports, typemap) {
     let types = [], package_name = '';
     switch(tokens.current.kind) {
         case 'ident':
-            ({ types, package_name } = resolveTypeOrPackage(tokens.current.value, scoped_type, imports, typemap));
+            ({ types, package_name } = resolveTypeOrPackage(tokens.current.value, scope, imports, typemap));
             break;
         case 'primitive-type':
             types.push(PrimitiveType.fromName(tokens.current.value));
             break;
         default:
             return tokens.current.value === '?'
-                ? wildcardTypeArgument(tokens, scoped_type, imports, typemap)
+                ? wildcardTypeArgument(tokens, scope, imports, typemap)
                 : AnyType.Instance;
     }
     tokens.inc();
@@ -56,7 +56,7 @@ function typeIdent(tokens, scoped_type, imports, typemap) {
             ({ types, package_name } = resolveNextTypeOrPackage(tokens.current.value, types, package_name, typemap));
             tokens.inc();
         } else if (tokens.isValue('<')) {
-            genericTypeArgs(tokens, types, scoped_type, imports, typemap);
+            genericTypeArgs(tokens, types, scope, imports, typemap);
         } else if (tokens.isValue('[')) {
             let arrdims = 0;
             for(;;) {
@@ -82,13 +82,13 @@ function typeIdent(tokens, scoped_type, imports, typemap) {
  * 
  * @param {TokenList} tokens 
  * @param {JavaType[]} types 
- * @param {CEIType} scoped_type 
+ * @param {CEIType|MethodBase} scope 
  * @param {ResolvedImport[]} imports 
  * @param {Map<string,JavaType>} typemap 
  */
-function genericTypeArgs(tokens, types, scoped_type, imports, typemap) {
+function genericTypeArgs(tokens, types, scope, imports, typemap) {
     if (!tokens.isValue('>')) {
-        const type_arguments = typeIdentList(tokens, scoped_type, imports, typemap);
+        const type_arguments = typeIdentList(tokens, scope, imports, typemap);
         types.forEach((t,i,arr) => {
             if (t instanceof CEIType) {
                 let specialised = t.specialise(type_arguments);
@@ -111,12 +111,12 @@ function genericTypeArgs(tokens, types, scoped_type, imports, typemap) {
 
 /**
  * @param {TokenList} tokens 
- * @param {CEIType} scoped_type 
+ * @param {CEIType|MethodBase} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  * @returns {WildcardType}
  */
-function wildcardTypeArgument(tokens, scoped_type, imports, typemap) {
+function wildcardTypeArgument(tokens, scope, imports, typemap) {
     tokens.expectValue('?');
     let bound = null;
     switch (tokens.current.value) {
@@ -126,7 +126,7 @@ function wildcardTypeArgument(tokens, scoped_type, imports, typemap) {
             tokens.inc();
             bound = {
                 kind,
-                type: typeIdent(tokens, scoped_type, imports, typemap),
+                type: typeIdent(tokens, scope, imports, typemap),
             }
             break;
     }

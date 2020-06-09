@@ -2,8 +2,7 @@ const { JavaType } = require('java-mti');
 const { ModuleBlock, TypeDeclBlock } = require('./parser9');
 const { resolveImports } = require('../java/import-resolver');
 const ResolvedImport = require('../java/parsetypes/resolved-import');
-const { resolveType } = require('../java/type-resolver');
-const { SourceType, SourceConstructor } = require('./source-type');
+const { SourceType, SourceMethod, SourceConstructor, ResolvableType } = require('./source-type');
 const { parseBody, flattenBlocks } = require('./body-parser3');
 const { TokenList } = require('./TokenList');
 const { typeIdent } = require('./typeident');
@@ -29,17 +28,37 @@ function getSourceTypes(mod, owner_typename, parent, source_types, typemap) {
 }
 
 /**
+ * @param {ResolvableType} rt 
+ * @param {SourceType|SourceMethod|SourceConstructor} scope 
+ * @param {ResolvedImport[]} resolved_imports 
+ * @param {Map<string,JavaType>} typemap 
+ */
+function resolveResolvableType(rt, scope, resolved_imports, typemap) {
+    const tokens = new TokenList(flattenBlocks(rt.typeTokens, false));
+    rt._resolved = typeIdent(tokens, scope, resolved_imports, typemap);
+}
+
+/**
  * 
  * @param {SourceType} source_type 
  * @param {ResolvedImport[]} resolved_imports 
  * @param {Map<string,JavaType>} typemap 
  */
 function resolveResolvableTypes(source_type, resolved_imports, typemap) {
-    const resolvableTypes = source_type.getAllResolvableTypes();
-    resolvableTypes.forEach(rt => {
-        const tokens = new TokenList(flattenBlocks(rt.typeTokens, false));
-        rt._resolved = typeIdent(tokens, source_type, resolved_imports, typemap);
-    })
+    source_type.extends_types.forEach(rt => resolveResolvableType(rt, source_type, resolved_imports, typemap));
+    source_type.implements_types.forEach(rt => resolveResolvableType(rt, source_type, resolved_imports, typemap));
+
+    source_type.fields.forEach(f => resolveResolvableType(f._type, source_type, resolved_imports, typemap));
+
+    // methods and constructors can have parameterized types
+    source_type.methods.forEach(m => {
+        resolveResolvableType(m._returnType, m, resolved_imports, typemap);
+        m.parameters.forEach(p => resolveResolvableType(p._paramType, m, resolved_imports, typemap));
+    });
+
+    source_type.declaredConstructors.forEach(c => {
+        c.parameters.forEach(p => resolveResolvableType(p._paramType, c, resolved_imports, typemap));
+    });
 }
 
 /**
@@ -67,11 +86,7 @@ function validate(mod, androidLibrary) {
             if (parsed)
                 probs = probs.concat(parsed.problems)
         })
-        t.constructors.forEach(c => {
-            // ignore any default constructors
-            if (!(c instanceof SourceConstructor)) {
-                return;
-            }
+        t.declaredConstructors.forEach(c => {
             console.log(c.label);
             const parsed = parseBody(c, imports.resolved, imports.typemap);
             if (parsed)

@@ -1183,8 +1183,8 @@ function isTypeAssignable(dest_type, value_type) {
             if (!is_assignable) {
                 // generic types are also assignable to compatible wildcard type bounds
                 const raw_type = valid_raw_types.find(rt => rt.rawTypeSignature === dest_type.rawTypeSignature);
-                if (raw_type instanceof CEIType && raw_type.typevars.length === value_type.typevars.length) {
-                    is_assignable = dest_type.typevars.every((dest_tv, idx) => isTypeArgumentCompatible(dest_tv, value_type.typevars[idx].type));
+                if (raw_type instanceof CEIType && raw_type.typeVariables.length === value_type.typeVariables.length) {
+                    is_assignable = dest_type.typeVariables.every((dest_tv, idx) => isTypeArgumentCompatible(dest_tv, value_type.typeVariables[idx].type));
                 }
             }
         }
@@ -1260,7 +1260,7 @@ function isTypeComparable(lhs_type, rhs_type) {
         is_comparable = lhs_types.includes(rhs_type) || rhs_types.includes(lhs_type);
         if (!is_comparable) {
             if (lhs_type.rawTypeSignature === rhs_type.rawTypeSignature) {
-                is_comparable = lhs_type.typevars.every((tv, idx) => isTypeArgumentComparable(tv, rhs_type.typevars[idx]));
+                is_comparable = lhs_type.typeVariables.every((tv, idx) => isTypeArgumentComparable(tv, rhs_type.typeVariables[idx]));
             }
         }
     }
@@ -1596,9 +1596,9 @@ function rootTerm(tokens, locals, method, imports, typemap) {
         case 'object-literal':
             // this, super or null
             if (tokens.current.value === 'this') {
-                matches = new ResolvedIdent(tokens.current.value, [new Value(tokens.current.value, method._owner)]);
+                matches = new ResolvedIdent(tokens.current.value, [new Value(tokens.current.value, method.owner)]);
             } else if (tokens.current.value === 'super') {
-                const supertype = method._owner.supers.find(s => s.typeKind === 'class') || typemap.get('java/lang/Object');
+                const supertype = method.owner.supers.find(s => s.typeKind === 'class') || typemap.get('java/lang/Object');
                 matches = new ResolvedIdent(tokens.current.value, [new Value(tokens.current.value, supertype)]);
             } else {
                 matches = new ResolvedIdent(tokens.current.value, [new LiteralValue(tokens.current.value, new NullType())]);
@@ -1917,7 +1917,7 @@ function qualifiers(matches, tokens, locals, method, imports, typemap) {
                     return matches;
                 }
                 tokens.inc();
-                genericTypeArgs(tokens, matches.types, method._owner, imports, typemap);
+                genericTypeArgs(tokens, matches.types, method, imports, typemap);
                 break;
             default:
                 return matches;
@@ -2081,7 +2081,7 @@ function findIdentifier(ident, locals, method, imports, typemap) {
         matches.variables = [local || param];
     } else {
         // is it a field or method in the current type (or any of the superclasses)
-        const types = getTypeInheritanceList(method._owner);
+        const types = getTypeInheritanceList(method.owner);
         const method_sigs = new Set();
         types.forEach(type => {
             if (!matches.variables[0]) {
@@ -2102,7 +2102,7 @@ function findIdentifier(ident, locals, method, imports, typemap) {
         });
     }
 
-    const { types, package_name } = resolveTypeOrPackage(ident, method._owner, imports, typemap);
+    const { types, package_name } = resolveTypeOrPackage(ident, method, imports, typemap);
     matches.types = types;
     matches.package_name = package_name;
 
