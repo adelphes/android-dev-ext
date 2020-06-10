@@ -191,6 +191,7 @@ class SynchronizedStatement extends Statement {
 }
 class AssertStatement extends Statement {
     expression = null;
+    message = null;
 }
 
 /**
@@ -313,7 +314,7 @@ function statementKeyword(tokens, locals, method, imports, typemap) {
         case 'assert':
             tokens.inc();
             s = new AssertStatement();
-            s.expression = expression(tokens, locals, method, imports, typemap);
+            assertStatement(s, tokens, locals, method, imports, typemap);
             semicolon(tokens);
             break;
         default:
@@ -453,6 +454,28 @@ function synchronizedStatement(s, tokens, locals, method, imports, typemap) {
     }
     tokens.expectValue(')');
     s.statement = nonVarDeclStatement(tokens, locals, method, imports, typemap);
+}
+
+/**
+* @param {AssertStatement} s
+* @param {TokenList} tokens 
+* @param {Local[]} locals
+* @param {SourceMC} method 
+* @param {ResolvedImport[]} imports
+* @param {Map<string,JavaType>} typemap 
+*/
+function assertStatement(s, tokens, locals, method, imports, typemap) {
+    s.expression = expression(tokens, locals, method, imports, typemap);
+    if (s.expression.variables[0] && !isAssignable(PrimitiveType.map.Z, s.expression.variables[0])) {
+        addproblem(tokens, ParseProblem.Error(tokens.current, `Boolean expression expected but type '${s.expression.variables[0].type.fullyDottedTypeName}' found`));
+    }
+
+    if (tokens.isValue(':')) {
+        s.message = expression(tokens, locals, method, imports, typemap);
+        if (s.message.variables[0] && (s.message.variables[0].type === PrimitiveType.map.V)) {
+            addproblem(tokens, ParseProblem.Error(tokens.current, `assert message expression cannot be void`));
+        }
+    }
 }
 
 /**
