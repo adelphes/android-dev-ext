@@ -1,4 +1,4 @@
-const { JavaType, CEIType, PrimitiveType, Constructor, Method, MethodBase, Field, Parameter, TypeVariable, UnresolvedType, signatureToType } = require('java-mti');
+const { JavaType, ArrayType, CEIType, NullType, PrimitiveType, TypeVariableType, Constructor, Method, MethodBase, Field, Parameter, TypeVariable, UnresolvedType, signatureToType } = require('java-mti');
 const { ModuleBlock, TypeDeclBlock, FieldBlock, ConstructorBlock, MethodBlock, InitialiserBlock, ParameterBlock, TextBlock } = require('./parser9');
 
 /**
@@ -214,6 +214,7 @@ class SourceMethod extends Method {
         this._decl = decl;
         this._parameters = decl.parameters.map((p,i) => new SourceParameter(p));
         this._returnType = new ResolvableType(decl);
+        /** @type {TypeVariable[]} */
         this._typevars = decl.typeVariables.map(tv => {
             const typevar = new TypeVariable(owner, tv.name);
             // automatically add the Object bound

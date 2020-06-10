@@ -4,7 +4,7 @@
  * 
  * Each token also contains detailed state information used for completion suggestions.
  */
-const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, WildcardType, TypeVariable, Field, Method, Parameter, Constructor, signatureToType } = require('java-mti');
+const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, NullType, WildcardType, TypeVariable, Field, Method, ReifiedMethod, Parameter, Constructor, signatureToType } = require('java-mti');
 const { SourceMethod, SourceConstructor, SourceInitialiser } = require('./source-type');
 const ResolvedImport = require('./parsetypes/resolved-import');
 const ParseProblem = require('./parsetypes/parse-problem');
@@ -1768,11 +1768,20 @@ function arrayElementOrConstructor(tokens, open_array, matches, index) {
  */
 function methodCallExpression(tokens, instance, call_arguments, typemap) {
     const ident = `${instance.source}(${call_arguments.map(arg => arg.source).join(',')})`;
-
+    
     // method call resolving is painful in Java - we need to match arguments against
     // possible types in the call, but this must include matching against inherited types and choosing the
     // most-specific match
-    const methods = instance.methods.filter(m => isCallCompatible(m, call_arguments));
+    const methods = [];
+    instance.methods.forEach(m => {
+        if (m.typeVariables.length) {
+            // if the method is declared with type variables, specialise it based upon the argument types
+            m = ReifiedMethod.build(m, call_arguments.map(arg => arg.variables[0].type));
+        }
+        if (isCallCompatible(m, call_arguments)) {
+            methods.push(m);
+        }
+    });
     const types = instance.types.filter(t => {
         // interfaces use Object constructors
         const type = t.typeKind === 'interface'
@@ -1857,16 +1866,6 @@ function getTypeInheritanceList(type) {
             types.list.push(...type.supers);
     }
     return Array.from(types.done);
-}
-
-class NullType extends JavaType {
-    constructor() {
-        super('class', [], '');
-        super.simpleTypeName = 'null';
-    }
-    get typeSignature() {
-        return 'null';
-    }
 }
 
 
