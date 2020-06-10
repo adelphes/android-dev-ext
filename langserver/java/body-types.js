@@ -49,7 +49,7 @@ class AnyMethod extends Method {
      * @param {string} name 
      */
     constructor(name) {
-        super(name, [], '');
+        super(null, name, [], '');
     }
 
     get returnType() {
@@ -70,13 +70,7 @@ class Local {
         this.finalToken = modifiers.find(m => m.source === 'final') || null;
         this.name = name;
         this.decltoken = decltoken;
-        if (postnamearrdims > 0) {
-            this.type = (type instanceof ArrayType)
-                ? new ArrayType(type.base, type.arrdims + postnamearrdims)
-                : new ArrayType(type, postnamearrdims);
-        } else {
-            this.type = type;
-        }
+        this.type = postnamearrdims > 0 ? new ArrayType(type, postnamearrdims): type;
         this.init = null;
     }
 }

@@ -198,6 +198,13 @@ class SourceInitialiser extends MethodBase {
         this._decl = decl;
     }
 
+    /**
+     * @returns {SourceParameter[]}
+     */
+    get parameters() {
+        return [];
+    }
+
     get returnType() {
         return PrimitiveType.map.V;
     }

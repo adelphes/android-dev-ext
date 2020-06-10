@@ -1004,7 +1004,7 @@ function isArrayAssignable(variable_type, value) {
     if (value.elements.length === 0) {
         return true;
     }
-    const required_element_type = variable_type.arrdims > 1 ? new ArrayType(variable_type.base, variable_type.arrdims - 1) : variable_type.base;
+    const required_element_type = variable_type.elementType;
     for (let i=0; i < value.elements.length; i++) {
         const element = value.elements[i];
         let is_assignable;
@@ -1751,7 +1751,7 @@ function arrayElementOrConstructor(tokens, open_array, matches, index) {
         .filter(v => v.type instanceof ArrayType)
         .map(v => new ArrayElement(v, index));
 
-    const types = matches.types.map(t => t instanceof ArrayType ? new ArrayType(t.base, t.arrdims+1) : new ArrayType(t, 1));
+    const types = matches.types.map(t => new ArrayType(t, 1));
 
     if (!variables[0] && !types[0]) {
         addproblem(tokens, ParseProblem.Error(open_array, `Invalid array expression: '${matches.source}' is not an array type`));
@@ -1928,13 +1928,7 @@ function qualifiers(matches, tokens, locals, method, imports, typemap) {
  * @param {ResolvedIdent} matches 
  */
 function arrayTypeExpression(matches) {
-    const types = matches.types.map(t => {
-        if (t instanceof ArrayType) {
-            return new ArrayType(t.base, t.arrdims + 1);
-        }
-        return new ArrayType(t, 1);
-    });
-
+    const types = matches.types.map(t => new ArrayType(t, 1));
     return new ResolvedIdent(`${matches.source}[]`, [], [], types);
 }
 

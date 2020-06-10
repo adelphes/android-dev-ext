@@ -34,6 +34,7 @@ function typeIdentList(tokens, scope, imports, typemap) {
  * @param {Map<string,JavaType>} typemap 
  */
 function typeIdent(tokens, scope, imports, typemap) {
+    /** @type {JavaType[]} */
     let types = [], package_name = '';
     switch(tokens.current.kind) {
         case 'ident':
