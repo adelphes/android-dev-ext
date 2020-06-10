@@ -251,6 +251,10 @@ class SourceParameter extends Parameter {
     }
 
     get type() {
+        if (this.varargs) {
+            // variable arity parameters are automatically an array type
+            return new ArrayType(this._paramType.resolved, 1);
+        }
         return this._paramType.resolved;
     }
 }
