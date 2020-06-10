@@ -32,8 +32,9 @@ function typeIdentList(tokens, scope, imports, typemap) {
  * @param {CEIType|MethodBase} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
+ * @param {boolean} allow_array_qualifiers
  */
-function typeIdent(tokens, scope, imports, typemap) {
+function typeIdent(tokens, scope, imports, typemap, allow_array_qualifiers = true) {
     /** @type {JavaType[]} */
     let types = [], package_name = '';
     switch(tokens.current.kind) {
@@ -58,7 +59,7 @@ function typeIdent(tokens, scope, imports, typemap) {
             tokens.inc();
         } else if (tokens.isValue('<')) {
             genericTypeArgs(tokens, types, scope, imports, typemap);
-        } else if (tokens.isValue('[')) {
+        } else if (allow_array_qualifiers && tokens.isValue('[')) {
             let arrdims = 0;
             for(;;) {
                 arrdims++;

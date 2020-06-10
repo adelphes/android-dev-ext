@@ -10,7 +10,7 @@ const ResolvedImport = require('./parsetypes/resolved-import');
 const ParseProblem = require('./parsetypes/parse-problem');
 const { getOperatorType, Token } = require('./tokenizer');
 const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resolver');
-const { genericTypeArgs } = require('./typeident');
+const { genericTypeArgs, typeIdent } = require('./typeident');
 const { TokenList } = require("./TokenList");
 const { AnyMethod, AnyType, AnyValue, ArrayElement, ArrayLiteral, ConstructorCall, LiteralNumber, LiteralValue, Local, MethodCall, ResolvedIdent, TernaryValue, Value } = require("./body-types");
 
@@ -1680,43 +1680,7 @@ function rootTerm(tokens, locals, method, imports, typemap) {
             tokens.inc();
             return qualifiedTerm(tokens, locals, method, imports, typemap);
         case 'new-operator':
-            tokens.inc();
-            const ctr = qualifiedTerm(tokens, locals, method, imports, typemap);
-            let new_ident = `new ${ctr.source}`;
-            if (ctr.types[0] instanceof ArrayType) {
-                if (tokens.current.value === '{') {
-                    // array init
-                    rootTerm(tokens, locals, method, imports, typemap);
-                }
-                return new ResolvedIdent(new_ident, [new Value(new_ident, ctr.types[0])]);
-            }
-            if (ctr.variables[0] instanceof ConstructorCall) {
-                const ctr_type = ctr.variables[0].type;
-                if (tokens.current.value === '{') {
-                    // final types cannot be inherited
-                    if (ctr_type.modifiers.includes('final') ) {
-                        addproblem(tokens, ParseProblem.Error(tokens.current, `Type '${ctr_type.fullyDottedTypeName}' is declared final and cannot be inherited from.`));
-                    }
-                    // anonymous type - just skip for now
-                    for (let balance = 0;;) {
-                        if (tokens.isValue('{')) {
-                            balance++;
-                        } else if (tokens.isValue('}')) {
-                            if (--balance === 0) {
-                                break;
-                            }
-                        } else tokens.inc();
-                    }
-                } else {
-                    // abstract and interface types must have a type body
-                    if (ctr_type.typeKind === 'interface' || ctr_type.modifiers.includes('abstract') ) {
-                        addproblem(tokens, ParseProblem.Error(tokens.current, `Type '${ctr_type.fullyDottedTypeName}' is abstract and cannot be instantiated without a body`));
-                    }
-                }
-                return new ResolvedIdent(new_ident, [new Value(new_ident, ctr.variables[0].type)]);
-            }
-            addproblem(tokens, ParseProblem.Error(tokens.current, 'Constructor expression expected'));
-            return new ResolvedIdent(new_ident);
+            return newTerm(tokens, locals, method, imports, typemap);
         case 'open-bracket':
             tokens.inc();
             matches = expression(tokens, locals, method, imports, typemap);
@@ -1757,6 +1721,57 @@ function rootTerm(tokens, locals, method, imports, typemap) {
     }
     tokens.inc();
     return matches;
+}
+
+/**
+ * @param {TokenList} tokens 
+ * @param {Local[]} locals
+ * @param {SourceMC} method 
+ * @param {ResolvedImport[]} imports
+ * @param {Map<string,JavaType>} typemap 
+ */
+function newTerm(tokens, locals, method, imports, typemap) {
+    tokens.expectValue('new');
+    const ctr_type = typeIdent(tokens, method, imports, typemap, false);
+    let match = new ResolvedIdent(`new ${ctr_type.simpleTypeName}`, [], [], [ctr_type]);
+    switch(tokens.current.value) {
+        case '[':
+            match = arrayQualifiers(match, tokens, locals, method, imports, typemap);
+            // @ts-ignore
+            if (tokens.current.value === '{') {
+                // array init
+                rootTerm(tokens, locals, method, imports, typemap);
+            }
+            return new ResolvedIdent(match.source, [new Value(match.source, match.types[0])]);
+        case '(':
+            match = methodCallQualifier(match, tokens, locals, method, imports, typemap);
+            // @ts-ignore
+            if (tokens.current.value === '{') {
+                // final types cannot be inherited
+                if (ctr_type.modifiers.includes('final') ) {
+                    addproblem(tokens, ParseProblem.Error(tokens.current, `Type '${ctr_type.fullyDottedTypeName}' is declared final and cannot be inherited from.`));
+                }
+                // anonymous type - just skip for now
+                for (let balance = 0;;) {
+                    if (tokens.isValue('{')) {
+                        balance++;
+                    } else if (tokens.isValue('}')) {
+                        if (--balance === 0) {
+                            break;
+                        }
+                    } else tokens.inc();
+                }
+            } else {
+                // abstract and interface types must have a type body
+                if (ctr_type.typeKind === 'interface' || ctr_type.modifiers.includes('abstract') ) {
+                    addproblem(tokens, ParseProblem.Error(tokens.current, `Type '${ctr_type.fullyDottedTypeName}' is abstract and cannot be instantiated without a body`));
+                }
+            }
+            return match;
+    }
+
+    addproblem(tokens, ParseProblem.Error(tokens.current, 'Constructor expression expected'));
+    return new ResolvedIdent(match.source, [new Value(match.source, ctr_type)]);
 }
 
 /**
@@ -1955,33 +1970,14 @@ function qualifiers(matches, tokens, locals, method, imports, typemap) {
     for (;;) {
         switch (tokens.current.value) {
             case '.':
-                tokens.inc();
-                matches = parseDottedIdent(matches, tokens, typemap);
+                matches = dottedIdent(matches, tokens, typemap);
                 break;
             case '[':
-                let open_array = tokens.current;
-                if (tokens.inc().value === ']') {
-                    // array type
-                    tokens.inc();
-                    matches = arrayTypeExpression(matches);
-                } else {
-                    // array index
-                    const index = arrayIndexOrDimension(tokens, locals, method, imports, typemap);
-                    matches = arrayElementOrConstructor(tokens, open_array, matches, index);
-                    // @ts-ignore
-                    tokens.expectValue(']');
-                }
+                matches = arrayQualifiers(matches, tokens, locals, method, imports, typemap);
                 break;
             case '(':
                 // method or constructor call
-                let args = [];
-                if (tokens.inc().value === ')') {
-                    tokens.inc();
-                } else {
-                    args = expressionList(tokens, locals, method, imports, typemap);
-                    tokens.expectValue(')');
-                }
-                matches = methodCallExpression(tokens, matches, args, typemap);
+                matches = methodCallQualifier(matches, tokens, locals, method, imports, typemap);
                 break;
             case '<':
                 // generic type arguments - since this can be confused with less-than, only parse
@@ -1999,6 +1995,49 @@ function qualifiers(matches, tokens, locals, method, imports, typemap) {
 }
 
 /**
+ * @param {ResolvedIdent} matches
+ * @param {TokenList} tokens 
+ * @param {Local[]} locals
+ * @param {SourceMC} method 
+ * @param {ResolvedImport[]} imports
+ * @param {Map<string,JavaType>} typemap 
+ */
+function arrayQualifiers(matches, tokens, locals, method, imports, typemap) {
+    while (tokens.isValue('[')) {
+        let open_array = tokens.current;
+        if (tokens.isValue(']')) {
+            // array type
+            matches = arrayTypeExpression(matches);
+        } else {
+            // array index
+            const index = arrayIndexOrDimension(tokens, locals, method, imports, typemap);
+            matches = arrayElementOrConstructor(tokens, open_array, matches, index);
+            // @ts-ignore
+            tokens.expectValue(']');
+        }
+    }
+    return matches;
+}
+
+/**
+ * @param {ResolvedIdent} matches
+ * @param {TokenList} tokens 
+ * @param {Local[]} locals
+ * @param {SourceMC} method 
+ * @param {ResolvedImport[]} imports
+ * @param {Map<string,JavaType>} typemap 
+ */
+function methodCallQualifier(matches, tokens, locals, method, imports, typemap) {
+    let args = [];
+    tokens.expectValue('(');
+    if (!tokens.isValue(')')) {
+        args = expressionList(tokens, locals, method, imports, typemap);
+        tokens.expectValue(')');
+    }
+    return methodCallExpression(tokens, matches, args, typemap);
+}
+
+/**
  * @param {ResolvedIdent} matches 
  */
 function arrayTypeExpression(matches) {
@@ -2012,7 +2051,8 @@ function arrayTypeExpression(matches) {
  * @param {TokenList} tokens 
  * @param {Map<string,JavaType>} typemap 
  */
-function parseDottedIdent(matches, tokens, typemap) {
+function dottedIdent(matches, tokens, typemap) {
+    tokens.expectValue('.');
     let variables = [],
     methods = [],
     types = [],
