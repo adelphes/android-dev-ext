@@ -21,15 +21,16 @@ function checkImplementedInterfaces(source_type, probs) {
     if (source_type.modifiers.includes('abstract')) {
         return;
     }
+    /** @type {Set<CEIType>} */
     const interfaces = new Set(), supers_done = new Set();
     const supers = source_type.supers.slice();
     while (supers.length) {
         const s = supers.shift();
         supers_done.add(s);
-        if (s.typeKind === 'interface') {
-            interfaces.add(s);
-        }
         if (s instanceof CEIType) {
+            if (s.typeKind === 'interface') {
+                interfaces.add(s);
+            }
             s.supers.filter(s => !supers_done.has(s)).forEach(s => supers.push(s));
         }
     }
@@ -38,6 +39,10 @@ function checkImplementedInterfaces(source_type, probs) {
     interfaces.forEach((intf, i) => {
         const missing_methods = [];
         intf.methods.forEach(m => {
+            // default methods don't require implementing
+            if (m.hasImplementation) {
+                return;
+            }
             const namedsig = `${m.name}${m.methodSignature}`
             if (implemented.indexOf(namedsig) < 0) {
                 missing_methods.push(nonAbstractLabel(m.label));
