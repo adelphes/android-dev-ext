@@ -99,8 +99,19 @@ function statement(tokens, locals, method, imports, typemap) {
         case 'statement-kw':
             s = statementKeyword(tokens, locals, method, imports, typemap);
             return s;
-        case 'modifier':
         case 'ident':
+            // checking every statement identifier for a possible label is really inefficient, but trying to
+            // merge this into expression_or_var_decl is worse for now
+            if (tokens.peek(1).value === ':') {
+                const label = new Label(tokens.current);
+                tokens.inc(), tokens.inc();
+                // ignore and just return the next statement
+                // - we cannot return the label as a statement because for/if/while check the next statement type
+                // the labels should be collated and checked for duplicates, etc
+                return statement(tokens, locals, method, imports, typemap);
+            }
+            // fall-through to expression_or_var_decl
+        case 'modifier':
         case 'primitive-type':
             s = expression_or_var_decl(tokens, locals, method, imports, typemap);
             if (Array.isArray(s)) {
@@ -158,8 +169,14 @@ class WhileStatement extends Statement {
     test = null;
     statement = null;
 }
-class BreakStatement extends Statement {}
-class ContinueStatement extends Statement {}
+class BreakStatement extends Statement {
+    /** @type {Token} */
+    target = null;
+}
+class ContinueStatement extends Statement {
+    /** @type {Token} */
+    target = null;
+}
 class DoStatement extends Statement {
     test = null;
     block = null;
@@ -192,6 +209,14 @@ class SynchronizedStatement extends Statement {
 class AssertStatement extends Statement {
     expression = null;
     message = null;
+}
+class Label {
+    /**
+     * @param {Token} token 
+     */
+    constructor(token) {
+        this.name_token = token;
+    }
 }
 
 /**
@@ -253,11 +278,19 @@ function statementKeyword(tokens, locals, method, imports, typemap) {
         case 'break':
             tokens.inc();
             s = new BreakStatement();
+            if (tokens.current.kind === 'ident') {
+                s.target = tokens.current;
+                tokens.inc();
+            }
             semicolon(tokens);
             break;
         case 'continue':
             tokens.inc();
             s = new ContinueStatement();
+            if (tokens.current.kind === 'ident') {
+                s.target = tokens.current;
+                tokens.inc();
+            }
             semicolon(tokens);
             break;
         case 'switch':

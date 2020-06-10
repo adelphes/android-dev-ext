@@ -25,6 +25,24 @@ class TokenList {
             }
         }
     }
+
+    /**
+     * Token lookahead. The current token is unaffected by this method.
+     * @param {number} n number of tokens to look ahead
+     */
+    peek(n) {
+        let token, idx = this.idx;
+        while (--n >= 0) {
+            for (; ;) {
+                token = this.tokens[idx += 1];
+                if (!token || token.kind !== 'wsc') {
+                    break;
+                }
+            }
+        }
+        return token;
+    }
+
     /**
      * Check if the current token matches the specified value and consumes it
      * @param {string} value
