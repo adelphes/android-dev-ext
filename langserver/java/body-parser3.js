@@ -1827,22 +1827,40 @@ function isCallCompatible(m, call_arguments) {
     if (m instanceof AnyMethod) {
         return true;
     }
-    if (m.parameterCount !== call_arguments.length) {
-        // wrong parameter count - this needs updating to support varargs
-        return false;
+    const param_count = m.parameterCount;
+    if (param_count !== call_arguments.length) {
+        // for variable arity methods, we must have at least n-1 formal parameters
+        if (!m.isVariableArity || call_arguments.length < param_count - 1) {
+            // wrong parameter count
+            return false;
+        }
     }
-    const p = m.parameters;
-    for (let i=0; i < p.length; i++) {
+    const formal_params = m.parameters.slice();
+    const last_param = formal_params.pop();
+    for (let i = 0; i < call_arguments.length; i++) {
         if (!call_arguments[i].variables[0]) {
             // only variables can be passed - not types or methods
             return false;
         }
+        const param = formal_params[i] || last_param;
+        let param_type = param.type;
+        if (param.varargs && param_type instanceof ArrayType) {
+            // last varargs parameter
+            // - if the argument count matches the parameter count, the final argument can match the array or non-array version
+            // e.g void v(int... x) will match with v(), v(1) and v(new int[3]);
+            if (call_arguments.length === param_count) {
+                if (isAssignable(param_type, call_arguments[i].variables[0])) {
+                    continue;
+                }
+            }
+            param_type = param_type.elementType;
+        }
         // is the argument assignable to the parameter
-        if (isAssignable(p[i].type, call_arguments[i].variables[0])) {
+        if (isAssignable(param_type, call_arguments[i].variables[0])) {
             continue;
         }
         // mismatch parameter type
-        return;
+        return false;
     }
     return true;
 }
