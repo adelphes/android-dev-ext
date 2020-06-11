@@ -1737,7 +1737,12 @@ function rootTerm(tokens, locals, method, imports, typemap) {
  */
 function newTerm(tokens, locals, method, imports, typemap) {
     tokens.expectValue('new');
+    const type_start_token = tokens.idx;
     const ctr_type = typeIdent(tokens, method, imports, typemap, false);
+    if (ctr_type instanceof AnyType) {
+        const toks = tokens.tokens.slice(type_start_token, tokens.idx);
+        addproblem(tokens, ParseProblem.Error(toks, `Unresolved type: '${toks.map(t => t.source).join('')}'`));
+    }
     let match = new ResolvedIdent(`new ${ctr_type.simpleTypeName}`, [], [], [ctr_type]);
     switch(tokens.current.value) {
         case '[':
@@ -1869,18 +1874,22 @@ function methodCallExpression(tokens, instance, call_arguments, typemap) {
     if (!types[0] && !methods[0]) {
         const callargtypes = call_arguments.map(a => a.variables[0] ? a.variables[0].type.fullyDottedTypeName : '<unknown-type>').join(', ');
         if (instance.methods[0]) {
-            const methodlist = instance.methods.map(m => m.label).join('\n-  ');
-            addproblem(tokens, ParseProblem.Error(tokens.current,
-                `No compatible method found. Tried to match:\n-  ${methodlist}\nagainst call argument types: (${callargtypes})`))
+            if (!(instance.methods[0] instanceof AnyMethod)) {
+                const methodlist = instance.methods.map(m => m.label).join('\n-  ');
+                addproblem(tokens, ParseProblem.Error(tokens.current,
+                    `No compatible method found. Tried to match:\n-  ${methodlist}\nagainst call argument types: (${callargtypes})`))
+            }
             // fake a result with AnyMethod
             methods.push(new AnyMethod(instance.source));
         } else if (instance.types[0]) {
-            const ctrlist = instance.types[0].constructors.map(c => c.label).join('\n-  ');
-            const match_message = instance.types[0].constructors.length
-              ? `Tried to match:\n-  ${ctrlist}\nagainst call argument types: (${callargtypes})`
-              : 'The type has no accessible constructors';
-            addproblem(tokens, ParseProblem.Error(tokens.current, 
-                `No compatible constructor found for type '${instance.types[0].fullyDottedTypeName}'. ${match_message}`));
+            if (!(instance.types[0] instanceof AnyType)) {
+                const ctrlist = instance.types[0].constructors.map(c => c.label).join('\n-  ');
+                const match_message = instance.types[0].constructors.length
+                    ? `Tried to match:\n-  ${ctrlist}\nagainst call argument types: (${callargtypes})`
+                    : 'The type has no accessible constructors';
+                addproblem(tokens, ParseProblem.Error(tokens.current, 
+                    `No compatible constructor found for type '${instance.types[0].fullyDottedTypeName}'. ${match_message}`));
+            }
             // fake a result with AnyType
             types.push(new AnyType(instance.source));
         }
