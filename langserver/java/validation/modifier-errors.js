@@ -78,29 +78,35 @@ function checkMethodModifiers(type, ownertypemods, method, probs) {
     checkConflictingAccess(method.modifiers, probs);
 
     const allmods = new Map(method.modifiers.map(m => [m.source, m]));
+    const is_interface_kind = /@?interface/.test(type.kind());
+    const has_body = method.body().simplified.startsWith('B');
+
     if (allmods.has('abstract') && allmods.has('final')) {
         probs.push(ParseProblem.Error(allmods.get('abstract'), 'Method declarations cannot be abstract and final'));
     }
     if (allmods.has('abstract') && allmods.has('native')) {
         probs.push(ParseProblem.Error(allmods.get('abstract'), 'Method declarations cannot be abstract and native'));
     }
-    if (allmods.has('abstract') && method.body().simplified.startsWith('B')) {
+    if (allmods.has('abstract') && has_body) {
         probs.push(ParseProblem.Error(allmods.get('abstract'), 'Method declarations marked as abstract cannot have a method body'));
     }
-    if (type.kind() !== 'interface' && !allmods.has('abstract') && !allmods.has('native') && !method.body().simplified.startsWith('B')) {
+    if (!is_interface_kind && !allmods.has('abstract') && !allmods.has('native') && !has_body) {
         probs.push(ParseProblem.Error(method, `Method '${method.name}' must have an implementation or be defined as abstract or native`));
     }
-    if (type.kind() !== 'interface' && allmods.has('abstract') && !ownertypemods.has('abstract')) {
+    if (!is_interface_kind && allmods.has('abstract') && !ownertypemods.has('abstract')) {
         probs.push(ParseProblem.Error(method, `Method '${method.name}' cannot be declared abstract inside a non-abstract type`));
     }
-    if (allmods.has('native') && method.body().simplified.startsWith('B')) {
+    if (is_interface_kind && has_body && !allmods.has('default')) {
+        probs.push(ParseProblem.Error(method, `Non-default interface methods cannot have a method body`));
+    }
+    if (allmods.has('native') && has_body) {
         probs.push(ParseProblem.Error(allmods.get('native'), 'Method declarations marked as native cannot have a method body'));
     }
     // JLS8
     if (type.kind() !== 'interface' && allmods.has('default')) {
         probs.push(ParseProblem.Error(method, `Default method declarations are only allowed inside interfaces`));
     }
-    if (allmods.has('default') && !method.body().simplified.startsWith('B')) {
+    if (allmods.has('default') && !has_body) {
         probs.push(ParseProblem.Error(method, `Default method declarations must have an implementation`));
     }
 }
