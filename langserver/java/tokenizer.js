@@ -120,7 +120,7 @@ function tokenize(source, offset = 0, length = source.length) {
      * \w+    word
      * ```
      */
-    const word_re = /^(?:(true|false)|(this|super|null)|(int|long|short|byte|float|double|char|boolean|void)|(new)|(instanceof)|(public|private|protected|static|final|abstract|native|volatile|transient|default|synchronized)|(if|else|while|for|do|try|catch|finally|switch|case|return|break|continue|throw|assert)|(class|enum|interface)|(extends|implements|throws)|(package|import)|(.+))$/;
+    const word_re = /^(?:(true|false)|(this|super|null)|(int|long|short|byte|float|double|char|boolean|void)|(new)|(instanceof)|(public|private|protected|static|final|abstract|native|volatile|transient|strictfp|default|synchronized)|(if|else|while|for|do|try|catch|finally|switch|case|return|break|continue|throw|assert)|(class|enum|interface)|(extends|implements|throws)|(package|import)|(.+))$/;
 
     const word_token_types = [
         'boolean-literal',
