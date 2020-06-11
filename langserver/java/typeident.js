@@ -37,6 +37,7 @@ function typeIdentList(tokens, scope, imports, typemap) {
 function typeIdent(tokens, scope, imports, typemap, allow_array_qualifiers = true) {
     /** @type {JavaType[]} */
     let types = [], package_name = '';
+    const start_idx = tokens.idx;
     switch(tokens.current.kind) {
         case 'ident':
             ({ types, package_name } = resolveTypeOrPackage(tokens.current.value, scope, imports, typemap));
@@ -59,25 +60,29 @@ function typeIdent(tokens, scope, imports, typemap, allow_array_qualifiers = tru
             tokens.inc();
         } else if (tokens.isValue('<')) {
             genericTypeArgs(tokens, types, scope, imports, typemap);
-        } else if (allow_array_qualifiers && tokens.isValue('[')) {
-            let arrdims = 0;
-            for(;;) {
-                arrdims++;
-                tokens.expectValue(']');
-                if (!tokens.isValue('[')) {
-                    break;
-                }
-            }
-            if (!types[0]) {
-                types.push(AnyType.Instance);
-            }
-            types = types.map(t => new ArrayType(t, arrdims));
         } else {
             break;
         }
     }
 
-    return types[0] || AnyType.Instance;
+    if (!types[0]) {
+        const anytype = new AnyType(tokens.tokens.slice(start_idx, tokens.idx).map(t => t.source).join('').trim());
+        types.push(anytype);
+    }
+
+    if (allow_array_qualifiers && tokens.isValue('[')) {
+        let arrdims = 0;
+        for(;;) {
+            arrdims++;
+            tokens.expectValue(']');
+            if (!tokens.isValue('[')) {
+                break;
+            }
+        }
+        types = types.map(t => new ArrayType(t, arrdims));
+    }
+    
+    return types[0];
 }
 
 /**

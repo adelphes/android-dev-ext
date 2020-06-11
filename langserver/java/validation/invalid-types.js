@@ -1,16 +1,18 @@
 const { ModuleBlock, TypeDeclBlock } = require('../parser9');
 const ParseProblem = require('../parsetypes/parse-problem');
 const {SourceType} = require('../source-type');
-const {JavaType, CEIType, TypeArgument, UnresolvedType} = require('java-mti')
+const {JavaType, ArrayType, CEIType, TypeArgument, UnresolvedType} = require('java-mti');
+const { AnyType } = require('../body-types');
 
 /**
  * @param {JavaType} type 
  */
 function checkType(type, is_return_type, typeTokens, probs) {
-    if (type instanceof UnresolvedType) {
+    const typesig = type.typeSignature;
+    if (/^\[*U/.test(typesig)) {
+        probs.push(ParseProblem.Error(typeTokens, `Unresolved type '${type.label}'`))
         return;
     }
-    const typesig = type.typeSignature;
     if (typesig === 'V' && !is_return_type) {
         probs.push(ParseProblem.Error(typeTokens, `'void' is not a valid type for variables`))
     }

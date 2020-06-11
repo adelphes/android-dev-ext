@@ -30,10 +30,10 @@ class AnyType extends JavaType {
      */
     constructor(label) {
         super("class", [], '');
-        super.simpleTypeName = label;
+        super.simpleTypeName = label || '<unknown type>';
     }
 
-    static Instance = new AnyType('<unknown type>');
+    static Instance = new AnyType('');
 
     get rawTypeSignature() {
         return 'U';
