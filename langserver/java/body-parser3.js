@@ -95,7 +95,24 @@ function addLocals(tokens, locals, new_locals) {
  * @returns {ResolvedIdent|Local[]|Statement}
  */
 function statement(tokens, locals, method, imports, typemap) {
-    let s;
+    let s, modifiers = [];
+    for (;;) {
+        switch(tokens.current.kind) {
+            case 'modifier':
+                modifiers.push(tokens.current);
+                tokens.inc();
+                continue;
+        }
+        break;
+    }
+    // modifiers are only allowed on local variable decls
+    if (modifiers.length) {
+        s = var_decl(modifiers, tokens, locals, method, imports, typemap);
+        addLocals(tokens, locals, s);
+        semicolon(tokens);
+        return s;
+    }
+
     switch(tokens.current.kind) {
         case 'statement-kw':
             s = statementKeyword(tokens, locals, method, imports, typemap);
@@ -112,7 +129,6 @@ function statement(tokens, locals, method, imports, typemap) {
                 return statement(tokens, locals, method, imports, typemap);
             }
             // fall-through to expression_or_var_decl
-        case 'modifier':
         case 'primitive-type':
             s = expression_or_var_decl(tokens, locals, method, imports, typemap);
             if (Array.isArray(s)) {
@@ -772,53 +788,73 @@ function checkThrowExpression(tokens, throw_expression, typemap) {
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
+ * @returns {Local[]}
+ */
+function var_decl(mods, tokens, locals, method, imports, typemap) {
+    const type = typeIdent(tokens, method, imports, typemap);
+    return var_ident_list(mods, type, tokens, locals, method, imports, typemap)
+}
+
+/**
+ * 
+ * @param {Token[]} mods 
+ * @param {JavaType} type 
+ * @param {TokenList} tokens 
+ * @param {Local[]} locals 
+ * @param {SourceMC} method 
+ * @param {ResolvedImport[]} imports 
+ * @param {Map<string,JavaType>} typemap 
+ */
+function var_ident_list(mods, type, tokens, locals, method, imports, typemap) {
+    checkLocalModifiers(tokens, mods);
+    const new_locals = [];
+    for (;;) {
+        if (tokens.current.kind !== 'ident') {
+            addproblem(tokens, ParseProblem.Error(tokens.current, `Variable name expected`));
+            break;
+        }
+        const name = tokens.current;
+        tokens.inc();
+        // look for [] after the variable name
+        let postnamearrdims = 0;
+        while (tokens.isValue('[')) {
+            postnamearrdims += 1;
+            tokens.expectValue(']');
+        }
+        let local = new Local(mods, name.value, name, type, postnamearrdims);
+        if (tokens.isValue('=')) {
+            const op = tokens.previous;
+            local.init = expression(tokens, locals, method, imports, typemap);
+            if (local.init.variables[0])
+                checkAssignmentExpression(tokens, local, op, local.init.variables[0]);
+        }
+        new_locals.push(local);
+        if (tokens.isValue(',')) {
+            continue;
+        }
+        break;
+    }
+    return new_locals;
+}
+    
+/**
+ * @param {TokenList} tokens 
+ * @param {Local[]} locals
+ * @param {SourceMC} method 
+ * @param {ResolvedImport[]} imports
+ * @param {Map<string,JavaType>} typemap 
  * @returns {ResolvedIdent|Local[]}
  */
 function expression_or_var_decl(tokens, locals, method, imports, typemap) {
-    const mods = [];
-    while (tokens.current.kind === 'modifier') {
-        mods.push(tokens.current);
-        tokens.inc();
-    }
 
     /** @type {ResolvedIdent} */
     let matches = expression(tokens, locals, method, imports, typemap);
 
     // if theres at least one type followed by an ident, we assume a variable declaration
     if (matches.types[0] && tokens.current.kind === 'ident') {
-        const new_locals = [];
-        checkLocalModifiers(tokens, mods);
-        for (;;) {
-            const name = tokens.current;
-            tokens.inc();
-            // look for [] after the variable name
-            let postnamearrdims = 0;
-            while (tokens.isValue('[')) {
-                postnamearrdims += 1;
-                tokens.expectValue(']');
-            }
-            let local = new Local(mods, name.value, name, matches.types[0], postnamearrdims);
-            if (tokens.isValue('=')) {
-                const op = tokens.previous;
-                local.init = expression(tokens, locals, method, imports, typemap);
-                if (local.init.variables[0])
-                    checkAssignmentExpression(tokens, local, op, local.init.variables[0]);
-            }
-            new_locals.push(local);
-            if (tokens.isValue(',')) {
-                if (tokens.current.kind === 'ident') {
-                    continue;
-                }
-                addproblem(tokens, ParseProblem.Error(tokens.current, `Variable name expected`));
-            }
-            break;
-        }
-        return new_locals;
+        return var_ident_list([], matches.types[0], tokens, locals, method, imports, typemap);
     }
 
-    if (mods.length) {
-        addproblem(tokens, ParseProblem.Error(mods[0], `Unexpected token: '${mods[0].value}'`))
-    }
     return matches;
 }
 
