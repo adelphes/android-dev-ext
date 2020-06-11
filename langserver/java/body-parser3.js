@@ -4,7 +4,8 @@
  * 
  * Each token also contains detailed state information used for completion suggestions.
  */
-const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, NullType, WildcardType, TypeVariable, Field, Method, ReifiedMethod, Parameter, Constructor, signatureToType } = require('java-mti');
+const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, NullType, WildcardType, TypeVariableType,
+    TypeVariable, InferredTypeArgument, Field, Method, ReifiedMethod, Parameter, Constructor, signatureToType } = require('java-mti');
 const { SourceMethod, SourceConstructor, SourceInitialiser } = require('./source-type');
 const ResolvedImport = require('./parsetypes/resolved-import');
 const ParseProblem = require('./parsetypes/parse-problem');
@@ -1268,6 +1269,10 @@ function isTypeArgumentCompatible(dest_typevar, value_typevar_type) {
                 return isTypeAssignable(value_typevar_type, dest_typevar.type.bound.type);
         }
         return false;
+    }
+    if (value_typevar_type instanceof TypeVariableType) {
+        // inferred type arguments of the form `x = List<>` are compatible with every destination type variable
+        return value_typevar_type.typeVariable instanceof InferredTypeArgument;
     }
     return dest_typevar.type === value_typevar_type;
 }

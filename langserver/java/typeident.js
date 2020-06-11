@@ -89,26 +89,34 @@ function typeIdent(tokens, scope, imports, typemap, allow_array_qualifiers = tru
  * @param {Map<string,JavaType>} typemap 
  */
 function genericTypeArgs(tokens, types, scope, imports, typemap) {
-    if (!tokens.isValue('>')) {
-        const type_arguments = typeIdentList(tokens, scope, imports, typemap);
+    if (tokens.isValue('>')) {
+        // <> operator - build new types with inferred type arguments
         types.forEach((t,i,arr) => {
             if (t instanceof CEIType) {
-                let specialised = t.specialise(type_arguments);
-                if (typemap.has(specialised.shortSignature)) {
-                    arr[i] = typemap.get(specialised.shortSignature);
-                    return;
-                }
-                typemap.set(specialised.shortSignature, specialised);
+                let specialised = t.makeInferredTypeArgs();
                 arr[i] = specialised;
             }
         });
-        if (/>>>?/.test(tokens.current.value)) {
-            // we need to split >> and >>> into separate > tokens to handle things like List<Class<?>>
-            const new_tokens = tokens.current.value.split('').map((gt,i) => new Token(tokens.current.range.source, tokens.current.range.start + i, 1, 'comparison-operator'));
-            tokens.splice(tokens.idx, 1, ...new_tokens);
-        }
-        tokens.expectValue('>');
+        return;
     }
+    const type_arguments = typeIdentList(tokens, scope, imports, typemap);
+    types.forEach((t,i,arr) => {
+        if (t instanceof CEIType) {
+            let specialised = t.specialise(type_arguments);
+            if (typemap.has(specialised.shortSignature)) {
+                arr[i] = typemap.get(specialised.shortSignature);
+                return;
+            }
+            typemap.set(specialised.shortSignature, specialised);
+            arr[i] = specialised;
+        }
+    });
+    if (/>>>?/.test(tokens.current.value)) {
+        // we need to split >> and >>> into separate > tokens to handle things like List<Class<?>>
+        const new_tokens = tokens.current.value.split('').map((gt,i) => new Token(tokens.current.range.source, tokens.current.range.start + i, 1, 'comparison-operator'));
+        tokens.splice(tokens.idx, 1, ...new_tokens);
+    }
+    tokens.expectValue('>');
 }
 
 /**
