@@ -11,9 +11,10 @@ const ResolvedImport = require('./parsetypes/resolved-import');
 const ParseProblem = require('./parsetypes/parse-problem');
 const { getOperatorType, Token } = require('./tokenizer');
 const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resolver');
-const { genericTypeArgs, typeIdent } = require('./typeident');
+const { genericTypeArgs, typeIdent, typeIdentList } = require('./typeident');
 const { TokenList } = require("./TokenList");
 const { AnyMethod, AnyType, AnyValue, ArrayElement, ArrayLiteral, ConstructorCall, Label, LiteralNumber, LiteralValue, Local, MethodCall, MethodDeclarations, ResolvedIdent, TernaryValue, Value } = require("./body-types");
+const { SourceType, SourceField2, SourceMethod2, SourceConstructor2, SourceParameter2 } = require('./source-types2');
 
 /**
  * @typedef {SourceMethod|SourceConstructor|SourceInitialiser} SourceMC
@@ -41,7 +42,7 @@ function flattenBlocks(blocks, isMethod) {
 }
 
 /**
- * @param {SourceMC} method 
+ * @param {SourceMethod | SourceConstructor | SourceInitialiser} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
@@ -102,6 +103,9 @@ function statement(tokens, mdecls, method, imports, typemap) {
             case 'modifier':
                 modifiers.push(tokens.current);
                 tokens.inc();
+                continue;
+            case 'type-kw':
+                localType(modifiers.splice(0,1e9), tokens, mdecls, method, imports, typemap);
                 continue;
         }
         break;
@@ -229,6 +233,290 @@ class SynchronizedStatement extends Statement {
 class AssertStatement extends Statement {
     expression = null;
     message = null;
+}
+
+/**
+* @param {Token[]} modifiers
+* @param {TokenList} tokens 
+* @param {MethodDeclarations} mdecls
+* @param {SourceMC} method 
+* @param {ResolvedImport[]} imports
+* @param {Map<string,JavaType>} typemap 
+*/
+function localType(modifiers, tokens, mdecls, method, imports, typemap) {
+    // local types are inner types with number-prefixed names, eg. Type$1Inner
+    const type = typeDeclaration(method, modifiers, tokens.current, tokens, imports, typemap);
+    mdecls.types.push(type);
+    if (tokens.isValue('extends')) {
+        const extends_types = typeIdentList(tokens, type, imports, typemap);
+    }
+    if (tokens.isValue('implements')) {
+        const implement_types = typeIdentList(tokens, type, imports, typemap);
+    }
+    tokens.expectValue('{');
+    if (!tokens.isValue('}')) {
+        typeBody(type, tokens, method, imports, typemap);
+    }
+}
+
+/**
+* @param {SourceType} type 
+* @param {TokenList} tokens 
+* @param {SourceMC} method 
+* @param {ResolvedImport[]} imports
+* @param {Map<string,JavaType>} typemap 
+*/
+function typeBody(type, tokens, method, imports, typemap) {
+    while (!tokens.isValue('}')) {
+        let modifiers = [];
+        while (tokens.current.kind === 'modifier') {
+            modifiers.push(tokens.current);
+            tokens.inc();
+        }
+        switch(tokens.current.kind) {
+            case 'ident':
+            case 'primitive-type':
+                fmc(modifiers, [], type, tokens, imports, typemap);
+                continue;
+            case 'type-kw':
+                localType(modifiers, tokens, new MethodDeclarations(), method, imports, typemap);
+                continue;
+        }
+        switch(tokens.current.value) {
+            case '<':
+                const type_variables = typeVariableList(type, tokens, type, imports, typemap);
+                fmc(modifiers, type_variables, type, tokens, imports, typemap);
+                continue;
+            case '@':
+                tokens.inc().value === 'interface' 
+                    ? annotationTypeDeclaration(type, modifiers.splice(0,1e9), tokens, imports, typemap)
+                    : annotation(tokens, type, imports, typemap);
+                continue;
+            case ';':
+                tokens.inc();
+                continue;
+        }
+        if (!tokens.inc()) {
+            break;
+        }
+    }
+}
+
+/**
+ * @param {Token[]} modifiers 
+ * @param {TypeVariable[]} type_variables
+ * @param {SourceType} type 
+ * @param {TokenList} tokens 
+ * @param {ResolvedImport[]} imports 
+ * @param {Map<string,JavaType>} typemap 
+ */
+function fmc(modifiers, type_variables, type, tokens, imports, typemap) {
+    const decl_type = typeIdent(tokens, type, imports, typemap);
+    if (decl_type.rawTypeSignature === type.rawTypeSignature) {
+        if (tokens.current.value === '(') {
+            // constructor
+            const { parameters, throws, body } = methodDeclaration(type, tokens, imports, typemap);
+            const ctr = new SourceConstructor2(type, modifiers, parameters, throws, body);
+            type.constructors.push(ctr);
+            return;
+        }
+    }
+    let name = tokens.current;
+    if (!tokens.isKind('ident')) {
+        name = null;
+        addproblem(tokens, ParseProblem.Error(tokens.current, `Identifier expected`))
+    }
+    if (tokens.current.value === '(') {
+        const { parameters, throws, body } = methodDeclaration(type, tokens, imports, typemap);
+        const method = new SourceMethod2(type, modifiers, decl_type, name, parameters, throws, body);
+        type.methods.push(method);
+    } else {
+        if (name) {
+            if (type_variables.length) {
+                addproblem(tokens, ParseProblem.Error(tokens.current, `Fields cannot declare type variables`));
+            }
+            const locals = var_ident_list(modifiers, decl_type, name, tokens, new MethodDeclarations(), type, imports, typemap);
+            const fields = locals.map(l => new SourceField2(type, modifiers, l.type, l.decltoken));
+            type.fields.push(...fields);
+        }
+        semicolon(tokens);
+    }
+}
+
+/**
+ * 
+ * @param {TokenList} tokens 
+ */
+function annotation(tokens, scope, imports, typemap) {
+    if (tokens.current.kind !== 'ident') {
+        addproblem(tokens, ParseProblem.Error(tokens.current, `Type identifier expected`));
+        return;
+    }
+    let annotation_type = typeIdent(tokens, scope, imports, typemap, false);
+    if (tokens.isValue('(')) {
+        if (!tokens.isValue(')')) {
+            expressionList(tokens, new MethodDeclarations(), scope, imports, typemap);
+            tokens.expectValue(')');
+        }
+    }
+}
+
+/**
+ * @param {SourceType | SourceMC} scope
+ * @param {Token[]} modifiers
+ * @param {TokenList} tokens 
+ * @param {CEIType | SourceMC} scope
+ * @param {ResolvedImport[]} imports
+ * @param {Map<string,JavaType>} typemap
+ */
+function annotationTypeDeclaration(scope, modifiers, tokens, imports, typemap) {
+    const type = typeDeclaration(scope, modifiers, tokens.current, tokens, imports, typemap);
+}
+    
+/**
+ * @param {SourceType | SourceMC} scope
+ * @param {Token[]} modifiers
+ * @param {Token} kind_token
+ * @param {TokenList} tokens 
+ * @param {ResolvedImport[]} imports
+ * @param {Map<string,JavaType>} typemap
+ */
+function typeDeclaration(scope, modifiers, kind_token, tokens, imports, typemap) {
+    let name = tokens.inc();
+    if (!tokens.isKind('ident')) {
+        name = null;
+        addproblem(tokens, ParseProblem.Error(tokens.current, `Type identifier expected`));
+        return;
+    }
+    const type = new SourceType('', scope, '', modifiers.map(m => m.source), kind_token, name);
+    type.typeVariables = tokens.current.value === '<'
+        ? typeVariableList(type, tokens, scope, imports, typemap)
+        : [];
+
+    return type;
+}
+
+/**
+ * @param {CEIType} owner
+ * @param {TokenList} tokens 
+ * @param {CEIType | SourceMC} scope
+ * @param {ResolvedImport[]} imports
+ * @param {Map<string,JavaType>} typemap
+ */
+function typeVariableList(owner, tokens, scope, imports, typemap) {
+    tokens.expectValue('<');
+    /** @type {TypeVariable[]} */
+    const type_variables = [];
+    for (;;) {
+        let name = tokens.current, bounds = [];
+        if (!tokens.isKind('ident')) {
+            name = null;
+            addproblem(tokens, ParseProblem.Error(tokens.current, `Type identifier expected`));
+        }
+        switch (tokens.current.value) {
+            case 'extends':
+            case 'super':
+                const type_bounds = typeIdent(tokens, scope, imports, typemap);
+                bounds.push(new TypeVariable.Bound(owner, type_bounds.typeSignature, type_bounds.typeKind === 'interface'));
+                break;
+        }
+        if (name) {
+            type_variables.push(new TypeVariable(owner, name.value, bounds));
+            if (tokens.isValue(',')) {
+                continue;
+            }
+        }
+        if (tokens.current.kind === 'ident') {
+            addproblem(tokens, ParseProblem.Error(tokens.current, `Missing comma`));
+            continue;
+        }
+        tokens.expectValue('>');
+        break;
+    }
+    return type_variables;
+}
+
+
+/**
+ * @param {SourceType} owner 
+ * @param {TokenList} tokens 
+ * @param {ResolvedImport[]} imports 
+ * @param {Map<string,JavaType>} typemap 
+ */
+function methodDeclaration(owner, tokens, imports, typemap) {
+    tokens.expectValue('(');
+    let parameters = [], throws = [], body = null;
+    if (!tokens.isValue(')')) {
+        for(;;) {
+            const p = parameterDeclaration(owner, tokens, imports, typemap);
+            parameters.push(p);
+            if (tokens.isValue(',')) {
+                continue;
+            }
+            tokens.expectValue(')');
+            break;
+        }
+    }
+    if (tokens.isValue('throws')) {
+        throws = typeIdentList(tokens, owner, imports, typemap);
+    }
+    if (!tokens.isValue(';')) {
+        const start_idx = tokens.idx;
+        if (tokens.expectValue('{')) {
+            // skip the method body
+            for (let balance=1; balance;) {
+                switch (tokens.current.value) {
+                    case '{': balance++; break;
+                    case '}': {
+                        if (--balance === 0) {
+                            body = tokens.tokens.slice(start_idx, tokens.idx + 1);
+                        }
+                        break;
+                    }
+                }
+                tokens.inc();
+            }
+        }
+    }
+    return {
+        parameters,
+        throws,
+        body,
+    }
+}
+
+/**
+ * @param {SourceType} owner 
+ * @param {TokenList} tokens 
+ * @param {ResolvedImport[]} imports 
+ * @param {Map<string,JavaType>} typemap 
+ */
+function parameterDeclaration(owner, tokens, imports, typemap) {
+    const modifiers = [];
+    while (tokens.current.kind === 'modifier') {
+        modifiers.push(tokens.current);
+        tokens.inc();
+    }
+    checkLocalModifiers(tokens, modifiers);
+    let type = typeIdent(tokens, owner, imports, typemap);
+    const varargs = tokens.isValue('...');
+    let name_token = tokens.current;
+    if (!tokens.isKind('ident')) {
+        name_token = null;
+        addproblem(tokens, ParseProblem.Error(tokens.current, `Identifier expected`))
+    }
+    let postnamearrdims = 0;
+    while (tokens.isValue('[')) {
+        postnamearrdims += 1;
+        tokens.expectValue(']');
+    }
+    if (postnamearrdims > 0) {
+        type = new ArrayType(type, postnamearrdims);
+    }
+    if (varargs) {
+        type = new ArrayType(type, 1);
+    }
+    return new SourceParameter2(modifiers, type, varargs, name_token);
 }
 
 /**

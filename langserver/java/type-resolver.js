@@ -288,6 +288,9 @@ function resolveTypeOrPackage(ident, scope, imports, typemap) {
             }
             scopes.pop();
         }
+        if (!types[0] && scoped_type.simpleTypeName === ident) {
+            types.push(scoped_type);
+        }
     }
 
     if (scope instanceof CEIType) {
