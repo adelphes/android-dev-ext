@@ -13,7 +13,7 @@ const { getOperatorType, Token } = require('./tokenizer');
 const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resolver');
 const { genericTypeArgs, typeIdent } = require('./typeident');
 const { TokenList } = require("./TokenList");
-const { AnyMethod, AnyType, AnyValue, ArrayElement, ArrayLiteral, ConstructorCall, LiteralNumber, LiteralValue, Local, MethodCall, ResolvedIdent, TernaryValue, Value } = require("./body-types");
+const { AnyMethod, AnyType, AnyValue, ArrayElement, ArrayLiteral, ConstructorCall, Label, LiteralNumber, LiteralValue, Local, MethodCall, MethodDeclarations, ResolvedIdent, TernaryValue, Value } = require("./body-types");
 
 /**
  * @typedef {SourceMethod|SourceConstructor|SourceInitialiser} SourceMC
@@ -52,8 +52,9 @@ function parseBody(method, imports, typemap) {
     }
     const tokenlist = new TokenList(flattenBlocks(body.blocks, true));
     let block = null;
+    let mdecls = new MethodDeclarations();
     try {
-        block = statementBlock(tokenlist, [], method, imports, typemap);
+        block = statementBlock(tokenlist, mdecls, method, imports, typemap);
     } catch (err) {
         addproblem(tokenlist, ParseProblem.Information(tokenlist.current, `Parse failed: ${err.message}`));
 
@@ -74,27 +75,27 @@ function addproblem(tokens, problem) {
 }
 
 /**
- * @param {Local[]} locals 
+ * @param {MethodDeclarations} mdecls 
  * @param {Local[]} new_locals 
  */
-function addLocals(tokens, locals, new_locals) {
+function addLocals(tokens, mdecls, new_locals) {
     for (let local of new_locals) {
-        if (locals.find(l => l.name === local.name)) {
+        if (mdecls.locals.find(l => l.name === local.name)) {
             addproblem(tokens, ParseProblem.Error(local.decltoken, `Redeclared variable: ${local.name}`));
         }
-        locals.unshift(local);
+        mdecls.locals.unshift(local);
     }
 }
 
 /**
  * @param {TokenList} tokens 
- * @param {Local[]} locals
+ * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  * @returns {ResolvedIdent|Local[]|Statement}
  */
-function statement(tokens, locals, method, imports, typemap) {
+function statement(tokens, mdecls, method, imports, typemap) {
     let s, modifiers = [];
     for (;;) {
         switch(tokens.current.kind) {
@@ -107,15 +108,15 @@ function statement(tokens, locals, method, imports, typemap) {
     }
     // modifiers are only allowed on local variable decls
     if (modifiers.length) {
-        s = var_decl(modifiers, tokens, locals, method, imports, typemap);
-        addLocals(tokens, locals, s);
+        s = var_decl(modifiers, tokens, mdecls, method, imports, typemap);
+        addLocals(tokens, mdecls, s);
         semicolon(tokens);
         return s;
     }
 
     switch(tokens.current.kind) {
         case 'statement-kw':
-            s = statementKeyword(tokens, locals, method, imports, typemap);
+            s = statementKeyword(tokens, mdecls, method, imports, typemap);
             return s;
         case 'ident':
             // checking every statement identifier for a possible label is really inefficient, but trying to
@@ -126,13 +127,13 @@ function statement(tokens, locals, method, imports, typemap) {
                 // ignore and just return the next statement
                 // - we cannot return the label as a statement because for/if/while check the next statement type
                 // the labels should be collated and checked for duplicates, etc
-                return statement(tokens, locals, method, imports, typemap);
+                return statement(tokens, mdecls, method, imports, typemap);
             }
             // fall-through to expression_or_var_decl
         case 'primitive-type':
-            s = expression_or_var_decl(tokens, locals, method, imports, typemap);
+            s = expression_or_var_decl(tokens, mdecls, method, imports, typemap);
             if (Array.isArray(s)) {
-                addLocals(tokens, locals, s);
+                addLocals(tokens, mdecls, s);
             }
             semicolon(tokens);
             return s;
@@ -146,7 +147,7 @@ function statement(tokens, locals, method, imports, typemap) {
         case 'unary-operator':
         case 'open-bracket':
         case 'new-operator':
-            s = expression(tokens, locals, method, imports, typemap);
+            s = expression(tokens, mdecls, method, imports, typemap);
             semicolon(tokens);
             return s;
     }
@@ -155,7 +156,9 @@ function statement(tokens, locals, method, imports, typemap) {
             tokens.inc();
             return new EmptyStatement();
         case '{':
-            return statementBlock(tokens, locals, method, imports, typemap);
+            return statementBlock(tokens, mdecls, method, imports, typemap);
+        case '}':
+            return new EmptyStatement();
     }
     addproblem(tokens, ParseProblem.Error(tokens.current, `Statement expected`));
     tokens.inc();
@@ -227,33 +230,23 @@ class AssertStatement extends Statement {
     expression = null;
     message = null;
 }
-class Label {
-    /**
-     * @param {Token} token 
-     */
-    constructor(token) {
-        this.name_token = token;
-    }
-}
 
 /**
  * @param {TokenList} tokens 
- * @param {Local[]} locals
+ * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function statementBlock(tokens, locals, method, imports, typemap) {
+function statementBlock(tokens, mdecls, method, imports, typemap) {
     const b = new Block();
     tokens.expectValue('{');
-    const block_locals = locals.slice();
+    mdecls.pushScope();
     while (!tokens.isValue('}')) {
-        const s = statement(tokens, block_locals, method, imports, typemap);
-        if (s instanceof EmptyStatement) {
-            addproblem(tokens, ParseProblem.Hint(tokens.previous, `Redundant semicolon`));
-        }
+        const s = statement(tokens, mdecls, method, imports, typemap);
         b.statements.push(s);
     }
+    mdecls.popScope();
     return b;
 }
 
@@ -269,28 +262,28 @@ function semicolon(tokens) {
 
 /**
 * @param {TokenList} tokens 
-* @param {Local[]} locals
+* @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function statementKeyword(tokens, locals, method, imports, typemap) {
+function statementKeyword(tokens, mdecls, method, imports, typemap) {
     let s;
     switch (tokens.current.value) {
         case 'if':
             tokens.inc();
             s = new IfStatement();
-            s.test = bracketedTest(tokens, locals, method, imports, typemap);
-            s.statement = nonVarDeclStatement(tokens, locals, method, imports, typemap);
+            s.test = bracketedTest(tokens, mdecls, method, imports, typemap);
+            s.statement = nonVarDeclStatement(tokens, mdecls, method, imports, typemap);
             if (tokens.isValue('else')) {
-                s.elseStatement = nonVarDeclStatement(tokens, locals, method, imports, typemap);
+                s.elseStatement = nonVarDeclStatement(tokens, mdecls, method, imports, typemap);
             }
             break;
         case 'while':
             tokens.inc();
             s = new WhileStatement();
-            s.test = bracketedTest(tokens, locals, method, imports, typemap);
-            s.statement = nonVarDeclStatement(tokens, locals, method, imports, typemap);
+            s.test = bracketedTest(tokens, mdecls, method, imports, typemap);
+            s.statement = nonVarDeclStatement(tokens, mdecls, method, imports, typemap);
             break;
         case 'break':
             tokens.inc();
@@ -313,26 +306,26 @@ function statementKeyword(tokens, locals, method, imports, typemap) {
         case 'switch':
             tokens.inc();
             s = new SwitchStatement();
-            switchBlock(s, tokens, locals, method, imports, typemap);
+            switchBlock(s, tokens, mdecls, method, imports, typemap);
             break;
         case 'do':
             tokens.inc();
             s = new DoStatement();
-            s.block = statementBlock(tokens, locals, method, imports, typemap);
+            s.block = statementBlock(tokens, mdecls, method, imports, typemap);
             tokens.expectValue('while');
-            s.test = bracketedTest(tokens, locals, method, imports, typemap);
+            s.test = bracketedTest(tokens, mdecls, method, imports, typemap);
             semicolon(tokens);
             break;
         case 'try':
             tokens.inc();
             s = new TryStatement();
-            s.block = statementBlock(tokens, locals, method, imports, typemap);
-            catchFinallyBlocks(s, tokens, locals, method, imports, typemap);
+            s.block = statementBlock(tokens, mdecls, method, imports, typemap);
+            catchFinallyBlocks(s, tokens, mdecls, method, imports, typemap);
             break;
         case 'return':
             tokens.inc();
             s = new ReturnStatement();
-            s.expression = isExpressionStart(tokens.current) ? expression(tokens, locals, method, imports, typemap) : null;
+            s.expression = isExpressionStart(tokens.current) ? expression(tokens, mdecls, method, imports, typemap) : null;
             if (method instanceof SourceMethod)
                 checkReturnExpression(tokens, method, s.expression);
             else if (method instanceof SourceConstructor) {
@@ -346,7 +339,7 @@ function statementKeyword(tokens, locals, method, imports, typemap) {
             tokens.inc();
             s = new ThrowStatement();
             if (!tokens.isValue(';')) {
-                s.expression = isExpressionStart(tokens.current) ? expression(tokens, locals, method, imports, typemap) : null;
+                s.expression = isExpressionStart(tokens.current) ? expression(tokens, mdecls, method, imports, typemap) : null;
                 checkThrowExpression(tokens, s.expression, typemap);
                 semicolon(tokens);
             }
@@ -354,17 +347,19 @@ function statementKeyword(tokens, locals, method, imports, typemap) {
         case 'for':
             tokens.inc();
             s = new ForStatement();
-            forStatement(s, tokens, locals.slice(), method, imports, typemap);
+            mdecls.pushScope();
+            forStatement(s, tokens, mdecls, method, imports, typemap);
+            mdecls.popScope();
             break;
         case 'synchronized':
             tokens.inc();
             s = new SynchronizedStatement();
-            synchronizedStatement(s, tokens, locals, method, imports, typemap);
+            synchronizedStatement(s, tokens, mdecls, method, imports, typemap);
             break;
         case 'assert':
             tokens.inc();
             s = new AssertStatement();
-            assertStatement(s, tokens, locals, method, imports, typemap);
+            assertStatement(s, tokens, mdecls, method, imports, typemap);
             semicolon(tokens);
             break;
         default:
@@ -378,14 +373,14 @@ function statementKeyword(tokens, locals, method, imports, typemap) {
 
 /**
 * @param {TokenList} tokens 
-* @param {Local[]} locals
+* @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function bracketedTest(tokens, locals, method, imports, typemap) {
+function bracketedTest(tokens, mdecls, method, imports, typemap) {
     tokens.expectValue('(');
-    const e = expression(tokens, locals, method, imports, typemap);
+    const e = expression(tokens, mdecls, method, imports, typemap);
     if (e.variables[0] && !isTypeAssignable(PrimitiveType.map.Z, e.variables[0].type)) {
         addproblem(tokens, ParseProblem.Error(tokens.current, `Boolean expression expected, but type '${e.variables[0].type.fullyDottedTypeName}' found`));
     }
@@ -395,13 +390,13 @@ function bracketedTest(tokens, locals, method, imports, typemap) {
 
 /**
 * @param {TokenList} tokens 
-* @param {Local[]} locals
+* @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function nonVarDeclStatement(tokens, locals, method, imports, typemap) {
-    const s = statement(tokens, locals, method, imports, typemap);
+function nonVarDeclStatement(tokens, mdecls, method, imports, typemap) {
+    const s = statement(tokens, mdecls, method, imports, typemap);
     if (Array.isArray(s)) {
         addproblem(tokens, ParseProblem.Error(tokens.previous, `Variable declarations are not permitted as a single conditional statement.`));
     }
@@ -411,48 +406,48 @@ function nonVarDeclStatement(tokens, locals, method, imports, typemap) {
 /**
 * @param {ForStatement} s
 * @param {TokenList} tokens 
-* @param {Local[]} locals
+* @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function forStatement(s, tokens, locals, method, imports, typemap) {
+function forStatement(s, tokens, mdecls, method, imports, typemap) {
     tokens.expectValue('(');
     if (!tokens.isValue(';')) {
-        s.init = expression_list_or_var_decl(tokens, locals, method, imports, typemap);
+        s.init = expression_list_or_var_decl(tokens, mdecls, method, imports, typemap);
         // s.init is always an array, so we need to check the element type
         if (s.init[0] instanceof Local) {
             // @ts-ignore
-            addLocals(tokens, locals, s.init);
+            addLocals(tokens, mdecls, s.init);
         }
         if (tokens.current.value === ':') {
-            enhancedFor(s, tokens, locals, method, imports, typemap);
+            enhancedFor(s, tokens, mdecls, method, imports, typemap);
             return;
         }
         semicolon(tokens);
     }
     // for-condition
     if (!tokens.isValue(';')) {
-        s.test = expression(tokens, locals, method, imports, typemap);
+        s.test = expression(tokens, mdecls, method, imports, typemap);
         semicolon(tokens);
     }
     // for-updated
     if (!tokens.isValue(')')) {
-        s.update = expressionList(tokens, locals, method, imports, typemap);
+        s.update = expressionList(tokens, mdecls, method, imports, typemap);
         tokens.expectValue(')');
     }
-    s.statement = nonVarDeclStatement(tokens, locals, method, imports, typemap);
+    s.statement = nonVarDeclStatement(tokens, mdecls, method, imports, typemap);
 }
 
 /**
 * @param {ForStatement} s
 * @param {TokenList} tokens 
-* @param {Local[]} locals
+* @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function enhancedFor(s, tokens, locals, method, imports, typemap) {
+function enhancedFor(s, tokens, mdecls, method, imports, typemap) {
     const colon = tokens.current;
     tokens.inc();
     // enhanced for
@@ -460,7 +455,7 @@ function enhancedFor(s, tokens, locals, method, imports, typemap) {
     if (!(iter_var instanceof Local)) {
         addproblem(tokens, ParseProblem.Error(tokens.previous, `For iterator must be a single variable declaration`));
     }
-    s.iterable = expression(tokens, locals, method, imports, typemap);
+    s.iterable = expression(tokens, mdecls, method, imports, typemap);
     const value = s.iterable.variables[0];
     if (!value) {
         addproblem(tokens, ParseProblem.Error(tokens.current, `Expression expected`));
@@ -483,45 +478,45 @@ function enhancedFor(s, tokens, locals, method, imports, typemap) {
         }
     }
     tokens.expectValue(')');
-    s.statement = nonVarDeclStatement(tokens, locals, method, imports, typemap);
+    s.statement = nonVarDeclStatement(tokens, mdecls, method, imports, typemap);
 }
 
 /**
 * @param {SynchronizedStatement} s
 * @param {TokenList} tokens 
-* @param {Local[]} locals
+* @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function synchronizedStatement(s, tokens, locals, method, imports, typemap) {
+function synchronizedStatement(s, tokens, mdecls, method, imports, typemap) {
     tokens.expectValue('(');
-    s.expression = expression(tokens, locals, method, imports, typemap);
+    s.expression = expression(tokens, mdecls, method, imports, typemap);
     if (s.expression.variables[0]) {
         if (s.expression.variables[0].type instanceof PrimitiveType) {
             addproblem(tokens, ParseProblem.Error(tokens.current, `synchronized lock expression must be a reference type`));
         }
     }
     tokens.expectValue(')');
-    s.statement = nonVarDeclStatement(tokens, locals, method, imports, typemap);
+    s.statement = nonVarDeclStatement(tokens, mdecls, method, imports, typemap);
 }
 
 /**
 * @param {AssertStatement} s
 * @param {TokenList} tokens 
-* @param {Local[]} locals
+* @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function assertStatement(s, tokens, locals, method, imports, typemap) {
-    s.expression = expression(tokens, locals, method, imports, typemap);
+function assertStatement(s, tokens, mdecls, method, imports, typemap) {
+    s.expression = expression(tokens, mdecls, method, imports, typemap);
     if (s.expression.variables[0] && !isAssignable(PrimitiveType.map.Z, s.expression.variables[0])) {
         addproblem(tokens, ParseProblem.Error(tokens.current, `Boolean expression expected but type '${s.expression.variables[0].type.fullyDottedTypeName}' found`));
     }
 
     if (tokens.isValue(':')) {
-        s.message = expression(tokens, locals, method, imports, typemap);
+        s.message = expression(tokens, mdecls, method, imports, typemap);
         if (s.message.variables[0] && (s.message.variables[0].type === PrimitiveType.map.V)) {
             addproblem(tokens, ParseProblem.Error(tokens.current, `assert message expression cannot be void`));
         }
@@ -531,18 +526,18 @@ function assertStatement(s, tokens, locals, method, imports, typemap) {
 /**
 * @param {TryStatement} s
 * @param {TokenList} tokens 
-* @param {Local[]} locals
+* @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function catchFinallyBlocks(s, tokens, locals, method, imports, typemap) {
+function catchFinallyBlocks(s, tokens, mdecls, method, imports, typemap) {
     for (;;) {
         if (tokens.isValue('finally')) {
             if (s.catches.find(c => c instanceof Block)) {
                 addproblem(tokens, ParseProblem.Error(tokens.current, `Multiple finally blocks are not permitted`));
             }
-            s.catches.push(statementBlock(tokens, locals, method, imports, typemap));
+            s.catches.push(statementBlock(tokens, mdecls, method, imports, typemap));
             continue;
         }
         if (tokens.isValue('catch')) {
@@ -557,10 +552,10 @@ function catchFinallyBlocks(s, tokens, locals, method, imports, typemap) {
                 mods.push(tokens.current);
                 tokens.inc();
             }
-            let t = catchType(tokens, locals, method, imports, typemap);
+            let t = catchType(tokens, mdecls, method, imports, typemap);
             if (t) catchinfo.types.push(t);
             while (tokens.isValue('|')) {
-                let t = catchType(tokens, locals, method, imports, typemap);
+                let t = catchType(tokens, mdecls, method, imports, typemap);
                 if (t) catchinfo.types.push(t);
             }
             if (tokens.current.kind === 'ident') {
@@ -570,13 +565,16 @@ function catchFinallyBlocks(s, tokens, locals, method, imports, typemap) {
                 addproblem(tokens, ParseProblem.Error(tokens.current, `Variable identifier expected`));
             }
             tokens.expectValue(')');
+            mdecls.pushScope();
             let exceptionVar;
             if (catchinfo.types[0] && catchinfo.name) {
                 checkLocalModifiers(tokens, mods);
                 exceptionVar = new Local(mods, catchinfo.name.value, catchinfo.name, catchinfo.types[0], 0);
+                mdecls.locals.push(exceptionVar);
             }
-            catchinfo.block = statementBlock(tokens, [...locals, exceptionVar], method, imports, typemap);
+            catchinfo.block = statementBlock(tokens, mdecls, method, imports, typemap);
             s.catches.push(catchinfo);
+            mdecls.popScope();
             continue;
         }
         if (!s.catches.length) {
@@ -594,13 +592,13 @@ function catchFinallyBlocks(s, tokens, locals, method, imports, typemap) {
 
 /**
 * @param {TokenList} tokens 
-* @param {Local[]} locals
+* @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function catchType(tokens, locals, method, imports, typemap) {
-    const t = qualifiedTerm(tokens, locals, method, imports, typemap);
+function catchType(tokens, mdecls, method, imports, typemap) {
+    const t = qualifiedTerm(tokens, mdecls, method, imports, typemap);
     if (t.types[0]) {
         return t.types[0];
     }
@@ -611,14 +609,14 @@ function catchType(tokens, locals, method, imports, typemap) {
 /**
 * @param {SwitchStatement} s
 * @param {TokenList} tokens 
-* @param {Local[]} locals
+* @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function switchBlock(s, tokens, locals, method, imports, typemap) {
+function switchBlock(s, tokens, mdecls, method, imports, typemap) {
     tokens.expectValue('(');
-    s.test = expression(tokens, locals, method, imports, typemap);
+    s.test = expression(tokens, mdecls, method, imports, typemap);
     let test_type = null;
     if (s.test.variables[0]) {
         // test must be int-compatible or be a string
@@ -632,7 +630,7 @@ function switchBlock(s, tokens, locals, method, imports, typemap) {
     tokens.expectValue('{');
     while (!tokens.isValue('}')) {
         if (/^(case|default)$/.test(tokens.current.value)) {
-            caseBlock(s, test_type, tokens, locals, method, imports, typemap);
+            caseBlock(s, test_type, tokens, mdecls, method, imports, typemap);
             continue;
         }
         addproblem(tokens, ParseProblem.Error(tokens.current, 'case statement expected'));
@@ -645,20 +643,20 @@ function switchBlock(s, tokens, locals, method, imports, typemap) {
 * @param {SwitchStatement} s
 * @param {JavaType} test_type
 * @param {TokenList} tokens 
-* @param {Local[]} locals
+* @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function caseBlock(s, test_type, tokens, locals, method, imports, typemap) {
+function caseBlock(s, test_type, tokens, mdecls, method, imports, typemap) {
     const case_start_idx = s.cases.length;
-    caseExpressionList(s.cases, test_type, tokens, locals, method, imports, typemap);
+    caseExpressionList(s.cases, test_type, tokens, mdecls, method, imports, typemap);
     const statements = [];
     for (;;) {
         if (/^(case|default|\})$/.test(tokens.current.value)) {
             break;
         }
-        const s = statement(tokens, locals, method, imports, typemap);
+        const s = statement(tokens, mdecls, method, imports, typemap);
         statements.push(s);
     }
     s.caseBlocks.push({
@@ -671,19 +669,19 @@ function caseBlock(s, test_type, tokens, locals, method, imports, typemap) {
 * @param {(ResolvedIdent|boolean)[]} cases
 * @param {JavaType} test_type
 * @param {TokenList} tokens 
-* @param {Local[]} locals
+* @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function caseExpressionList(cases, test_type, tokens, locals, method, imports, typemap) {
-    let c = caseExpression(cases, test_type, tokens, locals, method, imports, typemap);
+function caseExpressionList(cases, test_type, tokens, mdecls, method, imports, typemap) {
+    let c = caseExpression(cases, test_type, tokens, mdecls, method, imports, typemap);
     if (!c) {
         return;
     }
     while (c) {
         cases.push(c);
-        c = caseExpression(cases, test_type, tokens, locals, method, imports, typemap);
+        c = caseExpression(cases, test_type, tokens, mdecls, method, imports, typemap);
     }
 }
 
@@ -691,12 +689,12 @@ function caseExpressionList(cases, test_type, tokens, locals, method, imports, t
 * @param {(ResolvedIdent|boolean)[]} cases
 * @param {JavaType} test_type
 * @param {TokenList} tokens 
-* @param {Local[]} locals
+* @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function caseExpression(cases, test_type, tokens, locals, method, imports, typemap) {
+function caseExpression(cases, test_type, tokens, mdecls, method, imports, typemap) {
     /** @type {boolean|ResolvedIdent} */
     let e = tokens.isValue('default');
     if (e && cases.find(c => c === e)) {
@@ -704,7 +702,7 @@ function caseExpression(cases, test_type, tokens, locals, method, imports, typem
     }
     if (!e) {
         if (tokens.isValue('case')) {
-            e = expression(tokens, locals, method, imports, typemap);
+            e = expression(tokens, mdecls, method, imports, typemap);
             if (e.variables[0]) {
                 if (test_type && !isAssignable(test_type, e.variables[0])) {
                     addproblem(tokens, ParseProblem.Error(tokens.current, `Incompatible types: Expression of type '${e.variables[0].type.fullyDottedTypeName}' is not comparable to an expression of type '${test_type.fullyDottedTypeName}'`));
@@ -784,51 +782,60 @@ function checkThrowExpression(tokens, throw_expression, typemap) {
 
 /**
  * @param {TokenList} tokens 
- * @param {Local[]} locals
+ * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  * @returns {Local[]}
  */
-function var_decl(mods, tokens, locals, method, imports, typemap) {
+function var_decl(mods, tokens, mdecls, method, imports, typemap) {
     const type = typeIdent(tokens, method, imports, typemap);
-    return var_ident_list(mods, type, tokens, locals, method, imports, typemap)
+    return var_ident_list(mods, type, null, tokens, mdecls, method, imports, typemap)
 }
 
 /**
  * 
  * @param {Token[]} mods 
  * @param {JavaType} type 
+ * @param {Token} first_ident 
  * @param {TokenList} tokens 
- * @param {Local[]} locals 
+ * @param {MethodDeclarations} mdecls 
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports 
  * @param {Map<string,JavaType>} typemap 
  */
-function var_ident_list(mods, type, tokens, locals, method, imports, typemap) {
+function var_ident_list(mods, type, first_ident, tokens, mdecls, method, imports, typemap) {
     checkLocalModifiers(tokens, mods);
     const new_locals = [];
     for (;;) {
-        if (tokens.current.kind !== 'ident') {
-            addproblem(tokens, ParseProblem.Error(tokens.current, `Variable name expected`));
-            break;
+        let name;
+        if (first_ident && !new_locals[0]) {
+            name = first_ident;
+        } else {
+            name = tokens.current;
+            if (!tokens.isKind('ident')) {
+                name = null;
+                addproblem(tokens, ParseProblem.Error(tokens.current, `Variable name expected`));
+            }
         }
-        const name = tokens.current;
-        tokens.inc();
         // look for [] after the variable name
         let postnamearrdims = 0;
         while (tokens.isValue('[')) {
             postnamearrdims += 1;
             tokens.expectValue(']');
         }
-        let local = new Local(mods, name.value, name, type, postnamearrdims);
+        let init = null, op = tokens.current;
         if (tokens.isValue('=')) {
-            const op = tokens.previous;
-            local.init = expression(tokens, locals, method, imports, typemap);
-            if (local.init.variables[0])
-                checkAssignmentExpression(tokens, local, op, local.init.variables[0]);
+            init = expression(tokens, mdecls, method, imports, typemap);
         }
-        new_locals.push(local);
+        // only add the local if we have a name
+        if (name) {
+            const local = new Local(mods, name.value, name, type, postnamearrdims);
+            local.init = init;
+            if (init && init.variables[0])
+                checkAssignmentExpression(tokens, local, op, init.variables[0]);
+            new_locals.push(local);
+        }
         if (tokens.isValue(',')) {
             continue;
         }
@@ -839,20 +846,20 @@ function var_ident_list(mods, type, tokens, locals, method, imports, typemap) {
     
 /**
  * @param {TokenList} tokens 
- * @param {Local[]} locals
+ * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  * @returns {ResolvedIdent|Local[]}
  */
-function expression_or_var_decl(tokens, locals, method, imports, typemap) {
+function expression_or_var_decl(tokens, mdecls, method, imports, typemap) {
 
     /** @type {ResolvedIdent} */
-    let matches = expression(tokens, locals, method, imports, typemap);
+    let matches = expression(tokens, mdecls, method, imports, typemap);
 
     // if theres at least one type followed by an ident, we assume a variable declaration
     if (matches.types[0] && tokens.current.kind === 'ident') {
-        return var_ident_list([], matches.types[0], tokens, locals, method, imports, typemap);
+        return var_ident_list([], matches.types[0], null, tokens, mdecls, method, imports, typemap);
     }
 
     return matches;
@@ -860,21 +867,21 @@ function expression_or_var_decl(tokens, locals, method, imports, typemap) {
 
 /**
  * @param {TokenList} tokens 
- * @param {Local[]} locals
+ * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  * @returns {ResolvedIdent[]|Local[]}
  */
-function expression_list_or_var_decl(tokens, locals, method, imports, typemap) {
-    let e = expression_or_var_decl(tokens, locals, method, imports, typemap);
+function expression_list_or_var_decl(tokens, mdecls, method, imports, typemap) {
+    let e = expression_or_var_decl(tokens, mdecls, method, imports, typemap);
     if (Array.isArray(e)) {
         // local var decl
         return e;
     }
     const expressions = [e];
     while (tokens.isValue(',')) {
-        e = expression(tokens, locals, method, imports, typemap);
+        e = expression(tokens, mdecls, method, imports, typemap);
         expressions.push(e);
     }
     return expressions;
@@ -916,14 +923,14 @@ const operator_precedences = {
 
 /**
  * @param {TokenList} tokens 
- * @param {Local[]} locals
+ * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function expression(tokens, locals, method, imports, typemap, precedence_stack = [13]) {
+function expression(tokens, mdecls, method, imports, typemap, precedence_stack = [13]) {
     /** @type {ResolvedIdent} */
-    let matches = qualifiedTerm(tokens, locals, method, imports, typemap);
+    let matches = qualifiedTerm(tokens, mdecls, method, imports, typemap);
 
     for(;;) {
         if (!/^(assignment|equality|comparison|bitwise|shift|logical|muldiv|plumin|instanceof)-operator/.test(tokens.current.kind) && !/\?/.test(tokens.current.value)) {
@@ -941,12 +948,12 @@ function expression(tokens, locals, method, imports, typemap, precedence_stack =
         }
         tokens.inc();
         // higher or equal precendence with rtl evaluation
-        const rhs = expression(tokens, locals, method, imports, typemap, [operator_precedence, ...precedence_stack]);
+        const rhs = expression(tokens, mdecls, method, imports, typemap, [operator_precedence, ...precedence_stack]);
 
         if (binary_operator.value === '?') {
             const colon = tokens.current;
             tokens.expectValue(':');
-            const falseStatement = expression(tokens, locals, method, imports, typemap, [operator_precedence, ...precedence_stack]);
+            const falseStatement = expression(tokens, mdecls, method, imports, typemap, [operator_precedence, ...precedence_stack]);
             matches = resolveTernaryExpression(tokens, matches, colon, rhs, falseStatement);
         } else {
             matches = resolveBinaryOpExpression(tokens, matches, binary_operator, rhs);
@@ -1606,13 +1613,13 @@ function resolveMath(tokens, ident, lhs, op, rhs) {
 
 /**
  * @param {TokenList} tokens 
- * @param {Local[]} locals
+ * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function qualifiedTerm(tokens, locals, method, imports, typemap) {
-    let matches = rootTerm(tokens, locals, method, imports, typemap);
+function qualifiedTerm(tokens, mdecls, method, imports, typemap) {
+    let matches = rootTerm(tokens, mdecls, method, imports, typemap);
     if (tokens.current.kind === 'inc-operator') {
         // postfix inc/dec - only applies to assignable number variables and no qualifiers are allowed to follow
         const postfix_operator = tokens.current;
@@ -1623,7 +1630,7 @@ function qualifiedTerm(tokens, locals, method, imports, typemap) {
         }
         return new ResolvedIdent(`${matches.source}${postfix_operator.value}`, vars);
     }
-    matches = qualifiers(matches, tokens, locals, method, imports, typemap);
+    matches = qualifiers(matches, tokens, mdecls, method, imports, typemap);
     return matches;
 }
 
@@ -1665,18 +1672,18 @@ function isCastExpression(token, matches) {
 
 /**
  * @param {TokenList} tokens 
- * @param {Local[]} locals
+ * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  * @returns {ResolvedIdent}
  */
-function rootTerm(tokens, locals, method, imports, typemap) {
+function rootTerm(tokens, mdecls, method, imports, typemap) {
     /** @type {ResolvedIdent} */
     let matches;
     switch(tokens.current.kind) {
         case 'ident':
-            matches = resolveIdentifier(tokens, locals, method, imports, typemap);
+            matches = resolveIdentifier(tokens, mdecls, method, imports, typemap);
             break;
         case 'primitive-type':
             matches = new ResolvedIdent(tokens.current.value, [], [], [PrimitiveType.fromName(tokens.current.value)]);
@@ -1707,7 +1714,7 @@ function rootTerm(tokens, locals, method, imports, typemap) {
         case 'inc-operator':
             let incop = tokens.current;
             tokens.inc();
-            matches = qualifiedTerm(tokens, locals, method, imports, typemap);
+            matches = qualifiedTerm(tokens, mdecls, method, imports, typemap);
             const inc_ident = `${incop.value}${matches.source}`;
             if (!matches.variables[0]) {
                 return new ResolvedIdent(inc_ident);
@@ -1719,12 +1726,12 @@ function rootTerm(tokens, locals, method, imports, typemap) {
         case 'plumin-operator':
         case 'unary-operator':
             tokens.inc();
-            return qualifiedTerm(tokens, locals, method, imports, typemap);
+            return qualifiedTerm(tokens, mdecls, method, imports, typemap);
         case 'new-operator':
-            return newTerm(tokens, locals, method, imports, typemap);
+            return newTerm(tokens, mdecls, method, imports, typemap);
         case 'open-bracket':
             tokens.inc();
-            matches = expression(tokens, locals, method, imports, typemap);
+            matches = expression(tokens, mdecls, method, imports, typemap);
             const close_bracket = tokens.current;
             tokens.expectValue(')');
             if (isCastExpression(tokens.current, matches)) {
@@ -1733,7 +1740,7 @@ function rootTerm(tokens, locals, method, imports, typemap) {
                 if (!type) {
                     addproblem(tokens, ParseProblem.Error(close_bracket, 'Type expected'));
                 }
-                const cast_matches = qualifiedTerm(tokens, locals, method, imports, typemap)
+                const cast_matches = qualifiedTerm(tokens, mdecls, method, imports, typemap)
                 // cast any variables as values with the new type
                 const vars = cast_matches.variables.map(v => {
                     if (type && !isTypeCastable(v.type, type)) {
@@ -1751,7 +1758,7 @@ function rootTerm(tokens, locals, method, imports, typemap) {
             // array initer
             let elements = [];
             if (!tokens.isValue('}')) {
-                elements = expressionList(tokens, locals, method, imports, typemap);
+                elements = expressionList(tokens, mdecls, method, imports, typemap);
                 tokens.expectValue('}');
             }
             const ident = `{${elements.map(e => e.source).join(',')}}`;
@@ -1766,12 +1773,12 @@ function rootTerm(tokens, locals, method, imports, typemap) {
 
 /**
  * @param {TokenList} tokens 
- * @param {Local[]} locals
+ * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function newTerm(tokens, locals, method, imports, typemap) {
+function newTerm(tokens, mdecls, method, imports, typemap) {
     tokens.expectValue('new');
     const type_start_token = tokens.idx;
     const ctr_type = typeIdent(tokens, method, imports, typemap, false);
@@ -1782,15 +1789,15 @@ function newTerm(tokens, locals, method, imports, typemap) {
     let match = new ResolvedIdent(`new ${ctr_type.simpleTypeName}`, [], [], [ctr_type]);
     switch(tokens.current.value) {
         case '[':
-            match = arrayQualifiers(match, tokens, locals, method, imports, typemap);
+            match = arrayQualifiers(match, tokens, mdecls, method, imports, typemap);
             // @ts-ignore
             if (tokens.current.value === '{') {
                 // array init
-                rootTerm(tokens, locals, method, imports, typemap);
+                rootTerm(tokens, mdecls, method, imports, typemap);
             }
             return new ResolvedIdent(match.source, [new Value(match.source, match.types[0])]);
         case '(':
-            match = methodCallQualifier(match, tokens, locals, method, imports, typemap);
+            match = methodCallQualifier(match, tokens, mdecls, method, imports, typemap);
             // @ts-ignore
             if (tokens.current.value === '{') {
                 // final types cannot be inherited
@@ -1822,17 +1829,17 @@ function newTerm(tokens, locals, method, imports, typemap) {
 
 /**
  * @param {TokenList} tokens 
- * @param {Local[]} locals
+ * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function expressionList(tokens, locals, method, imports, typemap) {
-    let e = expression(tokens, locals, method, imports, typemap);
+function expressionList(tokens, mdecls, method, imports, typemap) {
+    let e = expression(tokens, mdecls, method, imports, typemap);
     const expressions = [e];
     while (tokens.current.value === ',') {
         tokens.inc();
-        e = expression(tokens, locals, method, imports, typemap);
+        e = expression(tokens, mdecls, method, imports, typemap);
         expressions.push(e);
     }
     return expressions;
@@ -1840,13 +1847,13 @@ function expressionList(tokens, locals, method, imports, typemap) {
 
 /**
  * @param {TokenList} tokens 
- * @param {Local[]} locals
+ * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function arrayIndexOrDimension(tokens, locals, method, imports, typemap) {
-    let e = expression(tokens, locals, method, imports, typemap);
+function arrayIndexOrDimension(tokens, mdecls, method, imports, typemap) {
+    let e = expression(tokens, mdecls, method, imports, typemap);
     // the value must be a integer-compatible
     const values = e.variables.map(v => new Value(v.name, v.type)).filter(v => /^[BIS]$/.test(v.type.typeSignature));
     if (!values[0]) {
@@ -2011,23 +2018,23 @@ function getTypeInheritanceList(type) {
 /**
  * @param {ResolvedIdent} matches
  * @param {TokenList} tokens 
- * @param {Local[]} locals
+ * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function qualifiers(matches, tokens, locals, method, imports, typemap) {
+function qualifiers(matches, tokens, mdecls, method, imports, typemap) {
     for (;;) {
         switch (tokens.current.value) {
             case '.':
                 matches = dottedIdent(matches, tokens, typemap);
                 break;
             case '[':
-                matches = arrayQualifiers(matches, tokens, locals, method, imports, typemap);
+                matches = arrayQualifiers(matches, tokens, mdecls, method, imports, typemap);
                 break;
             case '(':
                 // method or constructor call
-                matches = methodCallQualifier(matches, tokens, locals, method, imports, typemap);
+                matches = methodCallQualifier(matches, tokens, mdecls, method, imports, typemap);
                 break;
             case '<':
                 // generic type arguments - since this can be confused with less-than, only parse
@@ -2047,12 +2054,12 @@ function qualifiers(matches, tokens, locals, method, imports, typemap) {
 /**
  * @param {ResolvedIdent} matches
  * @param {TokenList} tokens 
- * @param {Local[]} locals
+ * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function arrayQualifiers(matches, tokens, locals, method, imports, typemap) {
+function arrayQualifiers(matches, tokens, mdecls, method, imports, typemap) {
     while (tokens.isValue('[')) {
         let open_array = tokens.current;
         if (tokens.isValue(']')) {
@@ -2060,7 +2067,7 @@ function arrayQualifiers(matches, tokens, locals, method, imports, typemap) {
             matches = arrayTypeExpression(matches);
         } else {
             // array index
-            const index = arrayIndexOrDimension(tokens, locals, method, imports, typemap);
+            const index = arrayIndexOrDimension(tokens, mdecls, method, imports, typemap);
             matches = arrayElementOrConstructor(tokens, open_array, matches, index);
             // @ts-ignore
             tokens.expectValue(']');
@@ -2072,16 +2079,16 @@ function arrayQualifiers(matches, tokens, locals, method, imports, typemap) {
 /**
  * @param {ResolvedIdent} matches
  * @param {TokenList} tokens 
- * @param {Local[]} locals
+ * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function methodCallQualifier(matches, tokens, locals, method, imports, typemap) {
+function methodCallQualifier(matches, tokens, mdecls, method, imports, typemap) {
     let args = [];
     tokens.expectValue('(');
     if (!tokens.isValue(')')) {
-        args = expressionList(tokens, locals, method, imports, typemap);
+        args = expressionList(tokens, mdecls, method, imports, typemap);
         tokens.expectValue(')');
     }
     return methodCallExpression(tokens, matches, args, typemap);
@@ -2195,14 +2202,14 @@ function dottedIdent(matches, tokens, typemap) {
  * But... parameters and locals override fields and methods (and local types override enclosed types)
  * 
  * @param {TokenList} tokens
- * @param {Local[]} locals
+ * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function resolveIdentifier(tokens, locals, method, imports, typemap) {
+function resolveIdentifier(tokens, mdecls, method, imports, typemap) {
     const ident = tokens.current.value;
-    const matches = findIdentifier(ident, locals, method, imports, typemap);
+    const matches = findIdentifier(ident, mdecls, method, imports, typemap);
     checkIdentifierFound(tokens, ident, matches);
     return matches;
 }
@@ -2223,16 +2230,16 @@ function checkIdentifierFound(tokens, ident, matches) {
 
 /**
  * @param {string} ident 
- * @param {Local[]} locals 
+ * @param {MethodDeclarations} mdecls 
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports 
  * @param {Map<String,JavaType>} typemap 
  */
-function findIdentifier(ident, locals, method, imports, typemap) {
+function findIdentifier(ident, mdecls, method, imports, typemap) {
     const matches = new ResolvedIdent(ident);
 
     // is it a local or parameter - note that locals must be ordered innermost-scope-first
-    const local = locals.find(local => local.name === ident);
+    const local = mdecls.locals.find(local => local.name === ident);
     const param = method.parameters.find(p => p.name === ident);
     if (local || param) {
         matches.variables = [local || param];
@@ -2259,9 +2266,14 @@ function findIdentifier(ident, locals, method, imports, typemap) {
         });
     }
 
-    const { types, package_name } = resolveTypeOrPackage(ident, method, imports, typemap);
-    matches.types = types;
-    matches.package_name = package_name;
+    const type = mdecls.types.find(t => t.simpleTypeName === ident);
+    if (type) {
+        matches.types = [type];
+    } else {
+        const { types, package_name } = resolveTypeOrPackage(ident, method, imports, typemap);
+        matches.types = types;
+        matches.package_name = package_name;
+    }
 
     return matches;
 }

@@ -82,6 +82,11 @@ class SourceType extends CEIType {
             typevar.bounds.push(new TypeVariable.Bound(this, 'Ljava/lang/Object;', false));
             return typevar;
         });
+        /**
+         * Number of local/anonymous types declared in the scope of this type
+         * The number is used when naming them.
+         */
+        this.localTypeCount = 0;
     }
 
     get dottedTypeName() {
@@ -141,7 +146,8 @@ class SourceConstructor extends Constructor {
      */
     constructor(owner, decl) {
         super(owner, mapmods(decl), decl.docs);
-        this._owner = owner;
+        /** @type {SourceType} */
+        this.owner = owner;
         this._decl = decl;
         this._parameters = decl.parameters.map((p,i) => new SourceParameter(p));
     }
@@ -161,7 +167,7 @@ class SourceConstructor extends Constructor {
      * @returns {SourceType}
      */
     get returnType() {
-        return this._owner;
+        return this.owner;
     }
 }
 
@@ -194,6 +200,7 @@ class SourceInitialiser extends MethodBase {
      */
     constructor(owner, decl) {
         super(owner, mapmods(decl), decl.docs);
+        /** @type {SourceType} */
         this.owner = owner;
         this._decl = decl;
     }
@@ -217,6 +224,7 @@ class SourceMethod extends Method {
      */
     constructor(owner, decl) {
         super(owner, decl.name, mapmods(decl), decl.docs);
+        /** @type {SourceType} */
         this.owner = owner;
         this._decl = decl;
         this._parameters = decl.parameters.map((p,i) => new SourceParameter(p));

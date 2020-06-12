@@ -75,6 +75,37 @@ class Local {
     }
 }
 
+class Label {
+    /**
+     * @param {Token} token 
+     */
+    constructor(token) {
+        this.name_token = token;
+    }
+}
+
+class MethodDeclarations {
+    /** @type {Local[]} */
+    locals = [];
+    /** @type {Label[]} */
+    labels = [];
+    /** @type {import('./source-types2').SourceType[]} */
+    types = [];
+
+    _scopeStack = [];
+
+    pushScope() {
+        this._scopeStack.push([this.locals, this.labels, this.types]);
+        this.locals = this.locals.slice();
+        this.labels = this.labels.slice();
+        this.types = this.types.slice();
+    }
+
+    popScope() {
+        [this.locals, this.labels, this.types] = this._scopeStack.pop();
+    }
+}
+
 class ArrayElement {
     /**
      * 
@@ -335,16 +366,18 @@ class TernaryValue extends Value {
     }
 }
 
-exports.ResolvedIdent = ResolvedIdent;
-exports.AnyType = AnyType;
 exports.AnyMethod = AnyMethod;
-exports.Local = Local;
-exports.ArrayElement = ArrayElement;
-exports.Value = Value;
+exports.AnyType = AnyType;
 exports.AnyValue = AnyValue;
-exports.LiteralValue = LiteralValue;
-exports.LiteralNumber = LiteralNumber;
-exports.MethodCall = MethodCall;
-exports.ConstructorCall = ConstructorCall;
+exports.ArrayElement = ArrayElement;
 exports.ArrayLiteral = ArrayLiteral;
+exports.ConstructorCall = ConstructorCall;
+exports.Label = Label;
+exports.LiteralNumber = LiteralNumber;
+exports.LiteralValue = LiteralValue;
+exports.Local = Local;
+exports.MethodCall = MethodCall;
+exports.MethodDeclarations = MethodDeclarations;
+exports.ResolvedIdent = ResolvedIdent;
 exports.TernaryValue = TernaryValue;
+exports.Value = Value;
