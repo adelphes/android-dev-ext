@@ -18,6 +18,7 @@ const { AnyMethod, AnyType, AnyValue, ArrayElement, ArrayLiteral, ConstructorCal
 
 /**
  * @typedef {SourceMethod|SourceConstructor|SourceInitialiser} SourceMC
+ * @typedef {SourceType|SourceMC} Scope
  */
 
 
@@ -105,7 +106,7 @@ function statement(tokens, mdecls, method, imports, typemap) {
                 tokens.inc();
                 continue;
             case 'type-kw':
-                localType(modifiers.splice(0,1e9), tokens, mdecls, method, imports, typemap);
+                sourceType(modifiers.splice(0,1e9), tokens, mdecls, method, imports, typemap);
                 continue;
         }
         break;
@@ -239,13 +240,13 @@ class AssertStatement extends Statement {
 * @param {Token[]} modifiers
 * @param {TokenList} tokens 
 * @param {MethodDeclarations} mdecls
-* @param {SourceMC} method 
+* @param {Scope} scope 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function localType(modifiers, tokens, mdecls, method, imports, typemap) {
-    // local types are inner types with number-prefixed names, eg. Type$1Inner
-    const type = typeDeclaration(method.owner.packageName, method, modifiers, tokens.current, tokens, imports, typemap);
+function sourceType(modifiers, tokens, mdecls, scope, imports, typemap) {
+    const scoped_type = scope instanceof SourceType ? scope : scope.owner;
+    const type = typeDeclaration(scoped_type.packageName, scope, modifiers, tokens.current, tokens, imports, typemap);
     mdecls.types.push(type);
     if (tokens.isValue('extends')) {
         const extends_types = typeIdentList(tokens, type, imports, typemap);
@@ -255,18 +256,18 @@ function localType(modifiers, tokens, mdecls, method, imports, typemap) {
     }
     tokens.expectValue('{');
     if (!tokens.isValue('}')) {
-        typeBody(type, tokens, method, imports, typemap);
+        typeBody(type, tokens, scope, imports, typemap);
     }
 }
 
 /**
 * @param {SourceType} type 
 * @param {TokenList} tokens 
-* @param {SourceMC} method 
+* @param {Scope} scope 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function typeBody(type, tokens, method, imports, typemap) {
+function typeBody(type, tokens, scope, imports, typemap) {
     while (!tokens.isValue('}')) {
         let modifiers = [], annotations = [];
         while (tokens.current.kind === 'modifier') {
@@ -279,7 +280,7 @@ function typeBody(type, tokens, method, imports, typemap) {
                 fmc(modifiers, annotations, [], type, tokens, imports, typemap);
                 continue;
             case 'type-kw':
-                localType(modifiers, tokens, new MethodDeclarations(), method, imports, typemap);
+                sourceType(modifiers, tokens, new MethodDeclarations(), scope, imports, typemap);
                 continue;
         }
         switch(tokens.current.value) {
@@ -364,10 +365,9 @@ function annotation(tokens, scope, imports, typemap) {
 
 /**
  * @param {string} package_name
- * @param {SourceType | SourceMC} scope
+ * @param {Scope} scope
  * @param {Token[]} modifiers
  * @param {TokenList} tokens 
- * @param {CEIType | SourceMC} scope
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap
  */
@@ -377,7 +377,7 @@ function annotationTypeDeclaration(package_name, scope, modifiers, tokens, impor
     
 /**
  * @param {string} package_name
- * @param {SourceType | SourceMC} scope
+ * @param {Scope} scope
  * @param {Token[]} modifiers
  * @param {Token} kind_token
  * @param {TokenList} tokens 
@@ -402,7 +402,7 @@ function typeDeclaration(package_name, scope, modifiers, kind_token, tokens, imp
 /**
  * @param {CEIType} owner
  * @param {TokenList} tokens 
- * @param {CEIType | SourceMC} scope
+ * @param {Scope} scope
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap
  */
@@ -665,13 +665,13 @@ function statementKeyword(tokens, mdecls, method, imports, typemap) {
 /**
 * @param {TokenList} tokens 
 * @param {MethodDeclarations} mdecls
-* @param {SourceMC} method 
+* @param {Scope} scope 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,JavaType>} typemap 
 */
-function bracketedTest(tokens, mdecls, method, imports, typemap) {
+function bracketedTest(tokens, mdecls, scope, imports, typemap) {
     tokens.expectValue('(');
-    const e = expression(tokens, mdecls, method, imports, typemap);
+    const e = expression(tokens, mdecls, scope, imports, typemap);
     if (e.variables[0] && !isTypeAssignable(PrimitiveType.map.Z, e.variables[0].type)) {
         addproblem(tokens, ParseProblem.Error(tokens.current, `Boolean expression expected, but type '${e.variables[0].type.fullyDottedTypeName}' found`));
     }
@@ -1074,14 +1074,14 @@ function checkThrowExpression(tokens, throw_expression, typemap) {
 /**
  * @param {TokenList} tokens 
  * @param {MethodDeclarations} mdecls
- * @param {SourceMC} method 
+ * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  * @returns {Local[]}
  */
-function var_decl(mods, tokens, mdecls, method, imports, typemap) {
-    const type = typeIdent(tokens, method, imports, typemap);
-    return var_ident_list(mods, type, null, tokens, mdecls, method, imports, typemap)
+function var_decl(mods, tokens, mdecls, scope, imports, typemap) {
+    const type = typeIdent(tokens, scope, imports, typemap);
+    return var_ident_list(mods, type, null, tokens, mdecls, scope, imports, typemap)
 }
 
 /**
@@ -1091,11 +1091,11 @@ function var_decl(mods, tokens, mdecls, method, imports, typemap) {
  * @param {Token} first_ident 
  * @param {TokenList} tokens 
  * @param {MethodDeclarations} mdecls 
- * @param {SourceMC} method 
+ * @param {Scope} scope 
  * @param {ResolvedImport[]} imports 
  * @param {Map<string,JavaType>} typemap 
  */
-function var_ident_list(mods, type, first_ident, tokens, mdecls, method, imports, typemap) {
+function var_ident_list(mods, type, first_ident, tokens, mdecls, scope, imports, typemap) {
     checkLocalModifiers(tokens, mods);
     const new_locals = [];
     for (;;) {
@@ -1117,7 +1117,7 @@ function var_ident_list(mods, type, first_ident, tokens, mdecls, method, imports
         }
         let init = null, op = tokens.current;
         if (tokens.isValue('=')) {
-            init = expression(tokens, mdecls, method, imports, typemap);
+            init = expression(tokens, mdecls, scope, imports, typemap);
         }
         // only add the local if we have a name
         if (name) {
@@ -1138,19 +1138,19 @@ function var_ident_list(mods, type, first_ident, tokens, mdecls, method, imports
 /**
  * @param {TokenList} tokens 
  * @param {MethodDeclarations} mdecls
- * @param {SourceMC} method 
+ * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  * @returns {ResolvedIdent|Local[]}
  */
-function expression_or_var_decl(tokens, mdecls, method, imports, typemap) {
+function expression_or_var_decl(tokens, mdecls, scope, imports, typemap) {
 
     /** @type {ResolvedIdent} */
-    let matches = expression(tokens, mdecls, method, imports, typemap);
+    let matches = expression(tokens, mdecls, scope, imports, typemap);
 
     // if theres at least one type followed by an ident, we assume a variable declaration
     if (matches.types[0] && tokens.current.kind === 'ident') {
-        return var_ident_list([], matches.types[0], null, tokens, mdecls, method, imports, typemap);
+        return var_ident_list([], matches.types[0], null, tokens, mdecls, scope, imports, typemap);
     }
 
     return matches;
@@ -1159,20 +1159,20 @@ function expression_or_var_decl(tokens, mdecls, method, imports, typemap) {
 /**
  * @param {TokenList} tokens 
  * @param {MethodDeclarations} mdecls
- * @param {SourceMC} method 
+ * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  * @returns {ResolvedIdent[]|Local[]}
  */
-function expression_list_or_var_decl(tokens, mdecls, method, imports, typemap) {
-    let e = expression_or_var_decl(tokens, mdecls, method, imports, typemap);
+function expression_list_or_var_decl(tokens, mdecls, scope, imports, typemap) {
+    let e = expression_or_var_decl(tokens, mdecls, scope, imports, typemap);
     if (Array.isArray(e)) {
         // local var decl
         return e;
     }
     const expressions = [e];
     while (tokens.isValue(',')) {
-        e = expression(tokens, mdecls, method, imports, typemap);
+        e = expression(tokens, mdecls, scope, imports, typemap);
         expressions.push(e);
     }
     return expressions;
@@ -1215,13 +1215,13 @@ const operator_precedences = {
 /**
  * @param {TokenList} tokens 
  * @param {MethodDeclarations} mdecls
- * @param {SourceMC} method 
+ * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function expression(tokens, mdecls, method, imports, typemap, precedence_stack = [13]) {
+function expression(tokens, mdecls, scope, imports, typemap, precedence_stack = [13]) {
     /** @type {ResolvedIdent} */
-    let matches = qualifiedTerm(tokens, mdecls, method, imports, typemap);
+    let matches = qualifiedTerm(tokens, mdecls, scope, imports, typemap);
 
     for(;;) {
         if (!/^(assignment|equality|comparison|bitwise|shift|logical|muldiv|plumin|instanceof)-operator/.test(tokens.current.kind) && !/\?/.test(tokens.current.value)) {
@@ -1239,12 +1239,12 @@ function expression(tokens, mdecls, method, imports, typemap, precedence_stack =
         }
         tokens.inc();
         // higher or equal precendence with rtl evaluation
-        const rhs = expression(tokens, mdecls, method, imports, typemap, [operator_precedence, ...precedence_stack]);
+        const rhs = expression(tokens, mdecls, scope, imports, typemap, [operator_precedence, ...precedence_stack]);
 
         if (binary_operator.value === '?') {
             const colon = tokens.current;
             tokens.expectValue(':');
-            const falseStatement = expression(tokens, mdecls, method, imports, typemap, [operator_precedence, ...precedence_stack]);
+            const falseStatement = expression(tokens, mdecls, scope, imports, typemap, [operator_precedence, ...precedence_stack]);
             matches = resolveTernaryExpression(tokens, matches, colon, rhs, falseStatement);
         } else {
             matches = resolveBinaryOpExpression(tokens, matches, binary_operator, rhs);
@@ -1905,12 +1905,12 @@ function resolveMath(tokens, ident, lhs, op, rhs) {
 /**
  * @param {TokenList} tokens 
  * @param {MethodDeclarations} mdecls
- * @param {SourceMC} method 
+ * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function qualifiedTerm(tokens, mdecls, method, imports, typemap) {
-    let matches = rootTerm(tokens, mdecls, method, imports, typemap);
+function qualifiedTerm(tokens, mdecls, scope, imports, typemap) {
+    let matches = rootTerm(tokens, mdecls, scope, imports, typemap);
     if (tokens.current.kind === 'inc-operator') {
         // postfix inc/dec - only applies to assignable number variables and no qualifiers are allowed to follow
         const postfix_operator = tokens.current;
@@ -1921,7 +1921,7 @@ function qualifiedTerm(tokens, mdecls, method, imports, typemap) {
         }
         return new ResolvedIdent(`${matches.source}${postfix_operator.value}`, vars);
     }
-    matches = qualifiers(matches, tokens, mdecls, method, imports, typemap);
+    matches = qualifiers(matches, tokens, mdecls, scope, imports, typemap);
     return matches;
 }
 
@@ -1964,17 +1964,17 @@ function isCastExpression(token, matches) {
 /**
  * @param {TokenList} tokens 
  * @param {MethodDeclarations} mdecls
- * @param {SourceMC} method 
+ * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  * @returns {ResolvedIdent}
  */
-function rootTerm(tokens, mdecls, method, imports, typemap) {
+function rootTerm(tokens, mdecls, scope, imports, typemap) {
     /** @type {ResolvedIdent} */
     let matches;
     switch(tokens.current.kind) {
         case 'ident':
-            matches = resolveIdentifier(tokens, mdecls, method, imports, typemap);
+            matches = resolveIdentifier(tokens, mdecls, scope, imports, typemap);
             break;
         case 'primitive-type':
             matches = new ResolvedIdent(tokens.current.value, [], [], [PrimitiveType.fromName(tokens.current.value)]);
@@ -1990,10 +1990,11 @@ function rootTerm(tokens, mdecls, method, imports, typemap) {
             break;
         case 'object-literal':
             // this, super or null
+            const scoped_type = scope instanceof SourceType ? scope : scope.owner;
             if (tokens.current.value === 'this') {
-                matches = new ResolvedIdent(tokens.current.value, [new Value(tokens.current.value, method.owner)]);
+                matches = new ResolvedIdent(tokens.current.value, [new Value(tokens.current.value, scoped_type)]);
             } else if (tokens.current.value === 'super') {
-                const supertype = method.owner.supers.find(s => s.typeKind === 'class') || typemap.get('java/lang/Object');
+                const supertype = scoped_type.supers.find(s => s.typeKind === 'class') || typemap.get('java/lang/Object');
                 matches = new ResolvedIdent(tokens.current.value, [new Value(tokens.current.value, supertype)]);
             } else {
                 matches = new ResolvedIdent(tokens.current.value, [new LiteralValue(tokens.current.value, new NullType())]);
@@ -2005,7 +2006,7 @@ function rootTerm(tokens, mdecls, method, imports, typemap) {
         case 'inc-operator':
             let incop = tokens.current;
             tokens.inc();
-            matches = qualifiedTerm(tokens, mdecls, method, imports, typemap);
+            matches = qualifiedTerm(tokens, mdecls, scope, imports, typemap);
             const inc_ident = `${incop.value}${matches.source}`;
             if (!matches.variables[0]) {
                 return new ResolvedIdent(inc_ident);
@@ -2017,12 +2018,12 @@ function rootTerm(tokens, mdecls, method, imports, typemap) {
         case 'plumin-operator':
         case 'unary-operator':
             tokens.inc();
-            return qualifiedTerm(tokens, mdecls, method, imports, typemap);
+            return qualifiedTerm(tokens, mdecls, scope, imports, typemap);
         case 'new-operator':
-            return newTerm(tokens, mdecls, method, imports, typemap);
+            return newTerm(tokens, mdecls, scope, imports, typemap);
         case 'open-bracket':
             tokens.inc();
-            matches = expression(tokens, mdecls, method, imports, typemap);
+            matches = expression(tokens, mdecls, scope, imports, typemap);
             const close_bracket = tokens.current;
             tokens.expectValue(')');
             if (isCastExpression(tokens.current, matches)) {
@@ -2031,7 +2032,7 @@ function rootTerm(tokens, mdecls, method, imports, typemap) {
                 if (!type) {
                     addproblem(tokens, ParseProblem.Error(close_bracket, 'Type expected'));
                 }
-                const cast_matches = qualifiedTerm(tokens, mdecls, method, imports, typemap)
+                const cast_matches = qualifiedTerm(tokens, mdecls, scope, imports, typemap)
                 // cast any variables as values with the new type
                 const vars = cast_matches.variables.map(v => {
                     if (type && !isTypeCastable(v.type, type)) {
@@ -2049,7 +2050,7 @@ function rootTerm(tokens, mdecls, method, imports, typemap) {
             // array initer
             let elements = [];
             if (!tokens.isValue('}')) {
-                elements = expressionList(tokens, mdecls, method, imports, typemap);
+                elements = expressionList(tokens, mdecls, scope, imports, typemap);
                 tokens.expectValue('}');
             }
             const ident = `{${elements.map(e => e.source).join(',')}}`;
@@ -2065,14 +2066,14 @@ function rootTerm(tokens, mdecls, method, imports, typemap) {
 /**
  * @param {TokenList} tokens 
  * @param {MethodDeclarations} mdecls
- * @param {SourceMC} method 
+ * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function newTerm(tokens, mdecls, method, imports, typemap) {
+function newTerm(tokens, mdecls, scope, imports, typemap) {
     tokens.expectValue('new');
     const type_start_token = tokens.idx;
-    const ctr_type = typeIdent(tokens, method, imports, typemap, false);
+    const ctr_type = typeIdent(tokens, scope, imports, typemap, false);
     if (ctr_type instanceof AnyType) {
         const toks = tokens.tokens.slice(type_start_token, tokens.idx);
         addproblem(tokens, ParseProblem.Error(toks, `Unresolved type: '${toks.map(t => t.source).join('')}'`));
@@ -2080,15 +2081,15 @@ function newTerm(tokens, mdecls, method, imports, typemap) {
     let match = new ResolvedIdent(`new ${ctr_type.simpleTypeName}`, [], [], [ctr_type]);
     switch(tokens.current.value) {
         case '[':
-            match = arrayQualifiers(match, tokens, mdecls, method, imports, typemap);
+            match = arrayQualifiers(match, tokens, mdecls, scope, imports, typemap);
             // @ts-ignore
             if (tokens.current.value === '{') {
                 // array init
-                rootTerm(tokens, mdecls, method, imports, typemap);
+                rootTerm(tokens, mdecls, scope, imports, typemap);
             }
             return new ResolvedIdent(match.source, [new Value(match.source, match.types[0])]);
         case '(':
-            match = methodCallQualifier(match, tokens, mdecls, method, imports, typemap);
+            match = methodCallQualifier(match, tokens, mdecls, scope, imports, typemap);
             // @ts-ignore
             if (tokens.current.value === '{') {
                 // final types cannot be inherited
@@ -2121,16 +2122,16 @@ function newTerm(tokens, mdecls, method, imports, typemap) {
 /**
  * @param {TokenList} tokens 
  * @param {MethodDeclarations} mdecls
- * @param {SourceMC} method 
+ * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function expressionList(tokens, mdecls, method, imports, typemap) {
-    let e = expression(tokens, mdecls, method, imports, typemap);
+function expressionList(tokens, mdecls, scope, imports, typemap) {
+    let e = expression(tokens, mdecls, scope, imports, typemap);
     const expressions = [e];
     while (tokens.current.value === ',') {
         tokens.inc();
-        e = expression(tokens, mdecls, method, imports, typemap);
+        e = expression(tokens, mdecls, scope, imports, typemap);
         expressions.push(e);
     }
     return expressions;
@@ -2139,12 +2140,12 @@ function expressionList(tokens, mdecls, method, imports, typemap) {
 /**
  * @param {TokenList} tokens 
  * @param {MethodDeclarations} mdecls
- * @param {SourceMC} method 
+ * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function arrayIndexOrDimension(tokens, mdecls, method, imports, typemap) {
-    let e = expression(tokens, mdecls, method, imports, typemap);
+function arrayIndexOrDimension(tokens, mdecls, scope, imports, typemap) {
+    let e = expression(tokens, mdecls, scope, imports, typemap);
     // the value must be a integer-compatible
     const values = e.variables.map(v => new Value(v.name, v.type)).filter(v => /^[BIS]$/.test(v.type.typeSignature));
     if (!values[0]) {
@@ -2310,22 +2311,22 @@ function getTypeInheritanceList(type) {
  * @param {ResolvedIdent} matches
  * @param {TokenList} tokens 
  * @param {MethodDeclarations} mdecls
- * @param {SourceMC} method 
+ * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function qualifiers(matches, tokens, mdecls, method, imports, typemap) {
+function qualifiers(matches, tokens, mdecls, scope, imports, typemap) {
     for (;;) {
         switch (tokens.current.value) {
             case '.':
                 matches = dottedIdent(matches, tokens, typemap);
                 break;
             case '[':
-                matches = arrayQualifiers(matches, tokens, mdecls, method, imports, typemap);
+                matches = arrayQualifiers(matches, tokens, mdecls, scope, imports, typemap);
                 break;
             case '(':
                 // method or constructor call
-                matches = methodCallQualifier(matches, tokens, mdecls, method, imports, typemap);
+                matches = methodCallQualifier(matches, tokens, mdecls, scope, imports, typemap);
                 break;
             case '<':
                 // generic type arguments - since this can be confused with less-than, only parse
@@ -2334,7 +2335,7 @@ function qualifiers(matches, tokens, mdecls, method, imports, typemap) {
                     return matches;
                 }
                 tokens.inc();
-                genericTypeArgs(tokens, matches.types, method, imports, typemap);
+                genericTypeArgs(tokens, matches.types, scope, imports, typemap);
                 break;
             default:
                 return matches;
@@ -2346,11 +2347,11 @@ function qualifiers(matches, tokens, mdecls, method, imports, typemap) {
  * @param {ResolvedIdent} matches
  * @param {TokenList} tokens 
  * @param {MethodDeclarations} mdecls
- * @param {SourceMC} method 
+ * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function arrayQualifiers(matches, tokens, mdecls, method, imports, typemap) {
+function arrayQualifiers(matches, tokens, mdecls, scope, imports, typemap) {
     while (tokens.isValue('[')) {
         let open_array = tokens.current;
         if (tokens.isValue(']')) {
@@ -2358,7 +2359,7 @@ function arrayQualifiers(matches, tokens, mdecls, method, imports, typemap) {
             matches = arrayTypeExpression(matches);
         } else {
             // array index
-            const index = arrayIndexOrDimension(tokens, mdecls, method, imports, typemap);
+            const index = arrayIndexOrDimension(tokens, mdecls, scope, imports, typemap);
             matches = arrayElementOrConstructor(tokens, open_array, matches, index);
             // @ts-ignore
             tokens.expectValue(']');
@@ -2371,15 +2372,15 @@ function arrayQualifiers(matches, tokens, mdecls, method, imports, typemap) {
  * @param {ResolvedIdent} matches
  * @param {TokenList} tokens 
  * @param {MethodDeclarations} mdecls
- * @param {SourceMC} method 
+ * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function methodCallQualifier(matches, tokens, mdecls, method, imports, typemap) {
+function methodCallQualifier(matches, tokens, mdecls, scope, imports, typemap) {
     let args = [];
     tokens.expectValue('(');
     if (!tokens.isValue(')')) {
-        args = expressionList(tokens, mdecls, method, imports, typemap);
+        args = expressionList(tokens, mdecls, scope, imports, typemap);
         tokens.expectValue(')');
     }
     return methodCallExpression(tokens, matches, args, typemap);
@@ -2494,13 +2495,13 @@ function dottedIdent(matches, tokens, typemap) {
  * 
  * @param {TokenList} tokens
  * @param {MethodDeclarations} mdecls
- * @param {SourceMC} method 
+ * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
  */
-function resolveIdentifier(tokens, mdecls, method, imports, typemap) {
+function resolveIdentifier(tokens, mdecls, scope, imports, typemap) {
     const ident = tokens.current.value;
-    const matches = findIdentifier(ident, mdecls, method, imports, typemap);
+    const matches = findIdentifier(ident, mdecls, scope, imports, typemap);
     checkIdentifierFound(tokens, ident, matches);
     return matches;
 }
@@ -2522,21 +2523,22 @@ function checkIdentifierFound(tokens, ident, matches) {
 /**
  * @param {string} ident 
  * @param {MethodDeclarations} mdecls 
- * @param {SourceMC} method 
+ * @param {Scope} scope 
  * @param {ResolvedImport[]} imports 
  * @param {Map<String,JavaType>} typemap 
  */
-function findIdentifier(ident, mdecls, method, imports, typemap) {
+function findIdentifier(ident, mdecls, scope, imports, typemap) {
     const matches = new ResolvedIdent(ident);
 
     // is it a local or parameter - note that locals must be ordered innermost-scope-first
     const local = mdecls.locals.find(local => local.name === ident);
-    const param = method.parameters.find(p => p.name === ident);
+    let param = !(scope instanceof SourceType) && scope.parameters.find(p => p.name === ident);
     if (local || param) {
         matches.variables = [local || param];
     } else {
         // is it a field or method in the current type (or any of the superclasses)
-        const types = getTypeInheritanceList(method.owner);
+        const scoped_type = scope instanceof SourceType ? scope : scope.owner;
+        const types = getTypeInheritanceList(scoped_type);
         const method_sigs = new Set();
         types.forEach(type => {
             if (!matches.variables[0]) {
@@ -2561,7 +2563,7 @@ function findIdentifier(ident, mdecls, method, imports, typemap) {
     if (type) {
         matches.types = [type];
     } else {
-        const { types, package_name } = resolveTypeOrPackage(ident, method, imports, typemap);
+        const { types, package_name } = resolveTypeOrPackage(ident, scope, imports, typemap);
         matches.types = types;
         matches.package_name = package_name;
     }
