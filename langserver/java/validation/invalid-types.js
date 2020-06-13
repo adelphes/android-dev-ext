@@ -1,11 +1,14 @@
-const { ModuleBlock, TypeDeclBlock } = require('../parser9');
+const { ModuleBlock } = require('../parser9');
 const ParseProblem = require('../parsetypes/parse-problem');
 const {SourceType} = require('../source-type');
-const {JavaType, ArrayType, CEIType, TypeArgument, UnresolvedType} = require('java-mti');
-const { AnyType } = require('../body-types');
+const {Token} = require('../tokenizer');
+const {JavaType} = require('java-mti');
 
 /**
  * @param {JavaType} type 
+ * @param {boolean} is_return_type
+ * @param {Token[]} typeTokens
+ * @param {ParseProblem[]} probs
  */
 function checkType(type, is_return_type, typeTokens, probs) {
     const typesig = type.typeSignature;
@@ -26,11 +29,11 @@ function checkType(type, is_return_type, typeTokens, probs) {
  * @param {*} probs 
  */
 function checkInvalidTypes(type, probs) {
-    type.fields.forEach(f => checkType(f.type, false, f._decl.typeTokens, probs));
+    type.fields.forEach(f => checkType(f.type, false, f.fieldType.typeTokens, probs));
     type.methods.forEach(m => {
-        checkType(m.returnType, true, m._decl.typeTokens, probs);
+        checkType(m.returnType, true, m.methodTypeIdent.typeTokens, probs);
         m.parameters.forEach(p => {
-            checkType(p.type, false, p._decl.typeTokens, probs);
+            checkType(p.type, false, p.paramTypeIdent.typeTokens, probs);
         })
     })
 }

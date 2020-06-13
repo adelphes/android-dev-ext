@@ -298,11 +298,14 @@ class ResolvableType extends UnresolvedType {
     }
 }
 
-exports.SourceType = SourceType;
-exports.SourceField = SourceField;
-exports.SourceMethod = SourceMethod;
-exports.SourceParameter = SourceParameter;
-exports.SourceConstructor = SourceConstructor;
+const source_types = require('./source-types2');
+exports.SourceType = source_types.SourceType;
+exports.SourceTypeIdent = source_types.SourceTypeIdent;
+exports.SourceField = source_types.SourceField;
+exports.SourceMethod = source_types.SourceMethod;
+exports.SourceParameter = source_types.SourceParameter;
+exports.SourceConstructor = source_types.SourceConstructor;
 exports.DefaultConstructor = DefaultConstructor;
-exports.SourceInitialiser = SourceInitialiser;
+exports.SourceInitialiser = source_types.SourceInitialiser;
+exports.SourceAnnotation = source_types.SourceAnnotation;
 exports.ResolvableType = ResolvableType;

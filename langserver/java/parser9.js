@@ -331,6 +331,10 @@ class DeclaredVariableBlock extends DeclarationBlock {
         return this.varBlock ? this.varBlock.name : '';
     }
 
+    get name_token() {
+        return this.varBlock ? this.varBlock.name_token : null;
+    }
+
     get type() {
         return this.varBlock ? this.varBlock.type : '';
     }
@@ -473,6 +477,10 @@ class MethodBlock extends MCBlock {
      */
     get name() {
         return this.varBlock.name;
+    }
+
+    get name_token() {
+        return this.varBlock.name_token;
     }
 
     get type() {

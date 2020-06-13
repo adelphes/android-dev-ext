@@ -49,7 +49,7 @@ function checkImplementedInterfaces(source_type, probs) {
             }
         })
         if (missing_methods.length) {
-            probs.push(ParseProblem.Error(source_type._decl.kindToken, `Non-abstract ${source_type.typeKind} '${source_type.fullyDottedRawName}' does not implement the following methods from interface '${intf.fullyDottedRawName}':\n${missing_methods.join('\n')}`));
+            probs.push(ParseProblem.Error(source_type.kind_token, `Non-abstract ${source_type.typeKind} '${source_type.fullyDottedRawName}' does not implement the following methods from interface '${intf.fullyDottedRawName}':\n${missing_methods.join('\n')}`));
         }
     });
 }

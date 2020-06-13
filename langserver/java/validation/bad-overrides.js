@@ -1,6 +1,6 @@
-const { ModuleBlock, TextBlock } = require('../parser9');
+const { ModuleBlock } = require('../parser9');
 const ParseProblem = require('../parsetypes/parse-problem');
-const {SourceType} = require('../source-type');
+const {SourceType, SourceAnnotation} = require('../source-type');
 const {CEIType, Method} = require('java-mti');
 
 function nonAbstractLabel(label) {
@@ -19,10 +19,10 @@ function checkOverrides(source_type, probs) {
         return;
     }
 
-    /** @type {{ann:TextBlock, method:Method, method_id:string}[]} */
+    /** @type {{ann:SourceAnnotation, method:Method, method_id:string}[]} */
     const overriden_methods = [];
     source_type.methods.reduce((arr, method) => {
-        const ann = method._decl.annotations.find(a => /^@\s*Override$/.test(a.source));
+        const ann = method.annotations.find(a => /^Override$/.test(a.annotationTypeIdent.type.simpleTypeName));
         if (ann) {
             arr.push({
                 ann,
@@ -52,7 +52,7 @@ function checkOverrides(source_type, probs) {
 
     overriden_methods.forEach(x => {
         if (!methods.has(x.method_id)) {
-            probs.push(ParseProblem.Error(x.ann, `${x.method.label} does not override a matching method in any inherited type or interface`));
+            probs.push(ParseProblem.Error(x.ann.annotationTypeIdent.typeTokens, `${x.method.label} does not override a matching method in any inherited type or interface`));
         }
     })
 }

@@ -1,5 +1,4 @@
-const { CEIType, JavaType, Field, Method, Constructor, Parameter } = require('java-mti');
-const { SourceMethod, SourceConstructor, SourceInitialiser } = require('./source-type');
+const { CEIType, JavaType, PrimitiveType, Field, Method, MethodBase, Constructor, Parameter } = require('java-mti');
 const { Token } = require('./tokenizer');
 
 /**
@@ -24,39 +23,69 @@ function generateShortSignature(scope_or_package_name, name) {
 class SourceType extends CEIType {
     /**
      * @param {string} packageName
-     * @param {SourceType|SourceMethod2|SourceConstructor|SourceInitialiser} outer_scope
+     * @param {SourceType|SourceMethod|SourceConstructor|SourceInitialiser} outer_scope
      * @param {string} docs 
      * @param {string[]} modifiers 
      * @param {Token} kind_token 
      * @param {Token} name_token 
      */
-    constructor(packageName, outer_scope, docs, modifiers, kind_token, name_token) {
+    constructor(packageName, outer_scope, docs, modifiers, kind_token, name_token, typemap) {
         // @ts-ignore
         super(generateShortSignature(outer_scope || packageName, name_token), kind_token.source, modifiers, docs);
         super.packageName = packageName;
         this.kind_token = kind_token;
         this.name_token = name_token;
         this.scope = outer_scope;
+        this.typemap = typemap;
         /**
          * Number of local/anonymous types declared in the scope of this type
          * The number is used when naming them.
          */
         this.localTypeCount = 0;
-        /** @type {SourceConstructor2[]} */
+        /** @type {SourceTypeIdent[]} */
+        this.extends_types = [];
+        /** @type {SourceTypeIdent[]} */
+        this.implements_types = [];
+        /** @type {SourceConstructor[]} */
         this.constructors = [];
-        /** @type {SourceMethod2[]} */
+        /** @type {SourceMethod[]} */
         this.methods = [];
-        /** @type {SourceField2[]} */
+        /** @type {SourceField[]} */
         this.fields = [];
+        /** @type {SourceInitialiser[]} */
+        this.initers = [];
     }
 
+    get supers() {
+        const supertypes = [...this.extends_types, ...this.implements_types].map(x => x.type);
+        if (this.typeKind === 'enum') {
+            /** @type {CEIType} */
+            const enumtype = this.typemap.get('java/lang/Enum');
+            supertypes.unshift(enumtype.specialise([this]));
+        }
+        else if (!supertypes.find(type => type.typeKind === 'class')) {
+            supertypes.unshift(this.typemap.get('java/lang/Object'));
+        }
+        return supertypes;
+    }
 }
 
-class SourceField2 extends Field {
+class SourceTypeIdent {
+    /**
+     * @param {Token[]} tokens 
+     * @param {JavaType} type 
+     */
+    constructor(tokens, type) {
+        this.typeTokens = tokens;
+        this.type = type;
+    }
+}
+
+class SourceField extends Field {
     /**
      * @param {SourceType} owner 
      * @param {Token[]} modifiers 
-     * @param {JavaType} field_type 
+     * @param {SourceTypeIdent} field_type 
      * @param {Token} name_token 
      */
     constructor(owner, modifiers, field_type, name_token) {
@@ -71,15 +100,15 @@ class SourceField2 extends Field {
     }
 
     get type() {
-        return this.fieldType;
+        return this.fieldType.type;
     }
 }
 
-class SourceConstructor2 extends Constructor {
+class SourceConstructor extends Constructor {
     /**
      * @param {SourceType} owner 
      * @param {Token[]} modifiers 
-     * @param {SourceParameter2[]} parameters 
+     * @param {SourceParameter[]} parameters 
      * @param {JavaType[]} throws 
      * @param {Token[]} body 
      */
@@ -88,11 +117,11 @@ class SourceConstructor2 extends Constructor {
         this.owner = owner;
         this.sourceParameters = parameters;
         this.throws = throws;
-        this.body_tokens = body;
+        this.body = body;
     }
 
     get hasImplementation() {
-        return !!this.body_tokens;
+        return !!this.body;
     }
 
     get parameterCount() {
@@ -100,7 +129,7 @@ class SourceConstructor2 extends Constructor {
     }
 
     /**
-     * @returns {SourceParameter2[]}
+     * @returns {SourceParameter[]}
      */
     get parameters() {
         return this.sourceParameters;
@@ -114,27 +143,29 @@ class SourceConstructor2 extends Constructor {
     }
 }
 
-class SourceMethod2 extends Method {
+class SourceMethod extends Method {
     /**
      * @param {SourceType} owner 
      * @param {Token[]} modifiers 
-     * @param {JavaType} method_type 
+     * @param {SourceAnnotation[]} annotations
+     * @param {SourceTypeIdent} method_type_ident 
      * @param {Token} name_token 
-     * @param {SourceParameter2[]} parameters 
+     * @param {SourceParameter[]} parameters 
      * @param {JavaType[]} throws 
      * @param {Token[]} body 
      */
-    constructor(owner, modifiers, method_type, name_token, parameters, throws, body) {
+    constructor(owner, modifiers, annotations, method_type_ident, name_token, parameters, throws, body) {
         super(owner, name_token ? name_token.value : '', modifiers.map(m => m.value), '');
+        this.annotations = annotations;
         this.owner = owner;
-        this.methodType = method_type;
+        this.methodTypeIdent = method_type_ident;
         this.sourceParameters = parameters;
         this.throws = throws;
-        this.body_tokens = body;
+        this.body = body;
     }
 
     get hasImplementation() {
-        return !!this.body_tokens;
+        return !!this.body;
     }
 
     get parameterCount() {
@@ -142,7 +173,7 @@ class SourceMethod2 extends Method {
     }
 
     /**
-     * @returns {SourceParameter2[]}
+     * @returns {SourceParameter[]}
      */
     get parameters() {
         return this.sourceParameters;
@@ -152,26 +183,64 @@ class SourceMethod2 extends Method {
      * @returns {JavaType}
      */
     get returnType() {
-        return this.methodType;
+        return this.methodTypeIdent.type;
     }
 }
 
-class SourceParameter2 extends Parameter {
+class SourceInitialiser extends MethodBase {
+    /**
+     * @param {SourceType} owner
+     * @param {Token[]} modifiers 
+     * @param {Token[]} body 
+     */
+    constructor(owner, modifiers, body) {
+        super(owner, modifiers.map(m => m.value), '');
+        /** @type {SourceType} */
+        this.owner = owner;
+        this.body = body;
+    }
+
+    /**
+     * @returns {SourceParameter[]}
+     */
+    get parameters() {
+        return [];
+    }
+
+    get returnType() {
+        return PrimitiveType.map.V;
+    }
+}
+
+class SourceParameter extends Parameter {
     /**
      * @param {Token[]} modifiers 
-     * @param {JavaType} type 
+     * @param {SourceTypeIdent} typeident 
      * @param {boolean} varargs 
      * @param {Token} name_token 
      */
-    constructor(modifiers, type, varargs, name_token) {
-        super(name_token ? name_token.value : '', type, varargs);
+    constructor(modifiers, typeident, varargs, name_token) {
+        super(name_token ? name_token.value : '', typeident.type, varargs);
         this.name_token = name_token;
         this.modifiers = modifiers;
+        this.paramTypeIdent = typeident;
+    }
+}
+
+class SourceAnnotation {
+    /**
+     * @param {SourceTypeIdent} typeident 
+     */
+    constructor(typeident) {
+        this.annotationTypeIdent = typeident;
     }
 }
 
 exports.SourceType = SourceType;
-exports.SourceField2 = SourceField2;
-exports.SourceMethod2 = SourceMethod2;
-exports.SourceParameter2 = SourceParameter2;
-exports.SourceConstructor2 = SourceConstructor2;
+exports.SourceTypeIdent = SourceTypeIdent;
+exports.SourceField = SourceField;
+exports.SourceMethod = SourceMethod;
+exports.SourceParameter = SourceParameter;
+exports.SourceConstructor = SourceConstructor;
+exports.SourceInitialiser = SourceInitialiser;
+exports.SourceAnnotation = SourceAnnotation;

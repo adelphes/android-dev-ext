@@ -1,8 +1,8 @@
-const { JavaType } = require('java-mti');
+const { ArrayType, JavaType, TypeVariable } = require('java-mti');
 const { ModuleBlock, TypeDeclBlock } = require('./parser9');
 const { resolveImports } = require('../java/import-resolver');
 const ResolvedImport = require('../java/parsetypes/resolved-import');
-const { SourceType, SourceMethod, SourceConstructor, ResolvableType } = require('./source-type');
+const { SourceType, SourceTypeIdent, SourceField, SourceMethod, SourceConstructor, SourceInitialiser, SourceParameter, SourceAnnotation } = require('./source-type');
 const { parseBody, flattenBlocks } = require('./body-parser3');
 const { TokenList } = require('./TokenList');
 const { typeIdent } = require('./typeident');
@@ -10,56 +10,101 @@ const { typeIdent } = require('./typeident');
 
 /**
  * @param {ModuleBlock} mod
- * @param {string} owner_typename
+ * @param {SourceType} outer_type
  * @param {ModuleBlock|TypeDeclBlock} parent 
  * @param {SourceType[]} source_types 
  * @param {Map<string,JavaType>} typemap
  */
-function getSourceTypes(mod, owner_typename, parent, source_types, typemap) {
+function getSourceTypes(mod, outer_type, parent, source_types, typemap) {
     parent.types.forEach(type => {
-        const qualifiedTypeName = `${owner_typename}${type.simpleName}`;
-        // we add the names of type variables here, but we resolve any bounds later
-        //const typevar_names = type.typevars.map(tv => tv.name);
-        //const mti = new MTI().addType(package_name, '', mods, type.kind(), qualifiedTypeName, typevar_names);
-        const t = new SourceType(mod, type, qualifiedTypeName, typemap);
+        const t = new SourceType(mod.packageName, outer_type, '', type.modifiers.map(m => m.value), type.kindToken, type.name_token, typemap);
+        t.typeVariables = type.typevars.map(tv => new TypeVariable(t, tv.name, [new TypeVariable.Bound(t, 'Ljava/lang/Object;', false)]));
         source_types.push(t);
-        getSourceTypes(mod, `${qualifiedTypeName}$`, type, source_types, typemap);
+        getSourceTypes(mod, t, type, source_types, typemap);
     });
 }
 
 /**
- * @param {ResolvableType} rt 
- * @param {SourceType|SourceMethod|SourceConstructor} scope 
- * @param {ResolvedImport[]} resolved_imports 
- * @param {Map<string,JavaType>} typemap 
+ * @param {TokenList} tokens
+ * @param {ModuleBlock|TypeDeclBlock} parent 
+ * @param {ResolvedImport[]} imports 
+ * @param {Map<string,JavaType>} typemap
  */
-function resolveResolvableType(rt, scope, resolved_imports, typemap) {
-    const tokens = new TokenList(flattenBlocks(rt.typeTokens, false));
-    rt._resolved = typeIdent(tokens, scope, resolved_imports, typemap);
-}
+function populateTypes(tokens, parent, imports, typemap) {
 
-/**
- * 
- * @param {SourceType} source_type 
- * @param {ResolvedImport[]} resolved_imports 
- * @param {Map<string,JavaType>} typemap 
- */
-function resolveResolvableTypes(source_type, resolved_imports, typemap) {
-    source_type.extends_types.forEach(rt => resolveResolvableType(rt, source_type, resolved_imports, typemap));
-    source_type.implements_types.forEach(rt => resolveResolvableType(rt, source_type, resolved_imports, typemap));
-
-    source_type.fields.forEach(f => resolveResolvableType(f._type, source_type, resolved_imports, typemap));
-
-    // methods and constructors can have parameterized types
-    source_type.methods.forEach(m => {
-        resolveResolvableType(m._returnType, m, resolved_imports, typemap);
-        m.parameters.forEach(p => resolveResolvableType(p._paramType, m, resolved_imports, typemap));
+    parent.types.forEach(type => {
+        const source_type = typemap.get(type.shortSignature);
+        if (source_type instanceof SourceType) {
+            if (type.extends_decl)
+                source_type.extends_types = resolveTypeList(source_type, type.extends_decl);
+            if (type.implements_decl)
+                source_type.implements_types = resolveTypeList(source_type, type.implements_decl);
+            
+            // fields
+            source_type.fields = type.fields.map(f => {
+                const field_type = resolveTypeFromTokens(source_type, f);
+                return new SourceField(source_type, f.modifiers, field_type, f.name_token);
+            });
+            // methods
+            source_type.methods = type.methods.map(m => {
+                const method_type = resolveTypeFromTokens(source_type, m);
+                const params = m.parameters.map(p => {
+                    let param_type = resolveTypeFromTokens(source_type, p);
+                    return new SourceParameter(p.modifiers, param_type, p.isVarArgs, p.name_token);
+                })
+                const annotations = m.annotations.map(a => new SourceAnnotation(resolveTypeFromTokens(source_type, {typeTokens: [a.blockArray().blocks.slice().pop()]})))
+                return new SourceMethod(source_type, m.modifiers, annotations, method_type, m.name_token, params, [], flattenBlocks([m.body()], true));
+            })
+            // constructors
+            source_type.constructors = type.constructors.map(c => {
+                const params = c.parameters.map(p => {
+                    const param_type = resolveTypeFromTokens(source_type, p);
+                    return new SourceParameter(p.modifiers, param_type, p.isVarArgs, p.name_token);
+                })
+                return new SourceConstructor(source_type, c.modifiers, params, [], flattenBlocks([c.body()], true));
+            })
+            // initialisers
+            source_type.initers = type.initialisers.map(i => {
+                return new SourceInitialiser(source_type, i.modifiers, flattenBlocks([i.body()], true));
+            })
+        }
+        populateTypes(tokens, type, imports, typemap);
     });
 
-    source_type.declaredConstructors.forEach(c => {
-        c.parameters.forEach(p => resolveResolvableType(p._paramType, c, resolved_imports, typemap));
-    });
+    function resolveTypeFromTokens(scope, decl) {
+        const typetokens = flattenBlocks([decl.typeTokens[0]], false);
+        tokens.current = tokens.tokens[tokens.idx = tokens.tokens.indexOf(typetokens[0])];
+        let type = typeIdent(tokens, scope, imports, typemap);
+        if (decl.varBlock && decl.varBlock.post_name_arr_token) {
+            type = new ArrayType(type, decl.varBlock.post_name_arr_token.source.replace(/[^\[]/g,'').length);
+        }
+        if (decl.isVarArgs) {
+            type = new ArrayType(type, 1);
+        }
+        return new SourceTypeIdent(typetokens, type);
+    }
+
+    function resolveTypeList(scope, eit_decl) {
+        const types = [];
+        const eit_tokens = flattenBlocks([eit_decl], false);
+        tokens.current = tokens.tokens[tokens.idx = tokens.tokens.indexOf(eit_tokens[0])];
+        tokens.inc();   // bypass extends/implements/throws keyword
+        for (;;) {
+            const start = tokens.idx;
+            const type = typeIdent(tokens, scope, imports, typemap);
+            let end = tokens.idx - 1;
+            while (tokens.tokens[end].kind === 'wsc') {
+                end -= 1;
+            }
+            types.push(new SourceTypeIdent(tokens.tokens.slice(start, end + 1), type));
+            if (!tokens.isValue(',')) {
+                break;
+            }
+        }
+        return types;
+    }
 }
+
 
 /**
  * @param {ModuleBlock} mod 
@@ -70,30 +115,25 @@ function validate(mod, androidLibrary) {
 
     /** @type {SourceType[]} */
     const source_types = [];
-    getSourceTypes(mod, '', mod, source_types, androidLibrary);
+    getSourceTypes(mod, null, mod, source_types, androidLibrary);
 
     const imports = resolveImports(androidLibrary, source_types, mod.imports, mod.packageName);
 
-    source_types.forEach(t => {
-        resolveResolvableTypes(t, imports.resolved, imports.typemap);
-    });
+    populateTypes(new TokenList(flattenBlocks(mod.blocks, false)), mod, imports.resolved, imports.typemap);
 
     let probs = [];
     source_types.forEach(t => {
         t.initers.forEach(i => {
-            console.log('<clinit>()');
             const parsed = parseBody(i, imports.resolved, imports.typemap);
             if (parsed)
                 probs = probs.concat(parsed.problems)
         })
-        t.declaredConstructors.forEach(c => {
-            console.log(c.label);
+        t.constructors.forEach(c => {
             const parsed = parseBody(c, imports.resolved, imports.typemap);
             if (parsed)
                 probs = probs.concat(parsed.problems)
         })
         t.methods.forEach(m => {
-            console.log(m.label);
             const parsed = parseBody(m, imports.resolved, imports.typemap);
             if (parsed)
                 probs = probs.concat(parsed.problems)
@@ -107,7 +147,6 @@ function validate(mod, androidLibrary) {
         require('./validation/parse-errors'),
         require('./validation/modifier-errors'),
         require('./validation/unresolved-imports'),
-        require('./validation/unresolved-types'),
         require('./validation/invalid-types'),
         require('./validation/bad-extends'),
         require('./validation/bad-implements'),

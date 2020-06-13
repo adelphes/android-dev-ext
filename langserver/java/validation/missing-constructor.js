@@ -22,7 +22,7 @@ function checkConstructor(source_type, probs) {
     if (!superclass.constructors.find(c => c.parameterCount === 0)) {
         // the source type has no declared constructors, but the superclass
         // does not include a default (parameterless) constructor
-        probs.push(ParseProblem.Error(source_type._decl.name_token, `Type ${superclass.fullyDottedRawName} requires a constructor to be declared because the inherited class '${superclass.fullyDottedRawName}' does not define a default constructor.`));
+        probs.push(ParseProblem.Error(source_type.name_token, `Class '${source_type.fullyDottedRawName}' requires a constructor to be declared because the inherited class '${superclass.fullyDottedRawName}' does not define a default constructor.`));
     }
 }
 

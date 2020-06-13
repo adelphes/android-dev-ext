@@ -10,7 +10,7 @@ function checkExtends(source_type, probs) {
     if (source_type.extends_types.length === 0) {
         return;
     }
-    const supertypes = source_type.extends_types.map(st => st.resolved);
+    const supertypes = source_type.extends_types.map(st => st.type);
     const supertype = supertypes[0];
     if (source_type.typeKind === 'enum') {
         probs.push(ParseProblem.Error(source_type.extends_types[0].typeTokens, `Enum types cannot declare a superclass`));

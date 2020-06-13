@@ -11,7 +11,7 @@ function checkImplements(source_type, probs) {
     if (source_type.implements_types.length === 0) {
         return;
     }
-    const interfaces = source_type.implements_types.map(it => it.resolved);
+    const interfaces = source_type.implements_types.map(it => it.type);
     if (source_type.typeKind === 'interface') {
         probs.push(ParseProblem.Error(source_type.implements_types[0].typeTokens, `Interface types cannot declare an implements section`));
     }

@@ -6,15 +6,15 @@
  */
 const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, NullType, WildcardType, TypeVariableType,
     TypeVariable, InferredTypeArgument, Field, Method, ReifiedMethod, Parameter, Constructor, signatureToType } = require('java-mti');
-const { SourceMethod, SourceConstructor, SourceInitialiser } = require('./source-type');
+const { SourceType, SourceTypeIdent, SourceField, SourceMethod, SourceConstructor, SourceInitialiser, SourceParameter, SourceAnnotation } = require('./source-types2');
 const ResolvedImport = require('./parsetypes/resolved-import');
 const ParseProblem = require('./parsetypes/parse-problem');
 const { getOperatorType, Token } = require('./tokenizer');
 const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resolver');
 const { genericTypeArgs, typeIdent, typeIdentList } = require('./typeident');
 const { TokenList } = require("./TokenList");
-const { AnyMethod, AnyType, AnyValue, ArrayElement, ArrayLiteral, ConstructorCall, Label, LiteralNumber, LiteralValue, Local, MethodCall, MethodDeclarations, ResolvedIdent, TernaryValue, Value } = require("./body-types");
-const { SourceType, SourceField2, SourceMethod2, SourceConstructor2, SourceParameter2 } = require('./source-types2');
+const { AnyMethod, AnyType, AnyValue, ArrayElement, ArrayLiteral, ConstructorCall, Label, LiteralNumber, LiteralValue, Local,
+    MethodCall, MethodDeclarations, ResolvedIdent, TernaryValue, Value } = require("./body-types");
 
 /**
  * @typedef {SourceMethod|SourceConstructor|SourceInitialiser} SourceMC
@@ -47,11 +47,11 @@ function flattenBlocks(blocks, isMethod) {
  * @param {Map<string,JavaType>} typemap 
  */
 function parseBody(method, imports, typemap) {
-    const body = method._decl.body().blockArray();
-    if (!body || body.blocks[0].value !== '{') {
+    const body = method.body;
+    if (!body || body[0].value !== '{') {
         return null;
     }
-    const tokenlist = new TokenList(flattenBlocks(body.blocks, true));
+    const tokenlist = new TokenList(flattenBlocks(body, true));
     let block = null;
     let mdecls = new MethodDeclarations();
     try {
@@ -245,7 +245,7 @@ class AssertStatement extends Statement {
 */
 function localType(modifiers, tokens, mdecls, method, imports, typemap) {
     // local types are inner types with number-prefixed names, eg. Type$1Inner
-    const type = typeDeclaration(method, modifiers, tokens.current, tokens, imports, typemap);
+    const type = typeDeclaration(method.owner.packageName, method, modifiers, tokens.current, tokens, imports, typemap);
     mdecls.types.push(type);
     if (tokens.isValue('extends')) {
         const extends_types = typeIdentList(tokens, type, imports, typemap);
@@ -268,7 +268,7 @@ function localType(modifiers, tokens, mdecls, method, imports, typemap) {
 */
 function typeBody(type, tokens, method, imports, typemap) {
     while (!tokens.isValue('}')) {
-        let modifiers = [];
+        let modifiers = [], annotations = [];
         while (tokens.current.kind === 'modifier') {
             modifiers.push(tokens.current);
             tokens.inc();
@@ -276,7 +276,7 @@ function typeBody(type, tokens, method, imports, typemap) {
         switch(tokens.current.kind) {
             case 'ident':
             case 'primitive-type':
-                fmc(modifiers, [], type, tokens, imports, typemap);
+                fmc(modifiers, annotations, [], type, tokens, imports, typemap);
                 continue;
             case 'type-kw':
                 localType(modifiers, tokens, new MethodDeclarations(), method, imports, typemap);
@@ -285,11 +285,11 @@ function typeBody(type, tokens, method, imports, typemap) {
         switch(tokens.current.value) {
             case '<':
                 const type_variables = typeVariableList(type, tokens, type, imports, typemap);
-                fmc(modifiers, type_variables, type, tokens, imports, typemap);
+                fmc(modifiers, annotations, type_variables, type, tokens, imports, typemap);
                 continue;
             case '@':
                 tokens.inc().value === 'interface' 
-                    ? annotationTypeDeclaration(type, modifiers.splice(0,1e9), tokens, imports, typemap)
+                    ? annotationTypeDeclaration(type.packageName, type, modifiers.splice(0,1e9), tokens, imports, typemap)
                     : annotation(tokens, type, imports, typemap);
                 continue;
             case ';':
@@ -304,19 +304,20 @@ function typeBody(type, tokens, method, imports, typemap) {
 
 /**
  * @param {Token[]} modifiers 
+ * @param {SourceAnnotation[]} annotations 
  * @param {TypeVariable[]} type_variables
  * @param {SourceType} type 
  * @param {TokenList} tokens 
  * @param {ResolvedImport[]} imports 
  * @param {Map<string,JavaType>} typemap 
  */
-function fmc(modifiers, type_variables, type, tokens, imports, typemap) {
+function fmc(modifiers, annotations, type_variables, type, tokens, imports, typemap) {
     const decl_type = typeIdent(tokens, type, imports, typemap);
     if (decl_type.rawTypeSignature === type.rawTypeSignature) {
         if (tokens.current.value === '(') {
             // constructor
             const { parameters, throws, body } = methodDeclaration(type, tokens, imports, typemap);
-            const ctr = new SourceConstructor2(type, modifiers, parameters, throws, body);
+            const ctr = new SourceConstructor(type, modifiers, parameters, throws, body);
             type.constructors.push(ctr);
             return;
         }
@@ -328,7 +329,7 @@ function fmc(modifiers, type_variables, type, tokens, imports, typemap) {
     }
     if (tokens.current.value === '(') {
         const { parameters, throws, body } = methodDeclaration(type, tokens, imports, typemap);
-        const method = new SourceMethod2(type, modifiers, decl_type, name, parameters, throws, body);
+        const method = new SourceMethod(type, modifiers, annotations, new SourceTypeIdent([], decl_type), name, parameters, throws, body);
         type.methods.push(method);
     } else {
         if (name) {
@@ -336,7 +337,7 @@ function fmc(modifiers, type_variables, type, tokens, imports, typemap) {
                 addproblem(tokens, ParseProblem.Error(tokens.current, `Fields cannot declare type variables`));
             }
             const locals = var_ident_list(modifiers, decl_type, name, tokens, new MethodDeclarations(), type, imports, typemap);
-            const fields = locals.map(l => new SourceField2(type, modifiers, l.type, l.decltoken));
+            const fields = locals.map(l => new SourceField(type, modifiers, new SourceTypeIdent([], l.type), l.decltoken));
             type.fields.push(...fields);
         }
         semicolon(tokens);
@@ -362,6 +363,7 @@ function annotation(tokens, scope, imports, typemap) {
 }
 
 /**
+ * @param {string} package_name
  * @param {SourceType | SourceMC} scope
  * @param {Token[]} modifiers
  * @param {TokenList} tokens 
@@ -369,11 +371,12 @@ function annotation(tokens, scope, imports, typemap) {
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap
  */
-function annotationTypeDeclaration(scope, modifiers, tokens, imports, typemap) {
-    const type = typeDeclaration(scope, modifiers, tokens.current, tokens, imports, typemap);
+function annotationTypeDeclaration(package_name, scope, modifiers, tokens, imports, typemap) {
+    const type = typeDeclaration(package_name, scope, modifiers, tokens.current, tokens, imports, typemap);
 }
     
 /**
+ * @param {string} package_name
  * @param {SourceType | SourceMC} scope
  * @param {Token[]} modifiers
  * @param {Token} kind_token
@@ -381,14 +384,14 @@ function annotationTypeDeclaration(scope, modifiers, tokens, imports, typemap) {
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap
  */
-function typeDeclaration(scope, modifiers, kind_token, tokens, imports, typemap) {
+function typeDeclaration(package_name, scope, modifiers, kind_token, tokens, imports, typemap) {
     let name = tokens.inc();
     if (!tokens.isKind('ident')) {
         name = null;
         addproblem(tokens, ParseProblem.Error(tokens.current, `Type identifier expected`));
         return;
     }
-    const type = new SourceType('', scope, '', modifiers.map(m => m.source), kind_token, name);
+    const type = new SourceType(package_name, scope, '', modifiers.map(m => m.source), kind_token, name, typemap);
     type.typeVariables = tokens.current.value === '<'
         ? typeVariableList(type, tokens, scope, imports, typemap)
         : [];
@@ -516,7 +519,7 @@ function parameterDeclaration(owner, tokens, imports, typemap) {
     if (varargs) {
         type = new ArrayType(type, 1);
     }
-    return new SourceParameter2(modifiers, type, varargs, name_token);
+    return new SourceParameter(modifiers, new SourceTypeIdent([], type), varargs, name_token);
 }
 
 /**
