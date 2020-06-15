@@ -1,4 +1,4 @@
-const { SourceType, SourceMethod, SourceField, SourceConstructor, SourceInitialiser } = require('../source-type');
+const { SourceType, SourceMethod, SourceParameter, SourceField, SourceConstructor, SourceInitialiser } = require('../source-type');
 const { Token } = require('../tokenizer');
 const ParseProblem = require('../parsetypes/parse-problem');
 
@@ -69,6 +69,25 @@ function checkFieldModifiers(field, probs) {
 }
 
 /**
+ * @param {SourceParameter} param
+ * @param {ParseProblem[]} probs 
+ */
+function checkParameterModifiers(param, probs) {
+    // the only permitted modifier is final
+    let has_final = false;
+    param.modifierTokens.forEach(mod => {
+        if (mod.value === 'final') {
+            if (has_final) {
+                probs.push(ParseProblem.Error(mod, `Repeated modifier: final`));
+            }
+            has_final = true;
+            return;
+        }
+        probs.push(ParseProblem.Error(mod, `Parameter declarations cannot be ${mod.value}`));
+    });
+}
+
+/**
  * @param {SourceType} type
  * @param {Map<string,*>} ownertypemods
  * @param {SourceMethod} method 
@@ -77,6 +96,8 @@ function checkFieldModifiers(field, probs) {
 function checkMethodModifiers(type, ownertypemods, method, probs) {
     checkDuplicate(method.modifierTokens, probs);
     checkConflictingAccess(method.modifierTokens, probs);
+
+    method.parameters.forEach(p => checkParameterModifiers(p, probs));
 
     const allmods = new Map(method.modifierTokens.map(m => [m.source, m]));
     const is_interface_kind = /@?interface/.test(type.typeKind);

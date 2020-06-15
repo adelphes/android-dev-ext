@@ -352,7 +352,8 @@ function statement(tokens, mdecls, method, imports, typemap) {
     }
     // modifiers are only allowed on local variable decls
     if (modifiers.length) {
-        s = var_decl(modifiers, tokens, mdecls, method, imports, typemap);
+        const type = typeIdent(tokens, method, imports, typemap);
+        s = var_ident_list(modifiers, type, null, tokens, mdecls, method, imports, typemap)
         addLocals(tokens, mdecls, s);
         semicolon(tokens);
         return s;
@@ -789,7 +790,6 @@ function parameterDeclaration(type_vars, owner, tokens, imports, typemap) {
         modifiers.push(tokens.current);
         tokens.inc();
     }
-    checkLocalModifiers(tokens, modifiers);
     let type_ident = typeIdent(tokens, owner, imports, typemap, { no_array_qualifiers: false, type_vars });
     const varargs = tokens.isValue('...');
     let name_token = tokens.current;
@@ -1148,7 +1148,6 @@ function catchFinallyBlocks(s, tokens, mdecls, method, imports, typemap) {
             mdecls.pushScope();
             let exceptionVar;
             if (catchinfo.types[0] && catchinfo.name) {
-                checkLocalModifiers(tokens, mods);
                 exceptionVar = new Local(mods, catchinfo.name.value, catchinfo.name, catchinfo.types[0], 0);
                 mdecls.locals.push(exceptionVar);
             }
@@ -1361,19 +1360,6 @@ function checkThrowExpression(tokens, throw_expression, typemap) {
 }
 
 /**
- * @param {TokenList} tokens 
- * @param {MethodDeclarations} mdecls
- * @param {Scope} scope 
- * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
- * @returns {Local[]}
- */
-function var_decl(mods, tokens, mdecls, scope, imports, typemap) {
-    const type = typeIdent(tokens, scope, imports, typemap);
-    return var_ident_list(mods, type, null, tokens, mdecls, scope, imports, typemap)
-}
-
-/**
  * 
  * @param {Token[]} mods 
  * @param {SourceTypeIdent} type 
@@ -1385,7 +1371,6 @@ function var_decl(mods, tokens, mdecls, scope, imports, typemap) {
  * @param {Map<string,JavaType>} typemap 
  */
 function var_ident_list(mods, type, first_ident, tokens, mdecls, scope, imports, typemap) {
-    checkLocalModifiers(tokens, mods);
     const new_locals = [];
     for (;;) {
         let name;
@@ -1465,20 +1450,6 @@ function expression_list_or_var_decl(tokens, mdecls, scope, imports, typemap) {
         expressions.push(e);
     }
     return expressions;
-}
-
-
-/**
- * @param {Token[]} mods 
- */
-function checkLocalModifiers(tokens, mods) {
-    for (let i=0; i < mods.length; i++) {
-        if (mods[i].value !== 'final') {
-            addproblem(tokens, ParseProblem.Error(mods[i], `Modifier '${mods[i].source}' cannot be applied to local variable declarations.`));
-        } else if (mods.findIndex(m => m.source === 'final') < i) {
-            addproblem(tokens, ParseProblem.Error(mods[i], `Repeated 'final' modifier.`));
-        }
-    }
 }
 
 /**
