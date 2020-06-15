@@ -1645,19 +1645,13 @@ function checkAssignmentExpression(tokens, variable, op, value) {
         addproblem(tokens, ParseProblem.Error(op, `Invalid assignment: left-hand side is not a variable`));
         return;
     }
-    let is_assignable;
-    // we need to special-case ArrayLiteral because it has no type associated with it
-    if (value instanceof ArrayLiteral) {
-        is_assignable = isArrayAssignable(variable.type, value);
-        if (!is_assignable) {
-            addproblem(tokens, ParseProblem.Error(op, `Array literal expression is not compatible with variable of type '${variable.type.fullyDottedTypeName}'`));
-        }
-        return;
-    }
-
-    is_assignable = isAssignable(variable.type, value);
+    const is_assignable = isAssignable(variable.type, value);
     if (!is_assignable) {
-        addproblem(tokens, ParseProblem.Error(op, `Incompatible types: Expression of type '${value.type.fullyDottedTypeName}' cannot be assigned to a variable of type '${variable.type.fullyDottedTypeName}'`));
+        if (value instanceof ArrayLiteral) {
+            addproblem(tokens, ParseProblem.Error(op, `Array literal expression is not compatible with variable of type '${variable.type.fullyDottedTypeName}'`));
+        } else {
+            addproblem(tokens, ParseProblem.Error(op, `Incompatible types: Expression of type '${value.type.fullyDottedTypeName}' cannot be assigned to a variable of type '${variable.type.fullyDottedTypeName}'`));
+        }
     }
 
     if (value instanceof TernaryValue) {
@@ -1667,35 +1661,20 @@ function checkAssignmentExpression(tokens, variable, op, value) {
 
 /**
  * @param {JavaType} variable_type 
- * @param {ArrayLiteral} value 
+ * @param {ArrayLiteral} arr_literal_value 
  */
-function isArrayAssignable(variable_type, value) {
+function isArrayAssignable(variable_type, arr_literal_value) {
     if (!(variable_type instanceof ArrayType)) {
         return false;
     }
     // empty array literals are compatible with all arrays
-    if (value.elements.length === 0) {
+    if (arr_literal_value.elements.length === 0) {
         return true;
     }
     const required_element_type = variable_type.elementType;
-    for (let i=0; i < value.elements.length; i++) {
-        const element = value.elements[i];
-        let is_assignable;
-        if (required_element_type instanceof ArrayType) {
-            // the element must be another array literal expression or a value with a matching array type
-            if (element instanceof ArrayLiteral) {
-                is_assignable = isArrayAssignable(required_element_type, element);
-            } else {
-                is_assignable = element.variables[0] ? isAssignable(required_element_type, element.variables[0]) : false;
-            }
-        } else {
-            // base type = the element must match the (non-array) type
-            if (element instanceof ArrayLiteral) {
-                is_assignable = false;
-            } else {
-                is_assignable = element.variables[0] ? isAssignable(required_element_type, element.variables[0]) : false;
-            }
-        }
+    for (let i=0; i < arr_literal_value.elements.length; i++) {
+        const element_value = arr_literal_value.elements[i].variables[0];
+        let is_assignable = !!element_value && isAssignable(required_element_type, element_value);
         if (!is_assignable) {
             return false;
         }
@@ -1711,6 +1690,9 @@ function isArrayAssignable(variable_type, value) {
 function isAssignable(type, value) {
     if (value instanceof LiteralNumber) {
         return value.isCompatibleWith(type);
+    }
+    if (value instanceof ArrayLiteral) {
+        return isArrayAssignable(type, value);
     }
 
     return isTypeAssignable(type, value.type);
