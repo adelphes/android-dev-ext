@@ -1,11 +1,6 @@
-const { ModuleBlock } = require('../parser9');
 const ParseProblem = require('../parsetypes/parse-problem');
 const {SourceType, SourceAnnotation} = require('../source-type');
 const {CEIType, Method} = require('java-mti');
-
-function nonAbstractLabel(label) {
-    return label.replace(/\babstract /g, '');
-}
 
 /**
  * @param {SourceType} source_type 
@@ -22,7 +17,7 @@ function checkOverrides(source_type, probs) {
     /** @type {{ann:SourceAnnotation, method:Method, method_id:string}[]} */
     const overriden_methods = [];
     source_type.methods.reduce((arr, method) => {
-        const ann = method.annotations.find(a => /^Override$/.test(a.annotationTypeIdent.type.simpleTypeName));
+        const ann = method.annotations.find(a => a.type.simpleTypeName === 'Override');
         if (ann) {
             arr.push({
                 ann,
@@ -52,17 +47,15 @@ function checkOverrides(source_type, probs) {
 
     overriden_methods.forEach(x => {
         if (!methods.has(x.method_id)) {
-            probs.push(ParseProblem.Error(x.ann.annotationTypeIdent.typeTokens, `${x.method.label} does not override a matching method in any inherited type or interface`));
+            probs.push(ParseProblem.Error(x.ann.annotationTypeIdent.tokens, `${x.method.label} does not override a matching method in any inherited type or interface`));
         }
     })
 }
 
 /**
- * @param {ModuleBlock} mod 
- * @param {*} imports
  * @param {SourceType[]} source_types
  */
-module.exports = function(mod, imports, source_types) {
+module.exports = function(source_types) {
     /** @type {ParseProblem[]} */
     const probs = [];
       

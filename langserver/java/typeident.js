@@ -1,5 +1,5 @@
 const { ArrayType, CEIType, JavaType, PrimitiveType, MethodBase, WildcardType } = require('java-mti');
-const { SourceMethod, SourceConstructor, SourceInitialiser } = require('./source-type');
+const { SourceTypeIdent, SourceMethod, SourceConstructor, SourceInitialiser } = require('./source-type');
 const ResolvedImport = require('./parsetypes/resolved-import');
 const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resolver');
 const { Token } = require('./tokenizer');
@@ -35,9 +35,22 @@ function typeIdentList(tokens, scope, imports, typemap) {
  * @param {boolean} allow_array_qualifiers
  */
 function typeIdent(tokens, scope, imports, typemap, allow_array_qualifiers = true) {
+    tokens.mark();
+    const type = singleTypeIdent(tokens, scope, imports, typemap, allow_array_qualifiers);
+    return new SourceTypeIdent(tokens.markEnd(), type);
+}
+
+/**
+ * @param {TokenList} tokens 
+ * @param {CEIType|MethodBase} scope 
+ * @param {ResolvedImport[]} imports
+ * @param {Map<string,JavaType>} typemap 
+ * @param {boolean} allow_array_qualifiers
+ */
+function singleTypeIdent(tokens, scope, imports, typemap, allow_array_qualifiers = true) {
     /** @type {JavaType[]} */
     let types = [], package_name = '';
-    const start_idx = tokens.idx;
+    tokens.mark();
     switch(tokens.current.kind) {
         case 'ident':
             ({ types, package_name } = resolveTypeOrPackage(tokens.current.value, scope, imports, typemap));
@@ -65,8 +78,9 @@ function typeIdent(tokens, scope, imports, typemap, allow_array_qualifiers = tru
         }
     }
 
+    const type_tokens = tokens.markEnd();
     if (!types[0]) {
-        const anytype = new AnyType(tokens.tokens.slice(start_idx, tokens.idx).map(t => t.source).join('').trim());
+        const anytype = new AnyType(type_tokens.map(t => t.source).join(''));
         types.push(anytype);
     }
 
@@ -104,7 +118,7 @@ function genericTypeArgs(tokens, types, scope, imports, typemap) {
         });
         return;
     }
-    const type_arguments = typeIdentList(tokens, scope, imports, typemap);
+    const type_arguments = typeIdentList(tokens, scope, imports, typemap).map(s => s.resolved);
     types.forEach((t,i,arr) => {
         if (t instanceof CEIType) {
             let specialised = t.specialise(type_arguments);
@@ -141,7 +155,7 @@ function wildcardTypeArgument(tokens, scope, imports, typemap) {
             tokens.inc();
             bound = {
                 kind,
-                type: typeIdent(tokens, scope, imports, typemap),
+                type: singleTypeIdent(tokens, scope, imports, typemap),
             }
             break;
     }

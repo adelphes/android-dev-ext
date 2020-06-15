@@ -1,4 +1,3 @@
-const { ModuleBlock } = require('../parser9');
 const ParseProblem = require('../parsetypes/parse-problem');
 const { SourceType } = require('../source-type');
 const {CEIType} = require('java-mti');
@@ -49,17 +48,15 @@ function checkImplementedInterfaces(source_type, probs) {
             }
         })
         if (missing_methods.length) {
-            probs.push(ParseProblem.Error(source_type.kind_token, `Non-abstract ${source_type.typeKind} '${source_type.fullyDottedRawName}' does not implement the following methods from interface '${intf.fullyDottedRawName}':\n${missing_methods.join('\n')}`));
+            probs.push(ParseProblem.Error(source_type.kind_token, `Non-abstract ${source_type.typeKind} '${source_type.fullyDottedRawName}' does not implement the following methods from interface '${intf.fullyDottedTypeName}':\n${missing_methods.join('\n')}`));
         }
     });
 }
 
 /**
- * @param {ModuleBlock} mod 
- * @param {*} imports
  * @param {SourceType[]} source_types
  */
-module.exports = function(mod, imports, source_types) {
+module.exports = function(source_types) {
     /** @type {ParseProblem[]} */
     const probs = [];
       

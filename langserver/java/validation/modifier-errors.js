@@ -1,8 +1,9 @@
-const { TextBlock, ModuleBlock, FieldBlock, MethodBlock, ConstructorBlock, InitialiserBlock, TypeDeclBlock } = require('../parser9');
+const { SourceType, SourceMethod, SourceField, SourceConstructor, SourceInitialiser } = require('../source-type');
+const { Token } = require('../tokenizer');
 const ParseProblem = require('../parsetypes/parse-problem');
 
 /**
- * @param {TextBlock[]} mods 
+ * @param {Token[]} mods 
  * @param {ParseProblem[]} probs 
  */
 function checkDuplicate(mods, probs) {
@@ -21,7 +22,7 @@ function checkDuplicate(mods, probs) {
 }
 
 /**
- * @param {TextBlock[]} mods 
+ * @param {Token[]} mods 
  * @param {ParseProblem[]} probs 
  */
 function checkConflictingAccess(mods, probs) {
@@ -49,13 +50,13 @@ function checkConflictingAccess(mods, probs) {
 }
 
 /**
- * @param {FieldBlock} field 
+ * @param {SourceField} field 
  * @param {ParseProblem[]} probs 
  */
 function checkFieldModifiers(field, probs) {
-    checkDuplicate(field.modifiers, probs);
-    checkConflictingAccess(field.modifiers, probs);
-    for (let mod of field.modifiers) {
+    checkDuplicate(field.modifierTokens, probs);
+    checkConflictingAccess(field.modifierTokens, probs);
+    for (let mod of field.modifierTokens) {
         switch (mod.source) {
             case 'abstract':
                 probs.push(ParseProblem.Error(mod, 'Field declarations cannot be abstract'));
@@ -68,18 +69,18 @@ function checkFieldModifiers(field, probs) {
 }
 
 /**
- * @param {TypeDeclBlock} type
+ * @param {SourceType} type
  * @param {Map<string,*>} ownertypemods
- * @param {MethodBlock} method 
+ * @param {SourceMethod} method 
  * @param {ParseProblem[]} probs 
  */
 function checkMethodModifiers(type, ownertypemods, method, probs) {
-    checkDuplicate(method.modifiers, probs);
-    checkConflictingAccess(method.modifiers, probs);
+    checkDuplicate(method.modifierTokens, probs);
+    checkConflictingAccess(method.modifierTokens, probs);
 
-    const allmods = new Map(method.modifiers.map(m => [m.source, m]));
-    const is_interface_kind = /@?interface/.test(type.kind());
-    const has_body = method.body().simplified.startsWith('B');
+    const allmods = new Map(method.modifierTokens.map(m => [m.source, m]));
+    const is_interface_kind = /@?interface/.test(type.typeKind);
+    const has_body = method.hasImplementation;
 
     if (allmods.has('abstract') && allmods.has('final')) {
         probs.push(ParseProblem.Error(allmods.get('abstract'), 'Method declarations cannot be abstract and final'));
@@ -91,77 +92,76 @@ function checkMethodModifiers(type, ownertypemods, method, probs) {
         probs.push(ParseProblem.Error(allmods.get('abstract'), 'Method declarations marked as abstract cannot have a method body'));
     }
     if (!is_interface_kind && !allmods.has('abstract') && !allmods.has('native') && !has_body) {
-        probs.push(ParseProblem.Error(method, `Method '${method.name}' must have an implementation or be defined as abstract or native`));
+        probs.push(ParseProblem.Error(method.nameToken, `Method '${method.name}' must have an implementation or be defined as abstract or native`));
     }
     if (!is_interface_kind && allmods.has('abstract') && !ownertypemods.has('abstract')) {
-        probs.push(ParseProblem.Error(method, `Method '${method.name}' cannot be declared abstract inside a non-abstract type`));
+        probs.push(ParseProblem.Error(allmods.get('abstract'), `Method '${method.name}' cannot be declared abstract inside a non-abstract type`));
     }
     if (is_interface_kind && has_body && !allmods.has('default')) {
-        probs.push(ParseProblem.Error(method, `Non-default interface methods cannot have a method body`));
+        probs.push(ParseProblem.Error(method.body[0], `Non-default interface methods cannot have a method body`));
     }
     if (allmods.has('native') && has_body) {
         probs.push(ParseProblem.Error(allmods.get('native'), 'Method declarations marked as native cannot have a method body'));
     }
     // JLS8
-    if (type.kind() !== 'interface' && allmods.has('default')) {
-        probs.push(ParseProblem.Error(method, `Default method declarations are only allowed inside interfaces`));
+    if (type.typeKind !== 'interface' && allmods.has('default')) {
+        probs.push(ParseProblem.Error(allmods.get('default'), `Default method declarations are only allowed inside interfaces`));
     }
     if (allmods.has('default') && !has_body) {
-        probs.push(ParseProblem.Error(method, `Default method declarations must have an implementation`));
+        probs.push(ParseProblem.Error(allmods.get('default'), `Default method declarations must have an implementation`));
     }
 }
 
 /**
- * @param {ConstructorBlock} field 
+ * @param {SourceConstructor} field 
  * @param {ParseProblem[]} probs 
  */
 function checkConstructorModifiers(field, probs) {
 }
 
 /**
- * @param {InitialiserBlock} initialiser 
+ * @param {SourceInitialiser} initialiser 
  * @param {ParseProblem[]} probs 
  */
 function checkInitialiserModifiers(initialiser, probs) {
 }
 
 /**
- * @param {TypeDeclBlock} type 
+ * @param {SourceType} type 
  * @param {ParseProblem[]} probs 
  */
 function checkTypeModifiers(type, probs) {
-    const typemods = new Map(type.modifiers.map(m => [m.source, m]));
-    checkDuplicate(type.modifiers, probs);
+    const typemods = new Map(type.modifierTokens.map(m => [m.source, m]));
+    checkDuplicate(type.modifierTokens, probs);
 
-    if (type.kind() === 'interface' && typemods.has('final')) {
+    if (type.typeKind === 'interface' && typemods.has('final')) {
         probs.push(ParseProblem.Error(typemods.get('final'), 'Interface declarations cannot be marked as final'));
     }
-    if (type.kind() === 'enum' && typemods.has('abstract')) {
+    if (type.typeKind === 'enum' && typemods.has('abstract')) {
         probs.push(ParseProblem.Error(typemods.get('abstract'), 'Enum declarations cannot be marked as abstract'));
     }
-    // top-level types cannot be private, protected or static
-    for (let mod of ['private','protected', 'static']) {
-        if (!type.outer_type && typemods.has(mod)) {
-            probs.push(ParseProblem.Error(typemods.get(mod), `Top-level declarations cannot be marked as ${mod}`));
+    if (/[$]/.test(type._rawShortSignature)) {
+        checkConflictingAccess(type.modifierTokens, probs);
+    } else {
+        // top-level types cannot be private, protected or static
+        for (let mod of ['private','protected', 'static']) {
+            if (typemods.has(mod)) {
+                probs.push(ParseProblem.Error(typemods.get(mod), `Top-level declarations cannot be marked as ${mod}`));
+            }
         }
-    }
-    if (type.outer_type) {
-        checkConflictingAccess(type.modifiers, probs);
     }
 
     type.fields.forEach(field => checkFieldModifiers(field, probs));
     type.methods.forEach(method => checkMethodModifiers(type, typemods, method, probs));
     type.constructors.forEach(ctr => checkConstructorModifiers(ctr, probs));
-    //type.initialisers.forEach(initer => checkInitModifiers(initer, probs));
-    // check enclosed types
-    type.types.forEach(type => checkTypeModifiers(type, probs));
+    type.initers.forEach(initer => checkInitialiserModifiers(initer, probs));
 }
 
 /**
- * @param {ModuleBlock} mod 
+ * @param {SourceType[]} types 
  */
-module.exports = function(mod) {
+module.exports = function(types) {
     const probs = [];
-    mod.types.forEach(type => checkTypeModifiers(type, probs));
+    types.forEach(type => checkTypeModifiers(type, probs));
     return probs;
 }

@@ -20,7 +20,8 @@ const { TextDocument } = require('vscode-languageserver-textdocument');
 const { loadAndroidLibrary, JavaType } = require('java-mti');
 
 const { ParseProblem } = require('./java/parser');
-const { parse, ModuleBlock } = require('./java/parser9');
+const { parse } = require('./java/body-parser3');
+const { SourceUnit } = require('./java/source-type');
 const { validate } = require('./java/validater');
 
 /**
@@ -42,11 +43,14 @@ let connection = createConnection(ProposedFeatures.all);
 
 ///** @type {LiveParseInfo[]} */
 //const liveParsers = [];
-/** @type {{content: string, uri: string, result: ModuleBlock, positionAt:(n) => Position, indexAt:(p:Position) => number}} */
+/** @type {{content: string, uri: string, result: SourceUnit, positionAt:(n) => Position, indexAt:(p:Position) => number}} */
 let parsed = null;
 
 function reparse(uri, content) {
-    const result = parse(content);
+    if (androidLibrary instanceof Promise) {
+        return;
+    }
+    const result = parse(content, new Map(androidLibrary));
     parsed = {
         content,
         uri,

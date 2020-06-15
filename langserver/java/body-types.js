@@ -15,6 +15,8 @@ class ResolvedIdent {
         this.methods = methods;
         this.types = types;
         this.package_name = package_name;
+        /** @type {Token[]} */
+        this.tokens = [];
     }
 }
 
@@ -62,16 +64,22 @@ class Local {
      * @param {Token[]} modifiers 
      * @param {string} name 
      * @param {Token} decltoken 
-     * @param {JavaType} type 
-     * @param {JavaType} type 
+     * @param {import('./source-type').SourceTypeIdent} typeIdent 
      * @param {number} postnamearrdims 
      */
-    constructor(modifiers, name, decltoken, type, postnamearrdims) {
+    constructor(modifiers, name, decltoken, typeIdent, postnamearrdims) {
         this.finalToken = modifiers.find(m => m.source === 'final') || null;
         this.name = name;
         this.decltoken = decltoken;
-        this.type = postnamearrdims > 0 ? new ArrayType(type, postnamearrdims): type;
+        if (postnamearrdims > 0) {
+            typeIdent.resolved = new ArrayType(typeIdent.resolved, postnamearrdims);
+        }
+        this.typeIdent = typeIdent;
         this.init = null;
+    }
+
+    get type() {
+        return this.typeIdent.resolved;
     }
 }
 

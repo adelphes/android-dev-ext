@@ -1,26 +1,22 @@
-const { ModuleBlock } = require('../parser9');
+const { SourceType, SourceTypeIdent } = require('../source-type');
 const ParseProblem = require('../parsetypes/parse-problem');
-const {SourceType} = require('../source-type');
-const {Token} = require('../tokenizer');
-const {JavaType} = require('java-mti');
 
 /**
- * @param {JavaType} type 
+ * @param {SourceTypeIdent} type 
  * @param {boolean} is_return_type
- * @param {Token[]} typeTokens
  * @param {ParseProblem[]} probs
  */
-function checkType(type, is_return_type, typeTokens, probs) {
-    const typesig = type.typeSignature;
+function checkType(type, is_return_type, probs) {
+    const typesig = type.resolved.typeSignature;
     if (/^\[*U/.test(typesig)) {
-        probs.push(ParseProblem.Error(typeTokens, `Unresolved type '${type.label}'`))
+        probs.push(ParseProblem.Error(type.tokens, `Unresolved type '${type.resolved.label}'`))
         return;
     }
     if (typesig === 'V' && !is_return_type) {
-        probs.push(ParseProblem.Error(typeTokens, `'void' is not a valid type for variables`))
+        probs.push(ParseProblem.Error(type.tokens, `'void' is not a valid type for variables`))
     }
     if (/^\[+V/.test(typesig)) {
-        probs.push(ParseProblem.Error(typeTokens, `Illegal type: '${type.label}'`))
+        probs.push(ParseProblem.Error(type.tokens, `Illegal type: '${type.resolved.label}'`))
     }
 }
 
@@ -29,22 +25,25 @@ function checkType(type, is_return_type, typeTokens, probs) {
  * @param {*} probs 
  */
 function checkInvalidTypes(type, probs) {
-    type.fields.forEach(f => checkType(f.type, false, f.fieldType.typeTokens, probs));
+    type.fields.forEach(f => checkType(f.fieldTypeIdent, false, probs));
     type.methods.forEach(m => {
-        checkType(m.returnType, true, m.methodTypeIdent.typeTokens, probs);
+        checkType(m.returnTypeIdent, true, probs);
         m.parameters.forEach(p => {
-            checkType(p.type, false, p.paramTypeIdent.typeTokens, probs);
+            checkType(p.paramTypeIdent, false, probs);
+        })
+    })
+    type.constructors.forEach(c => {
+        c.parameters.forEach(p => {
+            checkType(p.paramTypeIdent, false, probs);
         })
     })
 }
 
 
 /**
- * @param {ModuleBlock} mod 
- * @param {*} imports
  * @param {SourceType[]} source_types
  */
-module.exports = function(mod, imports, source_types) {
+module.exports = function(source_types) {
     /** @type {ParseProblem[]} */
     const probs = [];
       

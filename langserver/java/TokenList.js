@@ -15,6 +15,7 @@ class TokenList {
         this.inc();
         /** @type {ParseProblem[]} */
         this.problems = [];
+        this.marks = [];
     }
 
     inc() {
@@ -24,6 +25,19 @@ class TokenList {
                 return this.current;
             }
         }
+    }
+    
+    mark() {
+        this.marks.unshift(this.idx);
+    }
+
+    /**
+     * Returns the array of tokens from the last mark() point, trimming any trailing whitespace tokens
+     */
+    markEnd() {
+        let i = this.idx;
+        while (this.tokens[--i].kind === 'wsc') { }
+        return this.tokens.slice(this.marks.shift(), i + 1);
     }
 
     /**
@@ -44,15 +58,24 @@ class TokenList {
     }
 
     /**
+     * Check if the current token matches the specified value, returns and consumes it
+     * @param {string} value
+     */
+    getIfValue(value) {
+        const token = this.current;
+        if (token && token.value === value) {
+            this.inc();
+            return token;
+        }
+        return null;
+    }
+
+    /**
      * Check if the current token matches the specified value and consumes it
      * @param {string} value
      */
     isValue(value) {
-        if (this.current && this.current.value === value) {
-            this.inc();
-            return true;
-        }
-        return false;
+        return this.getIfValue(value) !== null;
     }
 
     /**

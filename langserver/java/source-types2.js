@@ -25,16 +25,18 @@ class SourceType extends CEIType {
      * @param {string} packageName
      * @param {SourceType|SourceMethod|SourceConstructor|SourceInitialiser} outer_scope
      * @param {string} docs 
-     * @param {string[]} modifiers 
+     * @param {Token[]} modifiers 
+     * @param {string} typeKind 
      * @param {Token} kind_token 
      * @param {Token} name_token 
      */
-    constructor(packageName, outer_scope, docs, modifiers, kind_token, name_token, typemap) {
+    constructor(packageName, outer_scope, docs, modifiers, typeKind, kind_token, name_token, typemap) {
         // @ts-ignore
-        super(generateShortSignature(outer_scope || packageName, name_token), kind_token.source, modifiers, docs);
+        super(generateShortSignature(outer_scope || packageName, name_token), typeKind, modifiers.map(m => m.source), docs);
         super.packageName = packageName;
+        this.modifierTokens = modifiers;
         this.kind_token = kind_token;
-        this.name_token = name_token;
+        this.nameToken = name_token;
         this.scope = outer_scope;
         this.typemap = typemap;
         /**
@@ -57,7 +59,7 @@ class SourceType extends CEIType {
     }
 
     get supers() {
-        const supertypes = [...this.extends_types, ...this.implements_types].map(x => x.type);
+        const supertypes = [...this.extends_types, ...this.implements_types].map(x => x.resolved);
         if (this.typeKind === 'enum') {
             /** @type {CEIType} */
             const enumtype = this.typemap.get('java/lang/Enum');
@@ -76,8 +78,8 @@ class SourceTypeIdent {
      * @param {JavaType} type 
      */
     constructor(tokens, type) {
-        this.typeTokens = tokens;
-        this.type = type;
+        this.tokens = tokens;
+        this.resolved = type;
     }
 }
 
@@ -85,13 +87,14 @@ class SourceField extends Field {
     /**
      * @param {SourceType} owner 
      * @param {Token[]} modifiers 
-     * @param {SourceTypeIdent} field_type 
+     * @param {SourceTypeIdent} field_type_ident 
      * @param {Token} name_token 
      */
-    constructor(owner, modifiers, field_type, name_token) {
+    constructor(owner, modifiers, field_type_ident, name_token) {
         super(modifiers.map(m => m.value), '');
         this.owner = owner;
-        this.fieldType = field_type;
+        this.modifierTokens = modifiers;
+        this.fieldTypeIdent = field_type_ident;
         this.nameToken = name_token;
     }
 
@@ -100,7 +103,7 @@ class SourceField extends Field {
     }
 
     get type() {
-        return this.fieldType.type;
+        return this.fieldTypeIdent.resolved;
     }
 }
 
@@ -115,6 +118,7 @@ class SourceConstructor extends Constructor {
     constructor(owner, modifiers, parameters, throws, body) {
         super(owner, modifiers.map(m => m.value), '');
         this.owner = owner;
+        this.modifierTokens = modifiers;
         this.sourceParameters = parameters;
         this.throws = throws;
         this.body = body;
@@ -158,7 +162,9 @@ class SourceMethod extends Method {
         super(owner, name_token ? name_token.value : '', modifiers.map(m => m.value), '');
         this.annotations = annotations;
         this.owner = owner;
-        this.methodTypeIdent = method_type_ident;
+        this.modifierTokens = modifiers;
+        this.returnTypeIdent = method_type_ident;
+        this.nameToken = name_token;
         this.sourceParameters = parameters;
         this.throws = throws;
         this.body = body;
@@ -183,7 +189,7 @@ class SourceMethod extends Method {
      * @returns {JavaType}
      */
     get returnType() {
-        return this.methodTypeIdent.type;
+        return this.returnTypeIdent.resolved;
     }
 }
 
@@ -197,6 +203,7 @@ class SourceInitialiser extends MethodBase {
         super(owner, modifiers.map(m => m.value), '');
         /** @type {SourceType} */
         this.owner = owner;
+        this.modifierTokens = modifiers;
         this.body = body;
     }
 
@@ -220,10 +227,14 @@ class SourceParameter extends Parameter {
      * @param {Token} name_token 
      */
     constructor(modifiers, typeident, varargs, name_token) {
-        super(name_token ? name_token.value : '', typeident.type, varargs);
-        this.name_token = name_token;
-        this.modifiers = modifiers;
+        super(name_token ? name_token.value : '', typeident.resolved, varargs);
+        this.nameToken = name_token;
+        this.modifierTokens = modifiers;
         this.paramTypeIdent = typeident;
+    }
+
+    get type() {
+        return this.paramTypeIdent.resolved;
     }
 }
 
@@ -234,6 +245,58 @@ class SourceAnnotation {
     constructor(typeident) {
         this.annotationTypeIdent = typeident;
     }
+
+    get type() {
+        return this.annotationTypeIdent.resolved;
+    }
+}
+
+class SourcePackage {
+    /**
+     * @param {Token[]} tokens 
+     * @param {string} name 
+     */
+    constructor(tokens, name) {
+        this.tokens = tokens;
+        this.name = name;
+    }
+}
+
+class SourceImport {
+
+    /**
+     * @param {Token[]} tokens 
+     * @param {Token[]} name_tokens 
+     * @param {string} pkg_name 
+     * @param {Token} static_token 
+     * @param {Token} asterisk_token 
+     * @param {import('./parsetypes/resolved-import')} resolved 
+     */
+    constructor(tokens, name_tokens, pkg_name, static_token, asterisk_token, resolved) {
+        this.tokens = tokens;
+        this.nameTokens = name_tokens;
+        this.package_name = pkg_name;
+        this.staticToken = static_token;
+        this.asteriskToken = asterisk_token;
+        this.resolved = resolved;
+    }
+
+    get isDemandLoad() {
+        return !!this.asteriskToken;
+    }
+
+    get isStatic() {
+        return !!this.staticToken;
+    }
+}
+
+class SourceUnit {
+    /** @type {SourcePackage} */
+    package_ = null;
+    /** @type {SourceImport[]} */
+    imports = [];
+    /** @type {SourceType[]} */
+    types = [];
 }
 
 exports.SourceType = SourceType;
@@ -244,3 +307,6 @@ exports.SourceParameter = SourceParameter;
 exports.SourceConstructor = SourceConstructor;
 exports.SourceInitialiser = SourceInitialiser;
 exports.SourceAnnotation = SourceAnnotation;
+exports.SourceUnit = SourceUnit;
+exports.SourcePackage = SourcePackage;
+exports.SourceImport = SourceImport;

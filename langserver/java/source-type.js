@@ -308,4 +308,6 @@ exports.SourceConstructor = source_types.SourceConstructor;
 exports.DefaultConstructor = DefaultConstructor;
 exports.SourceInitialiser = source_types.SourceInitialiser;
 exports.SourceAnnotation = source_types.SourceAnnotation;
-exports.ResolvableType = ResolvableType;
+exports.SourceUnit = source_types.SourceUnit;
+exports.SourcePackage = source_types.SourcePackage;
+exports.SourceImport = source_types.SourceImport;

@@ -1,16 +1,16 @@
-const { ModuleBlock } = require('../parser9');
+const { SourceUnit } = require('../source-type');
 const ParseProblem = require('../parsetypes/parse-problem');
 
 /**
- * @param {ModuleBlock} mod 
- * @param {{unresolved:*[]}} imports
+ * @param {SourceUnit} unit
  */
-module.exports = function(mod, imports) {
+module.exports = function(mod, unit) {
     /** @type {ParseProblem[]} */
     const probs = [];
       
-    imports.unresolved.forEach(import_tokens => {
-        probs.push(ParseProblem.Warning(import_tokens, `Unresolved import: ${import_tokens.name}`));
+    unit.imports.forEach(i => {
+        if (!i.resolved)
+            probs.push(ParseProblem.Warning(i.nameTokens, `Unresolved import: ${i.package_name}`));
     })
       
     return probs;

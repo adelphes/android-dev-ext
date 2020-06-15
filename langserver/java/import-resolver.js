@@ -1,3 +1,4 @@
+
 const { ImportBlock } = require('./parser9');
 const ResolvedImport = require('./parsetypes/resolved-import');
 
@@ -27,6 +28,25 @@ function fetchImportedTypes(typenames, dotted_import, demandload) {
  */
 function resolveImportTypes(typenames, import_decl) {
     return fetchImportedTypes(typenames, import_decl.name, import_decl.isDemandLoad);
+}
+
+/**
+ * Resolve a single parsed import
+ * 
+ * @param {Map<string, import('java-mti').JavaType>} typemap
+ * @param {string} dotted_name
+ * @param {boolean} is_static
+ * @param {boolean} on_demand
+ * @param {'owner-package'|'import'|'implicit-import'} import_kind
+ */
+function resolveSingleImport(typemap, dotted_name, is_static, on_demand, import_kind) {
+    // construct the list of typenames
+    const typenames = [...typemap.keys()].join('\n');
+    const matches = fetchImportedTypes(typenames, dotted_name, on_demand);
+    if (matches) {
+        return new ResolvedImport(null, matches, typemap, import_kind);
+    }
+    return null;
 }
 
 /**
@@ -106,5 +126,6 @@ function resolveImports(androidLibrary, sourceTypes, imports, package_name, impl
 
 module.exports = {
     resolveImports,
+    resolveSingleImport,
     ResolvedImport,
 }
