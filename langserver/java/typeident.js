@@ -1,4 +1,4 @@
-const { ArrayType, CEIType, JavaType, PrimitiveType, MethodBase, WildcardType } = require('java-mti');
+const { ArrayType, CEIType, JavaType, PrimitiveType, MethodBase, WildcardType, TypeVariable } = require('java-mti');
 const { SourceTypeIdent, SourceMethod, SourceConstructor, SourceInitialiser } = require('./source-type');
 const ResolvedImport = require('./parsetypes/resolved-import');
 const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resolver');
@@ -32,11 +32,11 @@ function typeIdentList(tokens, scope, imports, typemap) {
  * @param {CEIType|MethodBase} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
- * @param {boolean} allow_array_qualifiers
+ * @param {{no_array_qualifiers:boolean, type_vars:TypeVariable[]}} [opts]
  */
-function typeIdent(tokens, scope, imports, typemap, allow_array_qualifiers = true) {
+function typeIdent(tokens, scope, imports, typemap, opts) {
     tokens.mark();
-    const type = singleTypeIdent(tokens, scope, imports, typemap, allow_array_qualifiers);
+    const type = singleTypeIdent(tokens, scope, imports, typemap, opts);
     return new SourceTypeIdent(tokens.markEnd(), type);
 }
 
@@ -45,15 +45,15 @@ function typeIdent(tokens, scope, imports, typemap, allow_array_qualifiers = tru
  * @param {CEIType|MethodBase} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
- * @param {boolean} allow_array_qualifiers
+ * @param {{no_array_qualifiers:boolean, type_vars: TypeVariable[]}} [opts]
  */
-function singleTypeIdent(tokens, scope, imports, typemap, allow_array_qualifiers = true) {
+function singleTypeIdent(tokens, scope, imports, typemap, opts) {
     /** @type {JavaType[]} */
     let types = [], package_name = '';
     tokens.mark();
     switch(tokens.current.kind) {
         case 'ident':
-            ({ types, package_name } = resolveTypeOrPackage(tokens.current.value, scope, imports, typemap));
+            ({ types, package_name } = resolveTypeOrPackage(tokens.current.value, opts ? opts.type_vars : [], scope, imports, typemap));
             break;
         case 'primitive-type':
             types.push(PrimitiveType.fromName(tokens.current.value));
@@ -84,7 +84,9 @@ function singleTypeIdent(tokens, scope, imports, typemap, allow_array_qualifiers
         types.push(anytype);
     }
 
-    if (allow_array_qualifiers && tokens.isValue('[')) {
+    // allow array qualifiers unless specifically disabled
+    const allow_array_qualifiers = !opts || !opts.no_array_qualifiers;
+    if ( allow_array_qualifiers && tokens.isValue('[')) {
         let arrdims = 0;
         for(;;) {
             arrdims++;

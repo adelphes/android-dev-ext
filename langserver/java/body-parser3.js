@@ -554,19 +554,19 @@ function typeBody(type, tokens, owner, imports, typemap) {
 /**
  * @param {Token[]} modifiers 
  * @param {SourceAnnotation[]} annotations 
- * @param {TypeVariable[]} type_variables
+ * @param {TypeVariable[]} type_vars
  * @param {SourceType} type 
  * @param {TokenList} tokens 
  * @param {ResolvedImport[]} imports 
  * @param {Map<string,JavaType>} typemap 
  */
-function fmc(modifiers, annotations, type_variables, type, tokens, imports, typemap) {
-    let decl_type_ident = typeIdent(tokens, type, imports, typemap);
+function fmc(modifiers, annotations, type_vars, type, tokens, imports, typemap) {
+    let decl_type_ident = typeIdent(tokens, type, imports, typemap, { no_array_qualifiers: false, type_vars });
     if (decl_type_ident.resolved.rawTypeSignature === type.rawTypeSignature) {
         if (tokens.current.value === '(') {
             // constructor
-            const { parameters, throws, body } = methodDeclaration(type, tokens, imports, typemap);
-            const ctr = new SourceConstructor(type, modifiers, parameters, throws, body);
+            const { parameters, throws, body } = methodDeclaration(type_vars, type, tokens, imports, typemap);
+            const ctr = new SourceConstructor(type, type_vars, modifiers, parameters, throws, body);
             type.constructors.push(ctr);
             return;
         }
@@ -577,15 +577,15 @@ function fmc(modifiers, annotations, type_variables, type, tokens, imports, type
         addproblem(tokens, ParseProblem.Error(tokens.current, `Identifier expected`))
     }
     if (tokens.current.value === '(') {
-        const { postnamearrdims, parameters, throws, body } = methodDeclaration(type, tokens, imports, typemap);
+        const { postnamearrdims, parameters, throws, body } = methodDeclaration(type_vars, type, tokens, imports, typemap);
         if (postnamearrdims > 0) {
             decl_type_ident.resolved = new ArrayType(decl_type_ident.resolved, postnamearrdims);
         }
-        const method = new SourceMethod(type, modifiers, annotations, decl_type_ident, name, parameters, throws, body);
+        const method = new SourceMethod(type, type_vars, modifiers, annotations, decl_type_ident, name, parameters, throws, body);
         type.methods.push(method);
     } else {
         if (name) {
-            if (type_variables.length) {
+            if (type_vars.length) {
                 addproblem(tokens, ParseProblem.Error(tokens.current, `Fields cannot declare type variables`));
             }
             const locals = var_ident_list(modifiers, decl_type_ident, name, tokens, new MethodDeclarations(), type, imports, typemap);
@@ -641,7 +641,7 @@ function annotation(tokens, scope, imports, typemap) {
         addproblem(tokens, ParseProblem.Error(tokens.current, `Type identifier expected`));
         return;
     }
-    let annotation_type = typeIdent(tokens, scope, imports, typemap, false);
+    let annotation_type = typeIdent(tokens, scope, imports, typemap, {no_array_qualifiers: true, type_vars:[]});
     if (tokens.isValue('(')) {
         if (!tokens.isValue(')')) {
             expressionList(tokens, new MethodDeclarations(), scope, imports, typemap);
@@ -729,17 +729,18 @@ function typeVariableList(owner, tokens, scope, imports, typemap) {
 
 
 /**
+ * @param {TypeVariable[]} type_vars
  * @param {SourceType} owner 
  * @param {TokenList} tokens 
  * @param {ResolvedImport[]} imports 
  * @param {Map<string,JavaType>} typemap 
  */
-function methodDeclaration(owner, tokens, imports, typemap) {
+function methodDeclaration(type_vars, owner, tokens, imports, typemap) {
     tokens.expectValue('(');
     let parameters = [], throws = [], postnamearrdims = 0, body = null;
     if (!tokens.isValue(')')) {
         for(;;) {
-            const p = parameterDeclaration(owner, tokens, imports, typemap);
+            const p = parameterDeclaration(type_vars, owner, tokens, imports, typemap);
             parameters.push(p);
             if (tokens.isValue(',')) {
                 continue;
@@ -767,19 +768,20 @@ function methodDeclaration(owner, tokens, imports, typemap) {
 }
 
 /**
+ * @param {TypeVariable[]} type_vars 
  * @param {SourceType} owner 
  * @param {TokenList} tokens 
  * @param {ResolvedImport[]} imports 
  * @param {Map<string,JavaType>} typemap 
  */
-function parameterDeclaration(owner, tokens, imports, typemap) {
+function parameterDeclaration(type_vars, owner, tokens, imports, typemap) {
     const modifiers = [];
     while (tokens.current.kind === 'modifier') {
         modifiers.push(tokens.current);
         tokens.inc();
     }
     checkLocalModifiers(tokens, modifiers);
-    let type_ident = typeIdent(tokens, owner, imports, typemap);
+    let type_ident = typeIdent(tokens, owner, imports, typemap, { no_array_qualifiers: false, type_vars });
     const varargs = tokens.isValue('...');
     let name_token = tokens.current;
     if (!tokens.isKind('ident')) {
@@ -2353,7 +2355,7 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
 function newTerm(tokens, mdecls, scope, imports, typemap) {
     tokens.expectValue('new');
     const type_start_token = tokens.idx;
-    const { resolved: ctr_type } = typeIdent(tokens, scope, imports, typemap, false);
+    const { resolved: ctr_type } = typeIdent(tokens, scope, imports, typemap, {no_array_qualifiers:true, type_vars:[]});
     if (ctr_type instanceof AnyType) {
         const toks = tokens.tokens.slice(type_start_token, tokens.idx);
         addproblem(tokens, ParseProblem.Error(toks, `Unresolved type: '${toks.map(t => t.source).join('')}'`));
@@ -2843,7 +2845,7 @@ function findIdentifier(ident, mdecls, scope, imports, typemap) {
     if (type) {
         matches.types = [type];
     } else {
-        const { types, package_name } = resolveTypeOrPackage(ident, scope, imports, typemap);
+        const { types, package_name } = resolveTypeOrPackage(ident, [], scope, imports, typemap);
         matches.types = types;
         matches.package_name = package_name;
     }

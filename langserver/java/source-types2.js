@@ -1,4 +1,4 @@
-const { CEIType, JavaType, PrimitiveType, Field, Method, MethodBase, Constructor, Parameter } = require('java-mti');
+const { CEIType, JavaType, PrimitiveType, Field, Method, MethodBase, Constructor, Parameter, TypeVariable } = require('java-mti');
 const { Token } = require('./tokenizer');
 
 /**
@@ -127,14 +127,16 @@ class SourceField extends Field {
 class SourceConstructor extends Constructor {
     /**
      * @param {SourceType} owner 
+     * @param {TypeVariable[]} type_vars 
      * @param {Token[]} modifiers 
      * @param {SourceParameter[]} parameters 
      * @param {JavaType[]} throws 
      * @param {Token[]} body 
      */
-    constructor(owner, modifiers, parameters, throws, body) {
+    constructor(owner, type_vars, modifiers, parameters, throws, body) {
         super(owner, modifiers.map(m => m.value), '');
         this.owner = owner;
+        this.typeVars = type_vars;
         this.modifierTokens = modifiers;
         this.sourceParameters = parameters;
         this.throws = throws;
@@ -162,11 +164,16 @@ class SourceConstructor extends Constructor {
     get returnType() {
         return this.owner;
     }
+
+    get typeVariables() {
+        return this.typeVars;
+    }
 }
 
 class SourceMethod extends Method {
     /**
      * @param {SourceType} owner 
+     * @param {TypeVariable[]} type_vars 
      * @param {Token[]} modifiers 
      * @param {SourceAnnotation[]} annotations
      * @param {SourceTypeIdent} method_type_ident 
@@ -175,10 +182,11 @@ class SourceMethod extends Method {
      * @param {JavaType[]} throws 
      * @param {Token[]} body 
      */
-    constructor(owner, modifiers, annotations, method_type_ident, name_token, parameters, throws, body) {
+    constructor(owner, type_vars, modifiers, annotations, method_type_ident, name_token, parameters, throws, body) {
         super(owner, name_token ? name_token.value : '', modifiers.map(m => m.value), '');
         this.annotations = annotations;
         this.owner = owner;
+        this.typeVars = type_vars;
         this.modifierTokens = modifiers;
         this.returnTypeIdent = method_type_ident;
         this.nameToken = name_token;
@@ -202,11 +210,12 @@ class SourceMethod extends Method {
         return this.sourceParameters;
     }
 
-    /**
-     * @returns {JavaType}
-     */
     get returnType() {
         return this.returnTypeIdent.resolved;
+    }
+
+    get typeVariables() {
+        return this.typeVars;
     }
 }
 

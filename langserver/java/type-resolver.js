@@ -1,7 +1,7 @@
 /**
  * @typedef {Map<string,JavaType>} TypeMap
  */
-const { JavaType, PrimitiveType, ArrayType, CEIType, MethodBase } = require('java-mti');
+const { JavaType, PrimitiveType, ArrayType, CEIType, MethodBase, TypeVariable } = require('java-mti');
 const { ResolvedImport } = require('./import-resolver');
 const ResolvedType = require('./parsetypes/resolved-type');
 
@@ -260,15 +260,21 @@ function resolveTypeIdents(types, fully_qualified_scope, resolved_imports, typem
 /**
  * 
  * @param {string} ident 
+ * @param {TypeVariable[]} type_variables 
  * @param {CEIType|MethodBase} scope 
  * @param {ResolvedImport[]} imports 
  * @param {Map<string,JavaType>} typemap 
  */
-function resolveTypeOrPackage(ident, scope, imports, typemap) {
+function resolveTypeOrPackage(ident, type_variables, scope, imports, typemap) {
     const types = [];
     let package_name = '';
 
-    if (scope instanceof MethodBase) {
+    const tv = type_variables.find(tv => tv.name === ident);
+    if (tv) {
+        types.push(tv.type);
+    }
+
+    if (!types[0] && scope instanceof MethodBase) {
         // is it a type variable in the current scope
         const tv = scope.typeVariables.find(tv => tv.name === ident);
         if (tv) {
@@ -276,7 +282,7 @@ function resolveTypeOrPackage(ident, scope, imports, typemap) {
         }
     }
 
-    if (scope) {
+    if (!types[0] && scope) {
         // is it an enclosed type of the currently scoped type or any outer type
         const scoped_type = scope instanceof CEIType ? scope : scope.owner;
         const scopes = scoped_type.shortSignature.split('$');
@@ -293,7 +299,7 @@ function resolveTypeOrPackage(ident, scope, imports, typemap) {
         }
     }
 
-    if (scope instanceof CEIType) {
+    if (!types[0] && scope instanceof CEIType) {
         // is it a type variable of the currently scoped type
         const tv = scope.typeVariables.find(tv => tv.name === ident);
         if (tv) {
