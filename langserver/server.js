@@ -43,7 +43,7 @@ let connection = createConnection(ProposedFeatures.all);
 
 ///** @type {LiveParseInfo[]} */
 //const liveParsers = [];
-/** @type {{content: string, uri: string, result: SourceUnit, typemap:Map<string,JavaType>, positionAt:(n) => Position, indexAt:(p:Position) => number}} */
+/** @type {{content: string, uri: string, result: {unit:SourceUnit, problems:*[]}, typemap:Map<string,JavaType>, positionAt:(n) => Position, indexAt:(p:Position) => number}} */
 let parsed = null;
 
 function reparse(uri, content) {
@@ -261,7 +261,7 @@ async function validateTextDocument(textDocument) {
 
     if (parsed && parsed.result) {
         try {
-            problems = validate(parsed.result, parsed.typemap);
+            problems = [...parsed.result.problems, ...validate(parsed.result.unit, parsed.typemap)];
         } catch(err) {
             console.error(err);
         }

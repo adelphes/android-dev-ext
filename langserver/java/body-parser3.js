@@ -154,21 +154,27 @@ function extractSourceTypes(tokens, typemap) {
  */
 function parse(source, typemap) {
     const unit = new SourceUnit();
-    let tokens;
+    /** @type {ParseProblem[]} */
+    let problems = [];
+    let tokens, timers = new Set();
+    const time = name => (timers.add(name), console.time(name));
+    const timeEnd = name => (timers.delete(name), console.timeEnd(name));
     try {
-        console.time('tokenize');
+        time('tokenize');
         tokens = new TokenList(tokenize(source));
-        console.timeEnd('tokenize');
+        problems = tokens.problems;
+        timeEnd('tokenize');
 
         // in order to resolve types as we parse, we must extract the set of source types first
         const source_types = extractSourceTypes(tokens, typemap);
         // add them to the type map
         source_types.forEach(t => typemap.set(t.shortSignature, t));
 
-        console.time('parse');
+        time('parse');
         parseUnit(tokens, unit, typemap);
-        console.timeEnd('parse');
+        timeEnd('parse');
     } catch(err) {
+        timers.forEach(timeEnd);
         if (tokens) {
             addproblem(tokens, ParseProblem.Error(tokens.current, `Parse failed: ${err.message}`));
         } else {
@@ -176,7 +182,10 @@ function parse(source, typemap) {
         }
     }
 
-    return unit;
+    return {
+        unit,
+        problems,
+    }
 }
 
 /**
