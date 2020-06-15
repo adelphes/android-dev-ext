@@ -2294,7 +2294,7 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
             // array initer
             let elements = [];
             if (!tokens.isValue('}')) {
-                elements = expressionList(tokens, mdecls, scope, imports, typemap);
+                elements = expressionList(tokens, mdecls, scope, imports, typemap, { isArrayLiteral:true });
                 tokens.expectValue('}');
             }
             const ident = `{${elements.map(e => e.source).join(',')}}`;
@@ -2369,12 +2369,18 @@ function newTerm(tokens, mdecls, scope, imports, typemap) {
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,JavaType>} typemap 
+ * @param {{isArrayLiteral: boolean}} [opts]
  */
-function expressionList(tokens, mdecls, scope, imports, typemap) {
+function expressionList(tokens, mdecls, scope, imports, typemap, opts) {
     let e = expression(tokens, mdecls, scope, imports, typemap);
     const expressions = [e];
-    while (tokens.current.value === ',') {
-        tokens.inc();
+    while (tokens.isValue(',')) {
+        if (opts && opts.isArrayLiteral) {
+            // array literals are allowed a single trailing comma
+            if (tokens.current.value === '}') {
+                break;
+            }
+        }
         e = expression(tokens, mdecls, scope, imports, typemap);
         expressions.push(e);
     }
