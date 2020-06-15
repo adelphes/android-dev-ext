@@ -3,21 +3,21 @@ const { Token } = require('./tokenizer');
 
 /**
  * @param {SourceType|SourceMethod|SourceConstructor|SourceInitialiser|string} scope_or_package_name 
- * @param {Token} name 
+ * @param {string} name 
  */
 function generateShortSignature(scope_or_package_name, name) {
     if (scope_or_package_name instanceof SourceType) {
         const type = scope_or_package_name;
-        return `${type._rawShortSignature}$${name.value}`;
+        return `${type._rawShortSignature}$${name}`;
     }
     if (scope_or_package_name instanceof SourceMethod
         || scope_or_package_name instanceof SourceConstructor
         || scope_or_package_name instanceof SourceInitialiser) {
         const method = scope_or_package_name;
-        return `${method.owner._rawShortSignature}$${method.owner.localTypeCount += 1}${name.value}`;
+        return `${method.owner._rawShortSignature}$${method.owner.localTypeCount += 1}${name}`;
     }
     const pkgname = scope_or_package_name;
-    return pkgname ?`${pkgname.replace(/\./g, '/')}/${name.value}` : name.value;
+    return pkgname ?`${pkgname.replace(/\./g, '/')}/${name}` : name;
 }
 
 class SourceType extends CEIType {
@@ -32,7 +32,7 @@ class SourceType extends CEIType {
      */
     constructor(packageName, outer_scope, docs, modifiers, typeKind, kind_token, name_token, typemap) {
         // @ts-ignore
-        super(generateShortSignature(outer_scope || packageName, name_token), typeKind, modifiers.map(m => m.source), docs);
+        super(generateShortSignature(outer_scope || packageName, name_token.value), typeKind, modifiers.map(m => m.source), docs);
         super.packageName = packageName;
         this.modifierTokens = modifiers;
         this.kind_token = kind_token;
@@ -56,6 +56,23 @@ class SourceType extends CEIType {
         this.fields = [];
         /** @type {SourceInitialiser[]} */
         this.initers = [];
+    }
+
+    /**
+     * @param {string} package_name
+     * @param {SourceType|SourceMethod|SourceConstructor|SourceInitialiser} outer_scope
+     * @param {string} name
+     */
+    static getShortSignature(package_name, outer_scope, name) {
+        return generateShortSignature(outer_scope || package_name || '', name);
+    }
+
+    /**
+     * @param {Token[]} mods 
+     */
+    setModifierTokens(mods) {
+        this.modifierTokens = mods;
+        this.modifiers = mods.map(m => m.source);
     }
 
     get supers() {

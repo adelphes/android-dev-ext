@@ -79,6 +79,76 @@ function addproblem(tokens, problem) {
 }
 
 /**
+ * @param {TokenList} tokens 
+ * @param {*} typemap 
+ */
+function extractSourceTypes(tokens, typemap) {
+    // first strip out any comments, chars, strings etc which might confuse the parsing
+    const normalised_source = tokens.tokens.map(t => {
+        return /wsc|string-literal|char-literal/.test(t.kind) 
+          ? ' '.repeat(t.length)
+          : t.source
+    }).join('')
+    
+    // look for scope boundaries, package and type declarations
+    const re = /(\{)|(\})|\bpackage +(\w+(?: *\. *\w+)*)|\b(class|enum|interface|@ *interface) +(\w+)/g;
+    let package_name = null;
+    let type_stack = [];
+    let code_balance = 0;
+    const source_types = [];
+    function findTokenAt(idx) {
+        return tokens.tokens.find(t => t.range.start === idx);        
+    }
+    for (let m; m = re.exec(normalised_source);) {
+        if (code_balance) {
+            if (m[1]) code_balance += 1;
+            else if (m[2]) code_balance -= 1;
+            continue;
+        }
+        if (m[1]) {
+            // open brace
+            if (!type_stack[0]) {
+                continue;   // ignore - we haven't started a type yet
+            }
+            if (!type_stack[0].type_open) {
+                type_stack[0].type_open = true; // start of type body
+                continue;
+            }
+            // start of method body or array expression
+            code_balance = 1;
+        } else if (m[2]) {
+            // close brace
+            if (!type_stack[0]) {
+                continue;   // we're outside any type
+            }
+            type_stack.shift();
+        } else if (m[3]) {
+            // package name
+            if (package_name !== null) {
+                continue;   // ignore - we already have a package name or started parsing types
+            }
+            package_name = m[3].replace(/ +/g, '');
+        } else if (m[4]) {
+            // named type decl
+            package_name = package_name || '';
+            const typeKind = m[4].replace(/ +/g, ''),
+              kind_token = findTokenAt(m.index),
+              name_token = findTokenAt(m.index + m[0].match(/\w+$/).index),
+              outer_type = type_stack[0] && type_stack[0].source_type,
+              source_type = new SourceType(package_name, outer_type, '', [], typeKind, kind_token, name_token, typemap);
+              
+            type_stack.unshift({
+                source_type,
+                type_open: false,
+            });
+            source_types.unshift(source_type);
+        }
+    }
+    console.log(source_types.map(t => t.shortSignature))
+    return source_types;
+}
+
+/**
  * @param {string} source
  * @param {Map<string,JavaType>} typemap 
  */
@@ -89,6 +159,12 @@ function parse(source, typemap) {
         console.time('tokenize');
         tokens = new TokenList(tokenize(source));
         console.timeEnd('tokenize');
+
+        // in order to resolve types as we parse, we must extract the set of source types first
+        const source_types = extractSourceTypes(tokens, typemap);
+        // add them to the type map
+        source_types.forEach(t => typemap.set(t.shortSignature, t));
+
         console.time('parse');
         parseUnit(tokens, unit, typemap);
         console.timeEnd('parse');
@@ -592,7 +668,17 @@ function typeDeclaration(package_name, scope, modifiers, typeKind, kind_token, t
         addproblem(tokens, ParseProblem.Error(tokens.current, `Type identifier expected`));
         return;
     }
-    const type = new SourceType(package_name, scope, '', modifiers, typeKind, kind_token, name, typemap);
+    const type_short_sig = SourceType.getShortSignature(package_name, scope, name.value);
+    // the source type object should already exist in the type map
+    /** @type {SourceType} */
+    // @ts-ignore
+    let type = typemap.get(type_short_sig);
+    if (type instanceof SourceType) {
+        // update the missing parts
+        type.setModifierTokens(modifiers);
+    } else {
+        type = new SourceType(package_name, scope, '', modifiers, typeKind, kind_token, name, typemap);
+    }
     type.typeVariables = tokens.current.value === '<'
         ? typeVariableList(type, tokens, scope, imports, typemap)
         : [];

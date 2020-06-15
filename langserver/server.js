@@ -43,18 +43,20 @@ let connection = createConnection(ProposedFeatures.all);
 
 ///** @type {LiveParseInfo[]} */
 //const liveParsers = [];
-/** @type {{content: string, uri: string, result: SourceUnit, positionAt:(n) => Position, indexAt:(p:Position) => number}} */
+/** @type {{content: string, uri: string, result: SourceUnit, typemap:Map<string,JavaType>, positionAt:(n) => Position, indexAt:(p:Position) => number}} */
 let parsed = null;
 
 function reparse(uri, content) {
     if (androidLibrary instanceof Promise) {
         return;
     }
-    const result = parse(content, new Map(androidLibrary));
+    const typemap = new Map(androidLibrary);
+    const result = parse(content, typemap);
     parsed = {
         content,
         uri,
         result,
+        typemap,
         positionAt(n) {
             let line = 0,
                 last_nl_idx = 0,
@@ -259,7 +261,7 @@ async function validateTextDocument(textDocument) {
 
     if (parsed && parsed.result) {
         try {
-            problems = validate(parsed.result, androidLibrary);
+            problems = validate(parsed.result, parsed.typemap);
         } catch(err) {
             console.error(err);
         }
@@ -351,7 +353,7 @@ connection.onCompletion(
         if (androidLibrary instanceof Promise) {
             androidLibrary = await androidLibrary;
         }
-        const lib = androidLibrary;
+        const lib = (parsed && parsed.typemap) || androidLibrary;
         if (!lib) return [];
         const typeKindMap = {
             class: CompletionItemKind.Class,
@@ -367,12 +369,12 @@ connection.onCompletion(
                     kind: CompletionItemKind.Keyword,
                     data: -1,
                 })),
-                ...'public private protected static final abstract volatile native'.split(' ').map((t) => ({
+                ...'public private protected static final abstract volatile native transient strictfp'.split(' ').map((t) => ({
                     label: t,
                     kind: CompletionItemKind.Keyword,
                     data: -1,
                 })),
-                ...'false true null'.split(' ').map((t) => ({
+                ...'false true null this super'.split(' ').map((t) => ({
                     label: t,
                     kind: CompletionItemKind.Value,
                     data: -1,
