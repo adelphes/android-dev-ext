@@ -522,6 +522,18 @@ class BracketedExpression extends Expression {
         this.expression = expression;
     }
 }
+class LambdaExpression extends Expression {
+    /**
+     * 
+     * @param {*[]} params 
+     * @param {Expression|Block} body 
+     */
+    constructor(params, body) {
+        super();
+        this.params = params;
+        this.body = body;
+    }
+}
 class IncDecExpression extends Expression {
     /**
      * @param {ResolvedIdent} expr 
@@ -1674,6 +1686,19 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
             return newTerm(tokens, mdecls, scope, imports, typemap);
         case 'open-bracket':
             tokens.inc();
+            if (tokens.isValue(')')) {
+                // parameterless lambda
+                tokens.expectValue('->');
+                let ident, lambdaBody = null;
+                if (tokens.current.value === '{') {
+                    // todo - parse lambda body
+                    skipBody(tokens);
+                } else {
+                    lambdaBody = expression(tokens, mdecls, scope, imports, typemap);
+                    ident = `() -> ${lambdaBody.source}`;
+                }
+                return new ResolvedIdent(ident, [new LambdaExpression([], lambdaBody)]);
+            }
             matches = expression(tokens, mdecls, scope, imports, typemap);
             tokens.expectValue(')');
             if (isCastExpression(tokens.current, matches)) {

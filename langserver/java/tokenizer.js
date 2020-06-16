@@ -90,7 +90,7 @@ class Token extends TextBlock {
  */
 function tokenize(source, offset = 0, length = source.length) {
     const text = source.slice(offset, offset + length);
-    const raw_token_re = /(\s+|\/\/.*|\/\*[\d\D]*?\*\/|\/\*[\d\D]*)|("[^\r\n\\"]*(?:\\.[^\r\n\\"]*)*"|".*)|('\\u[\da-fA-F]{0,4}'?|'\\?.?'?)|(\.?\d)|([\p{L}\p{N}$_]+)|(\()|([;,?:(){}\[\]@]|\.(?:\.\.)?)|([!=/%*^]=?|<<?=?|>>?>?=?|&[&=]?|\|[|=]?|(\+\+|--)|[+-]=?|~)|$/gu;
+    const raw_token_re = /(\s+|\/\/.*|\/\*[\d\D]*?\*\/|\/\*[\d\D]*)|("[^\r\n\\"]*(?:\\.[^\r\n\\"]*)*"|".*)|('\\u[\da-fA-F]{0,4}'?|'\\?.?'?)|(\.?\d)|([\p{L}\p{N}$_]+)|(\()|([;,?:(){}\[\]@]|\.(?:\.\.)?)|([!=/%*^]=?|<<?=?|>>?>?=?|&[&=]?|\|[|=]?|(\+\+|--)|->|[+-]=?|~)|$/gu;
     const raw_token_types = [
         'wsc',
         'string-literal',
@@ -209,7 +209,7 @@ function tokenize(source, offset = 0, length = source.length) {
  * [~!]   unary
  * ```
  */
-const operator_re = /^(?:(=|[/%*&|^+-]=|>>>?=|<<=)|(\+\+|--)|([!=]=)|([<>]=?)|([&|^])|(<<|>>>?)|(&&|[|][|])|([*%/])|([+-])|([~!]))$/;
+const operator_re = /^(?:(=|[/%*&|^+-]=|>>>?=|<<=)|(\+\+|--)|([!=]=)|([<>]=?)|([&|^])|(<<|>>>?)|(&&|[|][|])|([*%/])|(->)|([+-])|([~!]))$/;
 /**
  * @typedef {
     'assignment-operator'|
@@ -220,6 +220,7 @@ const operator_re = /^(?:(=|[/%*&|^+-]=|>>>?=|<<=)|(\+\+|--)|([!=]=)|([<>]=?)|([
     'shift-operator'|
     'logical-operator'|
     'muldiv-operator'|
+    'lambda-operator'|
     'plumin-operator'|
     'unary-operator'} OperatorKind
  */
@@ -233,6 +234,7 @@ const operator_token_types = [
     'shift-operator',
     'logical-operator',
     'muldiv-operator',
+    'lambda-operator',
     'plumin-operator',
     'unary-operator',
 ]
