@@ -274,36 +274,39 @@ function resolveTypeOrPackage(ident, type_variables, scope, imports, typemap) {
         types.push(tv.type);
     }
 
-    if (!types[0] && scope instanceof MethodBase) {
-        // is it a type variable in the current scope
-        const tv = scope.typeVariables.find(tv => tv.name === ident);
-        if (tv) {
-            types.push(tv.type);
-        }
-    }
+    if (scope) {
 
-    if (!types[0] && scope) {
-        // is it an enclosed type of the currently scoped type or any outer type
-        const scoped_type = scope instanceof CEIType ? scope : scope.owner;
-        const scopes = scoped_type.shortSignature.split('$');
-        while (scopes.length) {
-            const enc_type = typemap.get(`${scopes.join('$')}$${ident}`);
-            if (enc_type) {
-                types.push(enc_type);
-                break;
+        if (!types[0] && scope instanceof MethodBase) {
+            // is it a type variable in the current scope
+            const tv = scope.typeVariables.find(tv => tv.name === ident);
+            if (tv) {
+                types.push(tv.type);
             }
-            scopes.pop();
         }
-        if (!types[0] && scoped_type.simpleTypeName === ident) {
-            types.push(scoped_type);
-        }
-    }
 
-    if (!types[0] && scope instanceof CEIType) {
-        // is it a type variable of the currently scoped type
-        const tv = scope.typeVariables.find(tv => tv.name === ident);
-        if (tv) {
-            types.push(tv.type);
+        const scoped_type = scope instanceof CEIType ? scope : scope.owner;
+        if (!types[0]) {
+            // is it an enclosed type of the currently scoped type or any outer type
+            const scopes = scoped_type.shortSignature.split('$');
+            while (scopes.length) {
+                const enc_type = typemap.get(`${scopes.join('$')}$${ident}`);
+                if (enc_type) {
+                    types.push(enc_type);
+                    break;
+                }
+                scopes.pop();
+            }
+            if (!types[0] && scoped_type.simpleTypeName === ident) {
+                types.push(scoped_type);
+            }
+        }
+
+        if (!types[0]) {
+            // is it a type variable of the currently scoped type
+            const tv = scoped_type.typeVariables.find(tv => tv.name === ident);
+            if (tv) {
+                types.push(tv.type);
+            }
         }
     }
 
