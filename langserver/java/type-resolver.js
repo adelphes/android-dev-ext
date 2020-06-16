@@ -311,10 +311,9 @@ function resolveTypeOrPackage(ident, type_variables, scope, imports, typemap) {
     }
 
     if (!types[0]) {
-        // is it a top-level type from the imports
-        const top_level_type = '/' + ident;
+        // is it a type from the imports
         for (let i of imports) {
-            const fqn = i.fullyQualifiedNames.find(fqn => fqn.endsWith(top_level_type));
+            const fqn = i.fullyQualifiedNames.find(fqn => fqn.endsWith(ident) && /[$/]/.test(fqn[fqn.length-ident.length-1]));
             if (fqn) {
                 types.push(i.types.get(fqn));
             }
