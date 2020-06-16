@@ -1,5 +1,6 @@
 const ParseProblem = require('../parsetypes/parse-problem');
 const {SourceType} = require('../source-type');
+const { AnyType } = require('../body-types');
 const { UnresolvedType } = require('java-mti');
 
 /**
@@ -7,15 +8,18 @@ const { UnresolvedType } = require('java-mti');
  * @param {*} probs 
  */
 function checkImplements(source_type, probs) {
-    if (source_type.implements_types.length === 0) {
+    const superinterfaces = source_type.implements_types
+        .map(st => st.resolved)
+        .filter(t => !(t instanceof AnyType));
+
+    if (superinterfaces.length === 0) {
         return;
     }
-    const interfaces = source_type.implements_types.map(it => it.resolved);
     if (source_type.typeKind === 'interface') {
         probs.push(ParseProblem.Error(source_type.implements_types[0].tokens, `Interface types cannot declare an implements section`));
     }
     if (source_type.typeKind === 'class') {
-        interfaces.forEach((intf, i) => {
+        superinterfaces.forEach((intf, i) => {
             if (intf instanceof UnresolvedType) {
                 return;
             }

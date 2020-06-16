@@ -1,15 +1,19 @@
-const { SourceType, SourceTypeIdent } = require('../source-type');
+const { SourceType } = require('../source-type');
 const ParseProblem = require('../parsetypes/parse-problem');
+const { AnyType } = require('../body-types');
 
 /**
  * @param {SourceType} source_type 
  * @param {*} probs 
  */
 function checkExtends(source_type, probs) {
-    if (source_type.extends_types.length === 0) {
+    const supertypes = source_type.extends_types
+        .map(st => st.resolved)
+        .filter(t => !(t instanceof AnyType));
+
+    if (supertypes.length === 0) {
         return;
     }
-    const supertypes = source_type.extends_types.map(st => st.resolved);
     const supertype = supertypes[0];
     if (source_type.typeKind === 'enum') {
         probs.push(ParseProblem.Error(source_type.extends_types[0].tokens, `Enum types cannot declare a superclass`));
