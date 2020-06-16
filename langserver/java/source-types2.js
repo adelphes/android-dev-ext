@@ -1,4 +1,4 @@
-const { CEIType, JavaType, PrimitiveType, Field, Method, MethodBase, Constructor, Parameter, TypeVariable } = require('java-mti');
+const { CEIType, JavaType, PrimitiveType, ArrayType, TypeVariableType, Field, Method, MethodBase, Constructor, Parameter, TypeVariable, TypeArgument } = require('java-mti');
 const { Token } = require('./tokenizer');
 
 /**
@@ -33,6 +33,7 @@ class SourceType extends CEIType {
      * @param {string} typeKind 
      * @param {Token} kind_token 
      * @param {Token} name_token 
+     * @param {Map<string,CEIType>} typemap
      */
     constructor(packageName, outer_scope, docs, modifiers, typeKind, kind_token, name_token, typemap) {
         // @ts-ignore
@@ -91,6 +92,25 @@ class SourceType extends CEIType {
         this.modifiers = mods.map(m => m.source);
     }
 
+    /**
+     * 
+     * @param {JavaType[]} types 
+     * @returns {CEIType}
+     */
+    specialise(types) {
+        const short_sig = `${this.shortSignature}<${types.map(t => t.typeSignature).join('')}>`;
+        if (this.typemap.has(short_sig)) {
+            // @ts-ignore
+            return this.typemap.get(short_sig);
+        }
+        /** @type {'class'|'enum'|'interface'|'@interface'} */
+        // @ts-ignore
+        const typeKind = this.typeKind;
+        const specialised_type = new SpecialisedSourceType(this, typeKind, this._rawShortSignature, types);
+        this.typemap.set(short_sig, specialised_type);
+        return specialised_type;
+    }
+
     get supers() {
         const supertypes = [...this.extends_types, ...this.implements_types].map(x => x.resolved);
         if (this.typeKind === 'enum') {
@@ -102,6 +122,101 @@ class SourceType extends CEIType {
             supertypes.unshift(this.typemap.get('java/lang/Object'));
         }
         return supertypes;
+    }
+}
+
+class SpecialisedSourceType extends CEIType {
+    /**
+     * 
+     * @param {SourceType} source_type 
+     * @param {'class'|'enum'|'interface'|'@interface'} typeKind
+     * @param {string} raw_short_signature 
+     * @param {JavaType[]} types 
+     */
+    constructor(source_type, typeKind, raw_short_signature, types) {
+        super(raw_short_signature, typeKind, source_type.modifiers, source_type.docs);
+        this.typemap = source_type.typemap;
+        /** @type {TypeArgument[]} */
+        // @ts-ignore
+        const type_args = source_type.typeVariables.map((tv, idx) => new TypeArgument(this, tv, types[idx] || this.typemap.get('java/lang/Object')));
+        this.typeVariables = type_args;
+
+        function resolveType(type, typevars = []) {
+            if (type instanceof ArrayType) {
+                return new ArrayType(resolveType(type.base, typevars), type.arrdims);
+            }
+            if (!(type instanceof TypeVariableType)) {
+                return type;
+            }
+            if (typevars.includes(type.typeVariable)) {
+                return type;
+            }
+            const specialised_type = type_args.find(ta => ta.name === type.typeVariable.name);
+            return specialised_type.type;
+        }
+
+        this.fields = source_type.fields.map(f => {
+            const type = this;
+            return new class extends Field {
+                constructor() {
+                    super(f.modifiers, f.docs);
+                    this.owner = type;
+                    this.source = f;
+                    this.fieldType = resolveType(f.fieldTypeIdent.resolved);
+                }
+                get name() { return this.source.name } 
+                get type() { return this.fieldType }
+            };
+        });
+
+        this.constructors = source_type.constructors.map(c => {
+            const type = this;
+            return new class extends Constructor {
+                constructor() {
+                    super(type, c.modifiers, c.docs);
+                    this.owner = type;
+                    this.source = c;
+                    this._parameters = c.sourceParameters.map(p => new Parameter(p.name, resolveType(p.paramTypeIdent.resolved, c.typeVariables), p.varargs));
+                }
+                get hasImplementation() {
+                    return !!this.source.body;
+                }
+                get parameters() {
+                    return this._parameters;
+                }
+                get returnType() {
+                    return this.owner;
+                }
+                get typeVariables() {
+                    return this.source.typeVars;
+                }
+            
+            };
+        });
+        this.methods = source_type.methods.map(m => {
+            const type = this;
+            return new class extends Method {
+                constructor() {
+                    super(type, m.name, m.modifiers, m.docs);
+                    this.owner = type;
+                    this.source = m;
+                    this._returnType = resolveType(m.returnType, m.typeVars)
+                    this._parameters = m.sourceParameters.map(p => new Parameter(p.name, resolveType(p.type, m.typeVars), p.varargs));
+                }
+                get hasImplementation() {
+                    return !!this.source.body;
+                }
+                get parameters() {
+                    return this._parameters;
+                }
+                get returnType() {
+                    return this._returnType;
+                }
+                get typeVariables() {
+                    return this.source.typeVars;
+                }
+            };
+        });
     }
 }
 
