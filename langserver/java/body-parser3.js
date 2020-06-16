@@ -228,6 +228,10 @@ function parseUnit(tokens, unit, typemap) {
                 if (!package_name) {
                     unit.package_ = pkg;
                     package_name = pkg.name;
+                    const imprt = resolveImports(typemap, [], [], pkg.name, []);
+                    if (imprt.resolved.length) {
+                        resolved_imports.unshift(...imprt.resolved);
+                    }
                 }
                 continue;
             case 'import':
@@ -237,7 +241,7 @@ function parseUnit(tokens, unit, typemap) {
                 const imprt = importDeclaration(tokens, typemap);
                 unit.imports.push(imprt);
                 if (imprt.resolved) {
-                    resolved_imports.push(imprt.resolved);
+                    resolved_imports.unshift(imprt.resolved);
                 }
                 continue;
         }
