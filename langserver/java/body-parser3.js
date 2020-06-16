@@ -2023,10 +2023,10 @@ function findIdentifier(ident, mdecls, scope, imports, typemap) {
 
     // is it a local or parameter - note that locals must be ordered innermost-scope-first
     const local = mdecls.locals.find(local => local.name === ident);
-    let param = !(scope instanceof SourceType) && scope.parameters.find(p => p.name === ident);
+    let param = scope && !(scope instanceof SourceType) && scope.parameters.find(p => p.name === ident);
     if (local || param) {
         matches.variables = [local || param];
-    } else {
+    } else if (scope) {
         // is it a field, method or enum value in the current type (or any of the outer types or superclasses)
         const scoped_type = scope instanceof SourceType ? scope : scope.owner;
         const outer_types = [];
