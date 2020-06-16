@@ -1892,6 +1892,7 @@ function memberQualifier(matches, tokens, mdecls, scope, imports, typemap) {
             expr = new ClassMemberExpression(matches, tokens.current);
             break;
         case 'this':
+        case 'super':
             expr = new ThisMemberExpression(matches, tokens.current);
             break;
         default:
