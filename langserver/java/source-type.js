@@ -40,7 +40,7 @@ class SourceType extends CEIType {
      * @param {ModuleBlock} mod 
      * @param {TypeDeclBlock} decl
      * @param {string} qualified_type_name qualified $-separated type name
-     * @param {Map<string,JavaType>} typemap
+     * @param {Map<string,CEIType>} typemap
      */
     constructor(mod, decl, qualified_type_name, typemap) {
         super(decl.shortSignature, decl.kind(), mapmods(decl), decl.docs);

@@ -1,5 +1,5 @@
 /**
- * @typedef {Map<string,JavaType>} TypeMap
+ * @typedef {Map<string,CEIType>} TypeMap
  */
 const { JavaType, PrimitiveType, ArrayType, CEIType, MethodBase, TypeVariable } = require('java-mti');
 const { ResolvedImport } = require('./import-resolver');
@@ -263,7 +263,7 @@ function resolveTypeIdents(types, fully_qualified_scope, resolved_imports, typem
  * @param {TypeVariable[]} type_variables 
  * @param {CEIType|MethodBase} scope 
  * @param {ResolvedImport[]} imports 
- * @param {Map<string,JavaType>} typemap 
+ * @param {TypeMap} typemap 
  */
 function resolveTypeOrPackage(ident, type_variables, scope, imports, typemap) {
     const types = [];
@@ -344,7 +344,7 @@ function resolveTypeOrPackage(ident, type_variables, scope, imports, typemap) {
  * @param {string} ident 
  * @param {JavaType[]} outer_types 
  * @param {string} outer_package_name 
- * @param {Map<string,JavaType>} typemap 
+ * @param {TypeMap} typemap 
  */
 function resolveNextTypeOrPackage(ident, outer_types, outer_package_name, typemap) {
     const types = [];

@@ -46,7 +46,7 @@ function flattenBlocks(blocks, isMethod) {
 /**
  * @param {SourceMethod | SourceConstructor | SourceInitialiser} method 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function parseBody(method, imports, typemap) {
     const body = method.body;
@@ -149,7 +149,7 @@ function extractSourceTypes(tokens, typemap) {
 
 /**
  * @param {string} source
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function parse(source, typemap) {
     const unit = new SourceUnit();
@@ -190,7 +190,7 @@ function parse(source, typemap) {
 /**
  * @param {TokenList} tokens
  * @param {SourceUnit} unit
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function parseUnit(tokens, unit, typemap) {
     let package_name = '';
@@ -282,7 +282,7 @@ function packageDeclaration(tokens) {
 
 /**
  * @param {TokenList} tokens 
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function importDeclaration(tokens, typemap) {
     tokens.mark();
@@ -332,7 +332,7 @@ function addLocals(tokens, mdecls, new_locals) {
  * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  * @returns {ResolvedIdent|Local[]|Statement}
  */
 function statement(tokens, mdecls, method, imports, typemap) {
@@ -616,7 +616,7 @@ class ArrayIndexExpression extends Expression {
 * @param {string} typeKind
 * @param {{types:SourceType[]}} owner
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function sourceType(modifiers, tokens, scope_or_pkgname, typeKind, owner, imports, typemap) {
     let package_name, scope;
@@ -660,7 +660,7 @@ function sourceType(modifiers, tokens, scope_or_pkgname, typeKind, owner, import
 * @param {TokenList} tokens 
 * @param {{types:SourceType[]}} owner
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function typeBody(type, tokens, owner, imports, typemap) {
     for (;;) {
@@ -710,7 +710,7 @@ function typeBody(type, tokens, owner, imports, typemap) {
  * @param {SourceType} type 
  * @param {TokenList} tokens 
  * @param {ResolvedImport[]} imports 
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function fmc(modifiers, annotations, type_vars, type, tokens, imports, typemap) {
     let decl_type_ident = typeIdent(tokens, type, imports, typemap, { no_array_qualifiers: false, type_vars });
@@ -811,7 +811,7 @@ function annotation(tokens, scope, imports, typemap) {
  * @param {Token} kind_token
  * @param {TokenList} tokens 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap
+ * @param {Map<string,CEIType>} typemap
  */
 function typeDeclaration(package_name, scope, modifiers, typeKind, kind_token, tokens, imports, typemap) {
     let name = tokens.inc();
@@ -843,7 +843,7 @@ function typeDeclaration(package_name, scope, modifiers, typeKind, kind_token, t
  * @param {TokenList} tokens 
  * @param {Scope} scope
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap
+ * @param {Map<string,CEIType>} typemap
  */
 function typeVariableList(owner, tokens, scope, imports, typemap) {
     tokens.expectValue('<');
@@ -885,7 +885,7 @@ function typeVariableList(owner, tokens, scope, imports, typemap) {
  * @param {SourceType} owner 
  * @param {TokenList} tokens 
  * @param {ResolvedImport[]} imports 
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function methodDeclaration(type_vars, owner, tokens, imports, typemap) {
     tokens.expectValue('(');
@@ -924,7 +924,7 @@ function methodDeclaration(type_vars, owner, tokens, imports, typemap) {
  * @param {SourceType} owner 
  * @param {TokenList} tokens 
  * @param {ResolvedImport[]} imports 
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function parameterDeclaration(type_vars, owner, tokens, imports, typemap) {
     const modifiers = [];
@@ -957,7 +957,7 @@ function parameterDeclaration(type_vars, owner, tokens, imports, typemap) {
 * @param {SourceType} type 
 * @param {TokenList} tokens 
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function enumValueList(type, tokens, imports, typemap) {
     for (;;) {
@@ -1002,7 +1002,7 @@ function enumValueList(type, tokens, imports, typemap) {
  * @param {MethodDeclarations} mdecls
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function statementBlock(tokens, mdecls, method, imports, typemap) {
     const b = new Block();
@@ -1031,7 +1031,7 @@ function semicolon(tokens) {
 * @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function statementKeyword(tokens, mdecls, method, imports, typemap) {
     let s;
@@ -1134,7 +1134,7 @@ function statementKeyword(tokens, mdecls, method, imports, typemap) {
 * @param {MethodDeclarations} mdecls
 * @param {Scope} scope 
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function bracketedTest(tokens, mdecls, scope, imports, typemap) {
     tokens.expectValue('(');
@@ -1148,7 +1148,7 @@ function bracketedTest(tokens, mdecls, scope, imports, typemap) {
 * @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function nonVarDeclStatement(tokens, mdecls, method, imports, typemap) {
     const s = statement(tokens, mdecls, method, imports, typemap);
@@ -1164,7 +1164,7 @@ function nonVarDeclStatement(tokens, mdecls, method, imports, typemap) {
 * @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function forStatement(s, tokens, mdecls, method, imports, typemap) {
     tokens.expectValue('(');
@@ -1200,7 +1200,7 @@ function forStatement(s, tokens, mdecls, method, imports, typemap) {
 * @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function enhancedFor(s, tokens, mdecls, method, imports, typemap) {
     const colon = tokens.current;
@@ -1225,7 +1225,7 @@ function enhancedFor(s, tokens, mdecls, method, imports, typemap) {
 * @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function synchronizedStatement(s, tokens, mdecls, method, imports, typemap) {
     tokens.expectValue('(');
@@ -1240,7 +1240,7 @@ function synchronizedStatement(s, tokens, mdecls, method, imports, typemap) {
 * @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function assertStatement(s, tokens, mdecls, method, imports, typemap) {
     s.expression = expression(tokens, mdecls, method, imports, typemap);
@@ -1255,7 +1255,7 @@ function assertStatement(s, tokens, mdecls, method, imports, typemap) {
 * @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function catchFinallyBlocks(s, tokens, mdecls, method, imports, typemap) {
     for (;;) {
@@ -1320,7 +1320,7 @@ function catchFinallyBlocks(s, tokens, mdecls, method, imports, typemap) {
 * @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function catchType(tokens, mdecls, method, imports, typemap) {
     const t = qualifiedTerm(tokens, mdecls, method, imports, typemap);
@@ -1337,7 +1337,7 @@ function catchType(tokens, mdecls, method, imports, typemap) {
 * @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function switchBlock(s, tokens, mdecls, method, imports, typemap) {
     tokens.expectValue('(');
@@ -1361,7 +1361,7 @@ function switchBlock(s, tokens, mdecls, method, imports, typemap) {
 * @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function caseBlock(s, tokens, mdecls, method, imports, typemap) {
     const case_start_idx = s.cases.length;
@@ -1386,7 +1386,7 @@ function caseBlock(s, tokens, mdecls, method, imports, typemap) {
 * @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function caseExpressionList(cases, tokens, mdecls, method, imports, typemap) {
     let c = caseExpression(cases, tokens, mdecls, method, imports, typemap);
@@ -1405,7 +1405,7 @@ function caseExpressionList(cases, tokens, mdecls, method, imports, typemap) {
 * @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
-* @param {Map<string,JavaType>} typemap 
+* @param {Map<string,CEIType>} typemap 
 */
 function caseExpression(cases, tokens, mdecls, method, imports, typemap) {
     /** @type {boolean|ResolvedIdent} */
@@ -1433,7 +1433,7 @@ function caseExpression(cases, tokens, mdecls, method, imports, typemap) {
  * @param {MethodDeclarations} mdecls 
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports 
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function var_ident_list(mods, type, first_ident, tokens, mdecls, scope, imports, typemap) {
     const new_locals = [];
@@ -1476,7 +1476,7 @@ function var_ident_list(mods, type, first_ident, tokens, mdecls, scope, imports,
  * @param {MethodDeclarations} mdecls
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  * @returns {ResolvedIdent|Local[]}
  */
 function expression_or_var_decl(tokens, mdecls, scope, imports, typemap) {
@@ -1497,7 +1497,7 @@ function expression_or_var_decl(tokens, mdecls, scope, imports, typemap) {
  * @param {MethodDeclarations} mdecls
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  * @returns {ResolvedIdent[]|Local[]}
  */
 function expression_list_or_var_decl(tokens, mdecls, scope, imports, typemap) {
@@ -1539,7 +1539,7 @@ const operator_precedences = {
  * @param {MethodDeclarations} mdecls
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function expression(tokens, mdecls, scope, imports, typemap, precedence_stack = [13]) {
     tokens.mark();
@@ -1582,7 +1582,7 @@ function expression(tokens, mdecls, scope, imports, typemap, precedence_stack = 
  * @param {MethodDeclarations} mdecls
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function qualifiedTerm(tokens, mdecls, scope, imports, typemap) {
     let matches = rootTerm(tokens, mdecls, scope, imports, typemap);
@@ -1635,7 +1635,7 @@ function isCastExpression(token, matches) {
  * @param {MethodDeclarations} mdecls
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  * @returns {ResolvedIdent}
  */
 function rootTerm(tokens, mdecls, scope, imports, typemap) {
@@ -1729,7 +1729,7 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
  * @param {MethodDeclarations} mdecls
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function newTerm(tokens, mdecls, scope, imports, typemap) {
     tokens.expectValue('new');
@@ -1785,7 +1785,7 @@ function newTerm(tokens, mdecls, scope, imports, typemap) {
  * @param {MethodDeclarations} mdecls
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  * @param {{isArrayLiteral: boolean}} [opts]
  */
 function expressionList(tokens, mdecls, scope, imports, typemap, opts) {
@@ -1843,7 +1843,7 @@ function getTypeInheritanceList(type) {
  * @param {MethodDeclarations} mdecls
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function qualifiers(matches, tokens, mdecls, scope, imports, typemap) {
     for (;;) {
@@ -1879,7 +1879,7 @@ function qualifiers(matches, tokens, mdecls, scope, imports, typemap) {
  * @param {MethodDeclarations} mdecls
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function memberQualifier(matches, tokens, mdecls, scope, imports, typemap) {
     tokens.expectValue('.');
@@ -1916,7 +1916,7 @@ function memberQualifier(matches, tokens, mdecls, scope, imports, typemap) {
  * @param {MethodDeclarations} mdecls
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function arrayQualifiers(matches, tokens, mdecls, scope, imports, typemap) {
     while (tokens.isValue('[')) {
@@ -1941,7 +1941,7 @@ function arrayQualifiers(matches, tokens, mdecls, scope, imports, typemap) {
  * @param {MethodDeclarations} mdecls
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function methodCallQualifier(matches, tokens, mdecls, scope, imports, typemap) {
     let args = [];
@@ -1988,7 +1988,7 @@ function arrayTypeExpression(matches) {
  * @param {MethodDeclarations} mdecls
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function resolveIdentifier(tokens, mdecls, scope, imports, typemap) {
     const ident = tokens.current.value;
@@ -2016,7 +2016,7 @@ function checkIdentifierFound(tokens, ident, matches) {
  * @param {MethodDeclarations} mdecls 
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports 
- * @param {Map<String,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function findIdentifier(ident, mdecls, scope, imports, typemap) {
     const matches = new ResolvedIdent(ident);

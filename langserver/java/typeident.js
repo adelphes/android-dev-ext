@@ -14,7 +14,7 @@ const { AnyType } = require("./body-types");
  * @param {TokenList} tokens 
  * @param {CEIType|MethodBase} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function typeIdentList(tokens, scope, imports, typemap) {
     let type = typeIdent(tokens, scope, imports, typemap);
@@ -31,7 +31,7 @@ function typeIdentList(tokens, scope, imports, typemap) {
  * @param {TokenList} tokens 
  * @param {CEIType|MethodBase} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  * @param {{no_array_qualifiers:boolean, type_vars:TypeVariable[]}} [opts]
  */
 function typeIdent(tokens, scope, imports, typemap, opts) {
@@ -44,7 +44,7 @@ function typeIdent(tokens, scope, imports, typemap, opts) {
  * @param {TokenList} tokens 
  * @param {CEIType|MethodBase} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  * @param {{no_array_qualifiers:boolean, type_vars: TypeVariable[]}} [opts]
  */
 function singleTypeIdent(tokens, scope, imports, typemap, opts) {
@@ -107,7 +107,7 @@ function singleTypeIdent(tokens, scope, imports, typemap, opts) {
  * @param {JavaType[]} types 
  * @param {CEIType|MethodBase} scope 
  * @param {ResolvedImport[]} imports 
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  */
 function genericTypeArgs(tokens, types, scope, imports, typemap) {
     if (tokens.isValue('>')) {
@@ -144,7 +144,7 @@ function genericTypeArgs(tokens, types, scope, imports, typemap) {
  * @param {TokenList} tokens 
  * @param {CEIType|MethodBase} scope 
  * @param {ResolvedImport[]} imports
- * @param {Map<string,JavaType>} typemap 
+ * @param {Map<string,CEIType>} typemap 
  * @returns {WildcardType}
  */
 function wildcardTypeArgument(tokens, scope, imports, typemap) {

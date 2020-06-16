@@ -1,5 +1,5 @@
 /**
- * @typedef {import('java-mti').JavaType} JavaType
+ * @typedef {import('java-mti').CEIType} CEIType
  */
 const { ImportBlock } = require('../parser9');
 
@@ -14,7 +14,7 @@ const { ImportBlock } = require('../parser9');
     /**
      * @param {ImportBlock} import_decl 
      * @param {RegExpMatchArray} matches 
-     * @param {Map<string,JavaType>} typemap
+     * @param {Map<string,CEIType>} typemap
      * @param {'owner-package'|'import'|'implicit-import'} import_kind
      */
     constructor(import_decl, matches, typemap, import_kind) {

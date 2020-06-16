@@ -17,7 +17,7 @@ const {
 
 const { TextDocument } = require('vscode-languageserver-textdocument');
 
-const { loadAndroidLibrary, JavaType } = require('java-mti');
+const { loadAndroidLibrary, CEIType } = require('java-mti');
 
 const { ParseProblem } = require('./java/parser');
 const { parse } = require('./java/body-parser3');
@@ -25,7 +25,7 @@ const { SourceUnit } = require('./java/source-type');
 const { validate } = require('./java/validater');
 
 /**
- * @typedef {Map<string, JavaType>} AndroidLibrary
+ * @typedef {Map<string, CEIType>} AndroidLibrary
  * @type {AndroidLibrary|Promise<AndroidLibrary>}
  */
 let androidLibrary = null;
@@ -43,7 +43,7 @@ let connection = createConnection(ProposedFeatures.all);
 
 ///** @type {LiveParseInfo[]} */
 //const liveParsers = [];
-/** @type {{content: string, uri: string, result: {unit:SourceUnit, problems:*[]}, typemap:Map<string,JavaType>, positionAt:(n) => Position, indexAt:(p:Position) => number}} */
+/** @type {{content: string, uri: string, result: {unit:SourceUnit, problems:*[]}, typemap:Map<string,CEIType>, positionAt:(n) => Position, indexAt:(p:Position) => number}} */
 let parsed = null;
 
 function reparse(uri, content) {
@@ -149,8 +149,8 @@ let hasDiagnosticRelatedInformationCapability = false;
 connection.onInitialize((params) => {
     console.time('android-library-load')
     androidLibrary = loadAndroidLibrary('android-25').then(lib => {
-        console.timeEnd('android-library-load')
-        return androidLibrary = lib;
+            console.timeEnd('android-library-load')
+            return androidLibrary = lib;
     }, err => {
         console.log(`android library load failed: ${err.message}`);
         return androidLibrary = new Map();
