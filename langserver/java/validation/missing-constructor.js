@@ -18,10 +18,12 @@ function checkConstructor(source_type, probs) {
         // - which means the inherited class is Object (and a default constructor exists)
         return;
     }
-    if (!superclass.constructors.find(c => c.parameterCount === 0)) {
-        // the source type has no declared constructors, but the superclass
-        // does not include a default (parameterless) constructor
-        probs.push(ParseProblem.Error(source_type.nameToken, `Class '${source_type.fullyDottedRawName}' requires a constructor to be declared because the inherited class '${superclass.fullyDottedRawName}' does not define a default constructor.`));
+    if (superclass.constructors.length) {
+        if (!superclass.constructors.find(c => c.parameterCount === 0)) {
+            // the source type has no declared constructors, but the superclass
+            // does not include a default (parameterless) constructor
+            probs.push(ParseProblem.Error(source_type.nameToken, `Class '${source_type.fullyDottedRawName}' requires a constructor to be declared because the inherited class '${superclass.fullyDottedRawName}' does not define a default constructor.`));
+        }
     }
 }
 
