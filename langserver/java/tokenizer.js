@@ -139,15 +139,17 @@ function tokenize(source, offset = 0, length = source.length) {
      * ```
      * \d+(?:\.?\d*)?|\.\d+)[eE][+-]?\d*[fFdD]?    decimal exponent: 1e0, 1.5e+10, 0.123E-20d
      * (?:\d+\.\d*|\.\d+)[fFdD]?    decimal number: 0.1, 12.34f, 7.D, .3
+     * 0[xX][\da-fA-F]*\.[\da-fA-F]*[pP][+-]?\d*[fFdD]?    hex exponent: 0x123.abcP-100
      * 0x[\da-fA-F]*[lL]?    hex integer: 0x1, 0xaBc, 0x, 0x7L
      * \d+[fFdDlL]?   integer: 0, 123, 234f, 345L
      * ```
      * todo - underscore seperators
      */
-    const number_re = /((?:\d+(?:\.?\d*)?|\.\d+)[eE][+-]?\d*[fFdD]?)|((?:\d+\.\d*|\.\d+)[fFdD]?)|(0[xX][\da-fA-F]*[lL]?)|(\d+[fFdDlL]?)/g;
+    const number_re = /((?:\d+(?:\.?\d*)?|\.\d+)[eE][+-]?\d*[fFdD]?)|((?:\d+\.\d*|\.\d+)[fFdD]?)|(0[xX][\da-fA-F]*\.[\da-fA-F]*[pP][+-]?\d*[fFdD]?)|(0[xX][\da-fA-F]*[lL]?)|(\d+[fFdDlL]?)/g;
     const number_token_types = [
         'dec-exp-number-literal',
         'dec-number-literal',
+        'hex-exp-number-literal',
         'hex-number-literal',
         'int-number-literal',
     ]
