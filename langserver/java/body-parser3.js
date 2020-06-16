@@ -628,6 +628,17 @@ function sourceType(modifiers, tokens, scope_or_pkgname, typeKind, owner, import
         type.implements_types = typeIdentList(tokens, type, imports, typemap);
     }
     tokens.expectValue('{');
+    if (type.typeKind === 'enum') {
+        enumValueList(type, tokens, imports, typemap);
+        // if there are any declarations following the enum values, the values must be terminated by a semicolon
+        switch(tokens.current.value) {
+            case '}':
+                break;
+            default:
+                semicolon(tokens);
+                break;
+        }
+    }
     if (!tokens.isValue('}')) {
         typeBody(type, tokens, owner, imports, typemap);
         tokens.expectValue('}');
@@ -930,6 +941,50 @@ function parameterDeclaration(type_vars, owner, tokens, imports, typemap) {
         type_ident.resolved = new ArrayType(type_ident.resolved, 1);
     }
     return new SourceParameter(modifiers, type_ident, varargs, name_token);
+}
+
+/**
+* @param {SourceType} type 
+* @param {TokenList} tokens 
+* @param {ResolvedImport[]} imports
+* @param {Map<string,JavaType>} typemap 
+*/
+function enumValueList(type, tokens, imports, typemap) {
+    for (;;) {
+        const ident = tokens.getIfKind('ident');
+        if (!ident) {
+            addproblem(tokens, ParseProblem.Error(tokens.current, `Identifier expected`));
+        }
+        let ctr_args = [];
+        if (tokens.isValue('(')) {
+            if (!tokens.isValue(')')) {
+                ctr_args = expressionList(tokens, new MethodDeclarations(), type, imports, typemap);
+                tokens.expectValue(')');
+            }
+        }
+        let anonymousEnumType = null;
+        if (tokens.isValue('{')) {
+            // anonymous enum type - just skip for now
+            for (let balance = 1;;) {
+                if (tokens.isValue('{')) {
+                    balance++;
+                } else if (tokens.isValue('}')) {
+                    if (--balance === 0) {
+                        break;
+                    }
+                } else tokens.inc();
+            }
+        }
+        type.addEnumValue(ident, ctr_args, anonymousEnumType);
+        if (tokens.isValue(',')) {
+            continue;
+        }
+        if (tokens.current.kind === 'ident') {
+            addproblem(tokens, ParseProblem.Error(tokens.current, `Missing comma`));
+            continue;
+        }
+        break;
+    }
 }
 
 /**
@@ -1948,7 +2003,7 @@ function findIdentifier(ident, mdecls, scope, imports, typemap) {
     if (local || param) {
         matches.variables = [local || param];
     } else {
-        // is it a field or method in the current type (or any of the superclasses)
+        // is it a field, method or enum value in the current type (or any of the superclasses)
         const scoped_type = scope instanceof SourceType ? scope : scope.owner;
         const types = getTypeInheritanceList(scoped_type);
         const method_sigs = new Set();
@@ -1957,6 +2012,12 @@ function findIdentifier(ident, mdecls, scope, imports, typemap) {
                 const field = type.fields.find(f => f.name === ident);
                 if (field) {
                     matches.variables = [field];
+                    return;
+                }
+                const enumValue = (type instanceof SourceType) && type.enumValues.find(e => e.ident.value === ident);
+                if (enumValue) {
+                    matches.variables = [enumValue];
+                    return;
                 }
             }
             matches.methods = matches.methods.concat(

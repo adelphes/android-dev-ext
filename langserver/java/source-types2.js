@@ -2,6 +2,10 @@ const { CEIType, JavaType, PrimitiveType, Field, Method, MethodBase, Constructor
 const { Token } = require('./tokenizer');
 
 /**
+ * @typedef {import('./body-types').ResolvedIdent} ResolvedIdent
+ */
+
+/**
  * @param {SourceType|SourceMethod|SourceConstructor|SourceInitialiser|string} scope_or_package_name 
  * @param {string} name 
  */
@@ -56,6 +60,18 @@ class SourceType extends CEIType {
         this.fields = [];
         /** @type {SourceInitialiser[]} */
         this.initers = [];
+        /** @type {SourceEnumValue[]} */
+        this.enumValues = [];
+    }
+
+    /**
+     * 
+     * @param {Token} ident 
+     * @param {ResolvedIdent[]} ctr_args 
+     * @param {SourceType} anonymousType
+     */
+    addEnumValue(ident, ctr_args, anonymousType) {
+        this.enumValues.push(new SourceEnumValue(this, ident, ctr_args, anonymousType));
     }
 
     /**
@@ -86,6 +102,35 @@ class SourceType extends CEIType {
             supertypes.unshift(this.typemap.get('java/lang/Object'));
         }
         return supertypes;
+    }
+}
+
+class SourceEnumValue extends Field {
+    /**
+     * @param {SourceType} owner
+     * @param {Token} ident 
+     * @param {ResolvedIdent[]} ctr_args 
+     * @param {SourceType} anonymousType
+     */
+    constructor(owner, ident, ctr_args, anonymousType) {
+        super(['public','static','final'], '');
+        this.owner = owner;
+        this.ident = ident;
+        this.value = ctr_args;
+        this.anonymousType = anonymousType;
+    }
+
+    get label() {
+        // don't include the implicit modifiers in the label
+        return `${this.owner.simpleTypeName} ${this.name}`;
+    }
+
+    get name() {
+        return this.ident.value;
+    }
+
+    get type() {
+        return this.owner;
     }
 }
 
