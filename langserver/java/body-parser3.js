@@ -641,14 +641,12 @@ function sourceType(modifiers, tokens, scope_or_pkgname, typeKind, owner, import
     }
     tokens.expectValue('{');
     if (type.typeKind === 'enum') {
-        enumValueList(type, tokens, imports, typemap);
+        if (!/[;}]/.test(tokens.current.value)) {
+            enumValueList(type, tokens, imports, typemap);
+        }
         // if there are any declarations following the enum values, the values must be terminated by a semicolon
-        switch(tokens.current.value) {
-            case '}':
-                break;
-            default:
-                semicolon(tokens);
-                break;
+        if(tokens.current.value !== '}') {
+            semicolon(tokens);
         }
     }
     if (!tokens.isValue('}')) {
