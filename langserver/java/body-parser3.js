@@ -1631,7 +1631,7 @@ function isCastExpression(token, matches) {
     if (token.kind === 'plumin-operator') {
         return false;
     }
-    return this.isExpressionStart(token);
+    return isExpressionStart(token);
 }
 
 /**
