@@ -144,7 +144,7 @@ function tokenize(source, offset = 0, length = source.length) {
      * ```
      * todo - underscore seperators
      */
-    const number_re = /((?:\d+(?:\.?\d*)?|\.\d+)[eE][+-]?\d*[fFdD]?)|((?:\d+\.\d*|\.\d+)[fFdD]?)|(0x[\da-fA-F]*[lL]?)|(\d+[fFdDlL]?)/g;
+    const number_re = /((?:\d+(?:\.?\d*)?|\.\d+)[eE][+-]?\d*[fFdD]?)|((?:\d+\.\d*|\.\d+)[fFdD]?)|(0[xX][\da-fA-F]*[lL]?)|(\d+[fFdDlL]?)/g;
     const number_token_types = [
         'dec-exp-number-literal',
         'dec-number-literal',
