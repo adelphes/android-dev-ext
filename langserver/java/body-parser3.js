@@ -208,7 +208,7 @@ function parseUnit(tokens, unit, typemap) {
             if (tokens.current.value === '@') {
                 tokens.inc().value === 'interface'
                     ? sourceType(modifiers, tokens, package_name, '@interface', unit, resolved_imports, typemap)
-                    : annotations.push(annotation(tokens, null, unit.imports, typemap));
+                    : annotations.push(annotation(tokens, null, resolved_imports, typemap));
                 continue;
             }
             break;
