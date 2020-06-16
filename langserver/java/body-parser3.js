@@ -2003,11 +2003,18 @@ function findIdentifier(ident, mdecls, scope, imports, typemap) {
     if (local || param) {
         matches.variables = [local || param];
     } else {
-        // is it a field, method or enum value in the current type (or any of the superclasses)
+        // is it a field, method or enum value in the current type (or any of the outer types or superclasses)
         const scoped_type = scope instanceof SourceType ? scope : scope.owner;
-        const types = getTypeInheritanceList(scoped_type);
+        const outer_types = [];
+        for (let m, t = scoped_type._rawShortSignature;; ) {
+            m = t.match(/(.+)[$][^$]+$/);
+            if (!m) break;
+            const enctype = typemap.get(t = m[1]);
+            enctype && outer_types.push(enctype);
+        }
+        const inherited_types = getTypeInheritanceList(scoped_type);
         const method_sigs = new Set();
-        types.forEach(type => {
+        [...inherited_types, ...outer_types].forEach(type => {
             if (!matches.variables[0]) {
                 const field = type.fields.find(f => f.name === ident);
                 if (field) {
