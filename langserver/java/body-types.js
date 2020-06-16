@@ -4,7 +4,7 @@ const { Token } = require('./tokenizer');
 class ResolvedIdent {
     /**
      * @param {string} ident
-     * @param {(Local|Parameter|Field|ArrayElement|Value)[]} variables
+     * @param {(Local|Parameter|Field|ArrayElement|ValueBase)[]} variables
      * @param {Method[]} methods
      * @param {JavaType[]} types
      * @param {string} package_name
@@ -66,8 +66,9 @@ class Local {
      * @param {Token} decltoken 
      * @param {import('./source-type').SourceTypeIdent} typeIdent 
      * @param {number} postnamearrdims 
+     * @param {ResolvedIdent} init 
      */
-    constructor(modifiers, name, decltoken, typeIdent, postnamearrdims) {
+    constructor(modifiers, name, decltoken, typeIdent, postnamearrdims, init) {
         this.finalToken = modifiers.find(m => m.source === 'final') || null;
         this.name = name;
         this.decltoken = decltoken;
@@ -75,7 +76,7 @@ class Local {
             typeIdent.resolved = new ArrayType(typeIdent.resolved, postnamearrdims);
         }
         this.typeIdent = typeIdent;
-        this.init = null;
+        this.init = init;
     }
 
     get type() {
@@ -132,12 +133,15 @@ class ArrayElement {
     }
 }
 
-class Value {
+class ValueBase {}
+
+class Value extends ValueBase {
     /**
      * @param {string} name 
      * @param {JavaType} type 
      */
     constructor(name, type) {
+        super();
         this.name = name;
         this.type = type;
     }
@@ -389,3 +393,4 @@ exports.MethodDeclarations = MethodDeclarations;
 exports.ResolvedIdent = ResolvedIdent;
 exports.TernaryValue = TernaryValue;
 exports.Value = Value;
+exports.ValueBase = ValueBase;

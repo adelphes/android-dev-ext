@@ -106,13 +106,15 @@ class SourceField extends Field {
      * @param {Token[]} modifiers 
      * @param {SourceTypeIdent} field_type_ident 
      * @param {Token} name_token 
+     * @param {ResolvedIdent} init
      */
-    constructor(owner, modifiers, field_type_ident, name_token) {
+    constructor(owner, modifiers, field_type_ident, name_token, init) {
         super(modifiers.map(m => m.value), '');
         this.owner = owner;
         this.modifierTokens = modifiers;
         this.fieldTypeIdent = field_type_ident;
         this.nameToken = name_token;
+        this.init = init;
     }
 
     get name() {

@@ -58,6 +58,19 @@ class TokenList {
     }
 
     /**
+     * Check if the current token matches the specified kind, returns and consumes it
+     * @param {string} kind
+     */
+    getIfKind(kind) {
+        const token = this.current;
+        if (token && token.kind === kind) {
+            this.inc();
+            return token;
+        }
+        return null;
+    }
+
+    /**
      * Check if the current token matches the specified value, returns and consumes it
      * @param {string} value
      */
@@ -83,11 +96,7 @@ class TokenList {
      * @param {string} kind
      */
     isKind(kind) {
-        if (this.current && this.current.kind === kind) {
-            this.inc();
-            return true;
-        }
-        return false;
+        return this.getIfKind(kind) !== null;
     }
 
     /**
