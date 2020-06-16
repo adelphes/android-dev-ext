@@ -14,10 +14,11 @@ const { ImportBlock } = require('../parser9');
     /**
      * @param {ImportBlock} import_decl 
      * @param {RegExpMatchArray} matches 
+     * @param {string} static_ident
      * @param {Map<string,CEIType>} typemap
      * @param {'owner-package'|'import'|'implicit-import'} import_kind
      */
-    constructor(import_decl, matches, typemap, import_kind) {
+    constructor(import_decl, matches, static_ident, typemap, import_kind) {
         /**
          * The associated import declaration.
          * - this value is null for owner-package and implicit-imports
@@ -33,6 +34,15 @@ const { ImportBlock } = require('../parser9');
          * THe map of fully-qualified type names to JavaTypes
          */
         this.types = new Map(matches.map(name => [name, typemap.get(name)]));
+
+        this.members = [];
+        if (static_ident) {
+            const type = typemap.get(matches[0]);
+            if (type) {
+                type.fields.forEach(f => f.modifiers.includes('static') && (static_ident === '*' || static_ident === f.name) && this.members.push(f));
+                type.methods.forEach(m => m.modifiers.includes('static') && (static_ident === '*' || static_ident === m.name) && this.members.push(m));
+            }
+        }
 
         /**
          * What kind of import this is:

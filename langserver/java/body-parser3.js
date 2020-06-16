@@ -4,7 +4,7 @@
  * 
  * Each token also contains detailed state information used for completion suggestions.
  */
-const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, NullType, TypeVariable } = require('java-mti');
+const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, NullType, TypeVariable, Field, Method } = require('java-mti');
 const { SourceType, SourceTypeIdent, SourceField, SourceMethod, SourceConstructor, SourceInitialiser, SourceParameter, SourceAnnotation,
     SourceUnit, SourcePackage, SourceImport } = require('./source-types2');
 const ResolvedImport = require('./parsetypes/resolved-import');
@@ -2062,6 +2062,19 @@ function findIdentifier(ident, mdecls, scope, imports, typemap) {
             );
         });
     }
+
+    // check static imports
+    imports.forEach(imp => {
+        imp.members.forEach(member => {
+            if (member.name === ident) {
+                if (member instanceof Field) {
+                    matches.variables.push(member);
+                } else if (member instanceof Method) {
+                    matches.methods.push(member);
+                }
+            }
+        })
+    });
 
     const type = mdecls.types.find(t => t.simpleTypeName === ident);
     if (type) {

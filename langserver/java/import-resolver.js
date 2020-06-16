@@ -33,7 +33,7 @@ function resolveImportTypes(typenames, import_decl) {
 /**
  * Resolve a single parsed import
  * 
- * @param {Map<string, import('java-mti').JavaType>} typemap
+ * @param {Map<string, import('java-mti').CEIType>} typemap
  * @param {string} dotted_name
  * @param {boolean} is_static
  * @param {boolean} on_demand
@@ -42,9 +42,31 @@ function resolveImportTypes(typenames, import_decl) {
 function resolveSingleImport(typemap, dotted_name, is_static, on_demand, import_kind) {
     // construct the list of typenames
     const typenames = [...typemap.keys()].join('\n');
-    const matches = fetchImportedTypes(typenames, dotted_name, on_demand);
-    if (matches) {
-        return new ResolvedImport(null, matches, typemap, import_kind);
+
+    if (is_static) {
+        if (on_demand) {
+            // import all static members - the dotted name must be an exact type
+            const matches = fetchImportedTypes(typenames, dotted_name, false);
+            if (matches) {
+                return new ResolvedImport(null, matches, '*', typemap, import_kind);
+            }
+        } else if (dotted_name.includes('.')) {
+            // the final ident is the static member - the rest is the exact type
+            const split_name = dotted_name.match(/(.+)\.([^.]+)$/);
+            const matches = fetchImportedTypes(typenames, split_name[1], false);
+            if (matches) {
+                const i = new ResolvedImport(null, matches, split_name[2], typemap, import_kind);
+                // if there's no matching member, treat it as an invalid import
+                if (i.members.length > 0) {
+                    return i;
+                }
+            }
+        }
+    } else {
+        const matches = fetchImportedTypes(typenames, dotted_name, on_demand);
+        if (matches) {
+            return new ResolvedImport(null, matches, null, typemap, import_kind);
+        }
     }
     return null;
 }
@@ -57,7 +79,7 @@ function resolveSingleImport(typemap, dotted_name, is_static, on_demand, import_
  *   - followed by import declarations (in order of declaration),
  *   - followed by implicit packages
  * 
- * @param {Map<string, import('java-mti').JavaType>} androidLibrary
+ * @param {Map<string, import('java-mti').CEIType>} androidLibrary
  * @param {import('./source-type').SourceType[]} sourceTypes
  * @param {ImportBlock[]} imports list of declared imports in the module
  * @param {string} package_name package name of the module
@@ -88,14 +110,14 @@ function resolveImports(androidLibrary, sourceTypes, imports, package_name, impl
     if (package_name) {
         const matches = fetchImportedTypes(typenames, package_name, true);
         if (matches)
-            resolved.push(new ResolvedImport(null, matches, typemap, 'owner-package'));
+            resolved.push(new ResolvedImport(null, matches, null, typemap, 'owner-package'));
     }
 
     // import types from each import declaration
     imports.forEach(import_decl => {
         const matches = resolveImportTypes(typenames, import_decl);
         if (matches) {
-            resolved.push(new ResolvedImport(import_decl, matches, typemap, 'import'));
+            resolved.push(new ResolvedImport(import_decl, matches, null, typemap, 'import'));
         } else {
             // if we cannot match the import to any types, add it to the unresolved list so
             // we can flag it as a warning later.
@@ -109,7 +131,7 @@ function resolveImports(androidLibrary, sourceTypes, imports, package_name, impl
     implicitPackages.forEach(package_name => {
         const matches = fetchImportedTypes(typenames, package_name, true);
         if (matches)
-            resolved.push(new ResolvedImport(null, matches, typemap, 'implicit-import'));
+            resolved.push(new ResolvedImport(null, matches, null, typemap, 'implicit-import'));
     })
 
     /**
