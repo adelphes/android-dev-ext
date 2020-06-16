@@ -425,6 +425,7 @@ class Block extends Statement {
     statements = [];
 }
 class TryStatement extends Statement {
+    resources = [];
     block = null;
     catches = [];
 }
@@ -1089,8 +1090,7 @@ function statementKeyword(tokens, mdecls, method, imports, typemap) {
         case 'try':
             tokens.inc();
             s = new TryStatement();
-            s.block = statementBlock(tokens, mdecls, method, imports, typemap);
-            catchFinallyBlocks(s, tokens, mdecls, method, imports, typemap);
+            tryStatement(s, tokens, mdecls, method, imports, typemap);
             break;
         case 'return':
             tokens.inc();
@@ -1160,6 +1160,44 @@ function nonVarDeclStatement(tokens, mdecls, method, imports, typemap) {
         addproblem(tokens, ParseProblem.Error(tokens.previous, `Variable declarations are not permitted as a single conditional statement.`));
     }
     return s;
+}
+
+/**
+* @param {TryStatement} s
+* @param {TokenList} tokens 
+* @param {MethodDeclarations} mdecls
+* @param {SourceMC} method 
+* @param {ResolvedImport[]} imports
+* @param {Map<string,CEIType>} typemap 
+*/
+function tryStatement(s, tokens, mdecls, method, imports, typemap) {
+    mdecls.pushScope();
+    let is_try_with_resources = false;
+    if (tokens.isValue('(')) {
+        // try-with-resources
+        is_try_with_resources = true;
+        for (;;) {
+            const x = expression_or_var_decl(tokens, mdecls, method, imports, typemap);
+            s.resources.push(x);
+            if (Array.isArray(x)) {
+                mdecls.locals.push(...x);
+            }
+            if (tokens.isValue(';')) {
+                if (tokens.current.value !== ')') {
+                    continue;
+                }
+            }
+            break;
+        }
+        tokens.expectValue(')')
+    }
+    s.block = statementBlock(tokens, mdecls, method, imports, typemap);
+    if (/^(catch|finally)$/.test(tokens.current.value)) {
+        catchFinallyBlocks(s, tokens, mdecls, method, imports, typemap);
+    } else if (!is_try_with_resources) {
+        addproblem(tokens, ParseProblem.Error(tokens.current, `Missing catch/finally block`));
+    }
+    mdecls.popScope();
 }
 
 /**
@@ -1305,9 +1343,6 @@ function catchFinallyBlocks(s, tokens, mdecls, method, imports, typemap) {
             s.catches.push(catchinfo);
             mdecls.popScope();
             continue;
-        }
-        if (!s.catches.length) {
-            addproblem(tokens, ParseProblem.Error(tokens.current, `Missing catch or finally block`));
         }
         const first_finally_idx = s.catches.findIndex(c => c instanceof Block);
         if (first_finally_idx >= 0) {
