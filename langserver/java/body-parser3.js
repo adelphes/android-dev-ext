@@ -14,8 +14,19 @@ const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resol
 const { genericTypeArgs, typeIdent, typeIdentList } = require('./typeident');
 const { TokenList } = require("./TokenList");
 const { AnyMethod, AnyType, AnyValue, ArrayLiteral, Label, LiteralNumber, LiteralValue, Local,
-    MethodDeclarations, ResolvedIdent, Value, ValueBase } = require("./body-types");
+    MethodDeclarations, ResolvedIdent, Value, } = require("./body-types");
 const { resolveImports, resolveSingleImport } = require('../java/import-resolver');
+const { ArrayIndexExpression } = require("./expressiontypes/ArrayIndexExpression");
+const { BinaryOpExpression } = require("./expressiontypes/BinaryOpExpression");
+const { BracketedExpression } = require("./expressiontypes/BracketedExpression");
+const { CastExpression } = require("./expressiontypes/CastExpression");
+const { ClassMemberExpression } = require("./expressiontypes/ClassMemberExpression");
+const { IncDecExpression } = require("./expressiontypes/IncDecExpression");
+const { LambdaExpression } = require("./expressiontypes/LambdaExpression");
+const { MemberExpression } = require("./expressiontypes/MemberExpression");
+const { MethodCallExpression } = require("./expressiontypes/MethodCallExpression");
+const { TernaryOpExpression } = require("./expressiontypes/TernaryOpExpression");
+const { ThisMemberExpression } = require("./expressiontypes/ThisMemberExpression");
 
 /**
  * @typedef {SourceMethod|SourceConstructor|SourceInitialiser} SourceMC
@@ -478,140 +489,6 @@ class SynchronizedStatement extends Statement {
 class AssertStatement extends Statement {
     expression = null;
     message = null;
-}
-
-class Expression extends ValueBase {}
-class BinaryOpExpression extends Expression {
-    /**
-     * @param {ResolvedIdent} lhs 
-     * @param {Token} op 
-     * @param {ResolvedIdent} rhs 
-     */
-    constructor(lhs, op, rhs) {
-        super();
-        this.lhs = lhs;
-        this.op = op;
-        this.rhs = rhs;
-    }
-}
-class TernaryOpExpression extends Expression {
-    /**
-     * @param {ResolvedIdent} test 
-     * @param {ResolvedIdent} truthExpression 
-     * @param {ResolvedIdent} falseExpression 
-     */
-    constructor(test, truthExpression, falseExpression) {
-        super();
-        this.test = test;
-        this.truthExpression = truthExpression;
-        this.falseExpression = falseExpression;
-    }
-}
-class CastExpression extends Expression {
-    /**
-     * @param {ResolvedIdent} castType 
-     * @param {ResolvedIdent} expression 
-     */
-    constructor(castType, expression) {
-        super();
-        this.castType = castType;
-        this.expression = expression;
-    }
-}
-class BracketedExpression extends Expression {
-    /**
-     * @param {ResolvedIdent} expression 
-     */
-    constructor(expression) {
-        super();
-        this.expression = expression;
-    }
-}
-class LambdaExpression extends Expression {
-    /**
-     * 
-     * @param {*[]} params 
-     * @param {Expression|Block} body 
-     */
-    constructor(params, body) {
-        super();
-        this.params = params;
-        this.body = body;
-    }
-}
-class IncDecExpression extends Expression {
-    /**
-     * @param {ResolvedIdent} expr 
-     * @param {Token} operator 
-     * @param {'prefix'|'postfix'} which 
-     */
-    constructor(expr, operator, which) {
-        super();
-        this.expr = expr;
-        this.operator = operator;
-        this.which = which;
-    }
-}
-class MethodCallExpression extends Expression {
-    /**
-     * @param {ResolvedIdent} instance 
-     * @param {ResolvedIdent[]} args 
-     */
-    constructor(instance, args) {
-        super();
-        this.instance = instance;
-        this.args = args;
-    }
-
-}
-
-class MemberExpression extends Expression {
-    /**
-     * @param {ResolvedIdent} instance 
-     * @param {Token|null} member 
-     */
-    constructor(instance, member) {
-        super();
-        this.instance = instance;
-        // member will be null for incomplete expressions
-        this.member = member;
-    }
-}
-
-class ThisMemberExpression extends Expression {
-    /**
-     * @param {ResolvedIdent} instance 
-     * @param {Token} this_token 
-     */
-    constructor(instance, this_token) {
-        super();
-        this.instance = instance;
-        this.thisToken = this_token;
-    }
-}
-
-class ClassMemberExpression extends Expression {
-    /**
-     * @param {ResolvedIdent} instance 
-     * @param {Token} class_token 
-     */
-    constructor(instance, class_token) {
-        super();
-        this.instance = instance;
-        this.classToken = class_token;
-    }
-}
-
-class ArrayIndexExpression extends Expression {
-    /**
-     * @param {ResolvedIdent} instance 
-     * @param {ResolvedIdent} index 
-     */
-    constructor(instance, index) {
-        super();
-        this.instance = instance;
-        this.index = index;
-    }
 }
 
 /**
