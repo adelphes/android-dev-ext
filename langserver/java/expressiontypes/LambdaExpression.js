@@ -1,6 +1,6 @@
 /**
  * @typedef {import('../body-types').ResolvedIdent} ResolvedIdent
- * @typedef {import('../tokenizer').Token} Token
+ * @typedef {import('../statementtypes/Block').Block} Block
  */
 const { Expression } = require("./Expression");
 

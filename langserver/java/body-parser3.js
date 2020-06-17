@@ -16,6 +16,7 @@ const { TokenList } = require("./TokenList");
 const { AnyMethod, AnyType, AnyValue, ArrayLiteral, Label, LiteralNumber, LiteralValue, Local,
     MethodDeclarations, ResolvedIdent, Value, } = require("./body-types");
 const { resolveImports, resolveSingleImport } = require('../java/import-resolver');
+
 const { ArrayIndexExpression } = require("./expressiontypes/ArrayIndexExpression");
 const { BinaryOpExpression } = require("./expressiontypes/BinaryOpExpression");
 const { BracketedExpression } = require("./expressiontypes/BracketedExpression");
@@ -27,6 +28,22 @@ const { MemberExpression } = require("./expressiontypes/MemberExpression");
 const { MethodCallExpression } = require("./expressiontypes/MethodCallExpression");
 const { TernaryOpExpression } = require("./expressiontypes/TernaryOpExpression");
 const { ThisMemberExpression } = require("./expressiontypes/ThisMemberExpression");
+
+const { AssertStatement } = require("./statementtypes/AssertStatement");
+const { Block } = require("./statementtypes/Block");
+const { BreakStatement } = require("./statementtypes/BreakStatement");
+const { ContinueStatement } = require("./statementtypes/ContinueStatement");
+const { DoStatement } = require("./statementtypes/DoStatement");
+const { EmptyStatement } = require("./statementtypes/EmptyStatement");
+const { ForStatement } = require("./statementtypes/ForStatement");
+const { IfStatement } = require("./statementtypes/IfStatement");
+const { InvalidStatement } = require("./statementtypes/InvalidStatement");
+const { ReturnStatement } = require("./statementtypes/ReturnStatement");
+const { SwitchStatement } = require("./statementtypes/SwitchStatement");
+const { SynchronizedStatement } = require("./statementtypes/SynchronizedStatement");
+const { ThrowStatement } = require("./statementtypes/ThrowStatement");
+const { TryStatement } = require("./statementtypes/TryStatement");
+const { WhileStatement } = require("./statementtypes/WhileStatement");
 
 /**
  * @typedef {SourceMethod|SourceConstructor|SourceInitialiser} SourceMC
@@ -422,73 +439,6 @@ function statement(tokens, mdecls, method, imports, typemap) {
     addproblem(tokens, ParseProblem.Error(tokens.current, `Statement expected`));
     tokens.inc();
     return new InvalidStatement();
-}
-
-class Statement {}
-class EmptyStatement extends Statement {}
-class SwitchStatement extends Statement {
-    /** @type {ResolvedIdent} */
-    test = null;
-    cases = [];
-    caseBlocks = [];
-}
-class Block extends Statement {
-    statements = [];
-}
-class TryStatement extends Statement {
-    resources = [];
-    block = null;
-    catches = [];
-}
-class IfStatement extends Statement {
-    test = null;
-    statement = null;
-    elseStatement = null;
-}
-class WhileStatement extends Statement {
-    test = null;
-    statement = null;
-}
-class BreakStatement extends Statement {
-    /** @type {Token} */
-    target = null;
-}
-class ContinueStatement extends Statement {
-    /** @type {Token} */
-    target = null;
-}
-class DoStatement extends Statement {
-    test = null;
-    block = null;
-}
-class ReturnStatement extends Statement {
-    expression = null;
-}
-class ThrowStatement extends Statement {
-    expression = null;
-}
-class InvalidStatement extends Statement {}
-class ForStatement extends Statement {
-    /** @type {ResolvedIdent[] | Local[]} */
-    init = null;
-    /** @type {ResolvedIdent} */
-    test = null;
-    /** @type {ResolvedIdent[]} */
-    update = null;
-    /** @type {ResolvedIdent} */
-    iterable = null;
-    /** @type {Statement} */
-    statement = null;
-}
-class SynchronizedStatement extends Statement {
-    /** @type {ResolvedIdent} */
-    expression = null;
-    /** @type {Statement} */
-    statement = null;
-}
-class AssertStatement extends Statement {
-    expression = null;
-    message = null;
 }
 
 /**
