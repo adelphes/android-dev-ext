@@ -1,6 +1,6 @@
 const { SourceType } = require('../source-type');
 const ParseProblem = require('../parsetypes/parse-problem');
-const { AnyType } = require('../body-types');
+const { AnyType } = require('../anys');
 
 /**
  * @param {SourceType} source_type 

@@ -1,6 +1,6 @@
 const ParseProblem = require('../parsetypes/parse-problem');
 const {SourceType} = require('../source-type');
-const { AnyType } = require('../body-types');
+const { AnyType } = require('../anys');
 const { UnresolvedType } = require('java-mti');
 
 /**

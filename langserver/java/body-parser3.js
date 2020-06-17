@@ -4,7 +4,7 @@
  * 
  * Each token also contains detailed state information used for completion suggestions.
  */
-const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, NullType, TypeVariable, Field, Method } = require('java-mti');
+const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, TypeVariable, Field, Method } = require('java-mti');
 const { SourceType, SourceTypeIdent, SourceField, SourceMethod, SourceConstructor, SourceInitialiser, SourceParameter, SourceAnnotation,
     SourceUnit, SourcePackage, SourceImport } = require('./source-types2');
 const ResolvedImport = require('./parsetypes/resolved-import');
@@ -13,7 +13,8 @@ const { tokenize, Token } = require('./tokenizer');
 const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resolver');
 const { genericTypeArgs, typeIdent, typeIdentList } = require('./typeident');
 const { TokenList } = require("./TokenList");
-const { AnyMethod, AnyType, AnyValue, Label, Local, MethodDeclarations, ResolvedIdent, Value, } = require("./body-types");
+const { AnyMethod, AnyType, AnyValue } = require("./anys");
+const { Label, Local, MethodDeclarations, ResolvedIdent } = require("./body-types");
 const { resolveImports, resolveSingleImport } = require('../java/import-resolver');
 
 const { ArrayIndexExpression } = require("./expressiontypes/ArrayIndexExpression");
@@ -26,11 +27,13 @@ const { IncDecExpression } = require("./expressiontypes/IncDecExpression");
 const { LambdaExpression } = require("./expressiontypes/LambdaExpression");
 const { MemberExpression } = require("./expressiontypes/MemberExpression");
 const { MethodCallExpression } = require("./expressiontypes/MethodCallExpression");
+const { NewArray, NewObject } = require("./expressiontypes/NewExpression");
 const { TernaryOpExpression } = require("./expressiontypes/TernaryOpExpression");
 const { ThisMemberExpression } = require("./expressiontypes/ThisMemberExpression");
 
 const { BooleanLiteral } = require('./expressiontypes/literals/Boolean');
 const { CharacterLiteral } = require('./expressiontypes/literals/Character');
+const { InstanceLiteral } = require('./expressiontypes/literals/Instance');
 const { NumberLiteral } = require('./expressiontypes/literals/Number');
 const { NullLiteral } = require('./expressiontypes/literals/Null');
 const { StringLiteral } = require('./expressiontypes/literals/String');
@@ -1533,11 +1536,8 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
         case 'object-literal':
             // this, super or null
             const scoped_type = scope instanceof SourceType ? scope : scope.owner;
-            if (tokens.current.value === 'this') {
-                matches = new ResolvedIdent(tokens.current.value, [new Value(tokens.current.value, scoped_type)]);
-            } else if (tokens.current.value === 'super') {
-                const supertype = scoped_type.supers.find(s => s.typeKind === 'class') || typemap.get('java/lang/Object');
-                matches = new ResolvedIdent(tokens.current.value, [new Value(tokens.current.value, supertype)]);
+            if (tokens.current.value === 'this' || tokens.current.value === 'super') {
+                matches = new ResolvedIdent(tokens.current.value, [new InstanceLiteral(tokens.current, scoped_type)]);
             } else {
                 matches = new ResolvedIdent(tokens.current.value, [new NullLiteral(tokens.current)]);
             }
@@ -1606,13 +1606,9 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
  */
 function newTerm(tokens, mdecls, scope, imports, typemap) {
     tokens.expectValue('new');
-    const type_start_token = tokens.idx;
     const { resolved: ctr_type } = typeIdent(tokens, scope, imports, typemap, {no_array_qualifiers:true, type_vars:[]});
-    if (ctr_type instanceof AnyType) {
-        const toks = tokens.tokens.slice(type_start_token, tokens.idx);
-        addproblem(tokens, ParseProblem.Error(toks, `Unresolved type: '${toks.map(t => t.source).join('')}'`));
-    }
     let match = new ResolvedIdent(`new ${ctr_type.simpleTypeName}`, [], [], [ctr_type]);
+    let ctr_args = [], type_body = null;
     switch(tokens.current.value) {
         case '[':
             match = arrayQualifiers(match, tokens, mdecls, scope, imports, typemap);
@@ -1621,36 +1617,24 @@ function newTerm(tokens, mdecls, scope, imports, typemap) {
                 // array init
                 rootTerm(tokens, mdecls, scope, imports, typemap);
             }
-            return new ResolvedIdent(match.source, [new Value(match.source, match.types[0])]);
+            return new ResolvedIdent(match.source, [new NewArray(ctr_type, match)]);
         case '(':
-            match = methodCallQualifier(match, tokens, mdecls, scope, imports, typemap);
+            tokens.inc();
+            if (!tokens.isValue(')')) {
+                ctr_args = expressionList(tokens, mdecls, scope, imports, typemap);
+                tokens.expectValue(')');
+            }
             // @ts-ignore
             if (tokens.current.value === '{') {
-                // final types cannot be inherited
-                if (ctr_type.modifiers.includes('final') ) {
-                    addproblem(tokens, ParseProblem.Error(tokens.current, `Type '${ctr_type.fullyDottedTypeName}' is declared final and cannot be inherited from.`));
-                }
                 // anonymous type - just skip for now
-                for (let balance = 0;;) {
-                    if (tokens.isValue('{')) {
-                        balance++;
-                    } else if (tokens.isValue('}')) {
-                        if (--balance === 0) {
-                            break;
-                        }
-                    } else tokens.inc();
-                }
-            } else {
-                // abstract and interface types must have a type body
-                if (ctr_type.typeKind === 'interface' || ctr_type.modifiers.includes('abstract') ) {
-                    addproblem(tokens, ParseProblem.Error(tokens.current, `Type '${ctr_type.fullyDottedTypeName}' is abstract and cannot be instantiated without a body`));
-                }
+                type_body = skipBody(tokens);
             }
-            return match;
+            break;
+        default:
+            addproblem(tokens, ParseProblem.Error(tokens.current, 'Constructor expression expected'));
+            break;
     }
-
-    addproblem(tokens, ParseProblem.Error(tokens.current, 'Constructor expression expected'));
-    return new ResolvedIdent(match.source, [new Value(match.source, ctr_type)]);
+    return new ResolvedIdent(match.source, [new NewObject(ctr_type, ctr_args, type_body)]);
 }
 
 /**

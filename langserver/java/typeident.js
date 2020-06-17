@@ -3,7 +3,7 @@ const { SourceTypeIdent, SourceMethod, SourceConstructor, SourceInitialiser } = 
 const ResolvedImport = require('./parsetypes/resolved-import');
 const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resolver');
 const { Token } = require('./tokenizer');
-const { AnyType } = require("./body-types");
+const { AnyType } = require("./anys");
 
 /**
  * @typedef {SourceMethod|SourceConstructor|SourceInitialiser} SourceMC
