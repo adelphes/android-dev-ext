@@ -13,11 +13,11 @@ const { tokenize, Token } = require('./tokenizer');
 const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resolver');
 const { genericTypeArgs, typeIdent, typeIdentList } = require('./typeident');
 const { TokenList } = require("./TokenList");
-const { AnyMethod, AnyType, AnyValue, ArrayLiteral, Label, LiteralNumber, LiteralValue, Local,
-    MethodDeclarations, ResolvedIdent, Value, } = require("./body-types");
+const { AnyMethod, AnyType, AnyValue, Label, Local, MethodDeclarations, ResolvedIdent, Value, } = require("./body-types");
 const { resolveImports, resolveSingleImport } = require('../java/import-resolver');
 
 const { ArrayIndexExpression } = require("./expressiontypes/ArrayIndexExpression");
+const { ArrayValueExpression } = require("./expressiontypes/ArrayValueExpression");
 const { BinaryOpExpression } = require("./expressiontypes/BinaryOpExpression");
 const { BracketedExpression } = require("./expressiontypes/BracketedExpression");
 const { CastExpression } = require("./expressiontypes/CastExpression");
@@ -28,6 +28,12 @@ const { MemberExpression } = require("./expressiontypes/MemberExpression");
 const { MethodCallExpression } = require("./expressiontypes/MethodCallExpression");
 const { TernaryOpExpression } = require("./expressiontypes/TernaryOpExpression");
 const { ThisMemberExpression } = require("./expressiontypes/ThisMemberExpression");
+
+const { BooleanLiteral } = require('./expressiontypes/literals/Boolean');
+const { CharacterLiteral } = require('./expressiontypes/literals/Character');
+const { NumberLiteral } = require('./expressiontypes/literals/Number');
+const { NullLiteral } = require('./expressiontypes/literals/Null');
+const { StringLiteral } = require('./expressiontypes/literals/String');
 
 const { AssertStatement } = require("./statementtypes/AssertStatement");
 const { Block } = require("./statementtypes/Block");
@@ -1516,13 +1522,13 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
             matches = new ResolvedIdent(tokens.current.value, [], [], [PrimitiveType.fromName(tokens.current.value)]);
             break;
         case 'string-literal':
-            matches = new ResolvedIdent(tokens.current.value, [new LiteralValue(tokens.current.value, typemap.get('java/lang/String'))]);
+            matches = new ResolvedIdent(tokens.current.value, [new StringLiteral(tokens.current, typemap.get('java/lang/String'))]);
             break;
         case 'char-literal':
-            matches = new ResolvedIdent(tokens.current.value, [new LiteralValue(tokens.current.value, PrimitiveType.map.C)]);
+            matches = new ResolvedIdent(tokens.current.value, [new CharacterLiteral(tokens.current)]);
             break;
         case 'boolean-literal':
-            matches = new ResolvedIdent(tokens.current.value, [new LiteralValue(tokens.current.value, PrimitiveType.map.Z)]);
+            matches = new ResolvedIdent(tokens.current.value, [new BooleanLiteral(tokens.current)]);
             break;
         case 'object-literal':
             // this, super or null
@@ -1533,11 +1539,11 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
                 const supertype = scoped_type.supers.find(s => s.typeKind === 'class') || typemap.get('java/lang/Object');
                 matches = new ResolvedIdent(tokens.current.value, [new Value(tokens.current.value, supertype)]);
             } else {
-                matches = new ResolvedIdent(tokens.current.value, [new LiteralValue(tokens.current.value, new NullType())]);
+                matches = new ResolvedIdent(tokens.current.value, [new NullLiteral(tokens.current)]);
             }
             break;
         case /number-literal/.test(tokens.current.kind) && tokens.current.kind:
-            matches = new ResolvedIdent(tokens.current.value, [LiteralNumber.from(tokens.current)]);
+            matches = new ResolvedIdent(tokens.current.value, [NumberLiteral.from(tokens.current)]);
             break;
         case 'inc-operator':
             let incop = tokens.getIfKind('inc-operator');
@@ -1582,7 +1588,7 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
                 tokens.expectValue('}');
             }
             const ident = `{${elements.map(e => e.source).join(',')}}`;
-            return new ResolvedIdent(ident, [new ArrayLiteral(ident, elements)]);
+            return new ResolvedIdent(ident, [new ArrayValueExpression(elements)]);
         default:
             addproblem(tokens, ParseProblem.Error(tokens.current, 'Expression expected'));
             return new ResolvedIdent('');
