@@ -39,6 +39,7 @@ const { ForStatement } = require("./statementtypes/ForStatement");
 const { IfStatement } = require("./statementtypes/IfStatement");
 const { InvalidStatement } = require("./statementtypes/InvalidStatement");
 const { ReturnStatement } = require("./statementtypes/ReturnStatement");
+const { Statement } = require("./statementtypes/Statement");
 const { SwitchStatement } = require("./statementtypes/SwitchStatement");
 const { SynchronizedStatement } = require("./statementtypes/SynchronizedStatement");
 const { ThrowStatement } = require("./statementtypes/ThrowStatement");
