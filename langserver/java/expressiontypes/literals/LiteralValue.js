@@ -11,6 +11,10 @@ class LiteralValue extends Expression {
         super();
         this.token = token;
     }
+
+    tokens() {
+        return this.token;
+    }
 }
 
 exports.LiteralValue = LiteralValue;

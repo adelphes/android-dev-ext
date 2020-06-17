@@ -13,6 +13,10 @@ class MethodCallExpression extends Expression {
         this.instance = instance;
         this.args = args;
     }
+
+    tokens() {
+        return this.instance.tokens;
+    }
 }
 
 exports.MethodCallExpression = MethodCallExpression;

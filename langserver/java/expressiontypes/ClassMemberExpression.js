@@ -14,5 +14,9 @@ class ClassMemberExpression extends Expression {
         this.instance = instance;
         this.classToken = class_token;
     }
+
+    tokens() {
+        return this.classToken;
+    }
 }
 exports.ClassMemberExpression = ClassMemberExpression;

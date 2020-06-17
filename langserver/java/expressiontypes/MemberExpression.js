@@ -15,6 +15,10 @@ class MemberExpression extends Expression {
         // member will be null for incomplete expressions
         this.member = member;
     }
+
+    tokens() {
+        return this.member;
+    }
 }
 
 exports.MemberExpression = MemberExpression;

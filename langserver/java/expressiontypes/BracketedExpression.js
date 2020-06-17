@@ -11,6 +11,10 @@ class BracketedExpression extends Expression {
         super();
         this.expression = expression;
     }
+
+    tokens() {
+        return this.expression.tokens;
+    }
 }
 
 exports.BracketedExpression = BracketedExpression;

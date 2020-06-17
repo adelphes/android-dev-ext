@@ -498,3 +498,4 @@ exports.SourceAnnotation = SourceAnnotation;
 exports.SourceUnit = SourceUnit;
 exports.SourcePackage = SourcePackage;
 exports.SourceImport = SourceImport;
+exports.SourceEnumValue = SourceEnumValue;

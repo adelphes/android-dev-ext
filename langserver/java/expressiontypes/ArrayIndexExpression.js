@@ -13,6 +13,10 @@ class ArrayIndexExpression extends Expression {
         this.instance = instance;
         this.index = index;
     }
+
+    tokens() {
+        return [...this.instance.tokens, ...this.index.tokens];
+    }
 }
 
 exports.ArrayIndexExpression = ArrayIndexExpression;

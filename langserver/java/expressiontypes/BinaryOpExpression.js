@@ -16,6 +16,10 @@ class BinaryOpExpression extends Expression {
         this.op = op;
         this.rhs = rhs;
     }
+
+    tokens() {
+        return [...this.lhs.tokens, this.op, ...this.rhs.tokens];
+    }
 }
 
 exports.BinaryOpExpression = BinaryOpExpression;

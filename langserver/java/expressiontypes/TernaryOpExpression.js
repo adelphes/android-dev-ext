@@ -15,6 +15,10 @@ class TernaryOpExpression extends Expression {
         this.truthExpression = truthExpression;
         this.falseExpression = falseExpression;
     }
+
+    tokens() {
+        return [...this.test.tokens, ...this.truthExpression.tokens, ...this.falseExpression.tokens];
+    }
 }
 
 exports.TernaryOpExpression = TernaryOpExpression;

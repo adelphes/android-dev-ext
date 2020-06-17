@@ -16,6 +16,7 @@ const { TokenList } = require("./TokenList");
 const { AnyMethod, AnyType, AnyValue } = require("./anys");
 const { Label, Local, MethodDeclarations, ResolvedIdent } = require("./body-types");
 const { resolveImports, resolveSingleImport } = require('../java/import-resolver');
+const { getTypeInheritanceList } = require('./expression-resolver');
 
 const { ArrayIndexExpression } = require("./expressiontypes/ArrayIndexExpression");
 const { ArrayValueExpression } = require("./expressiontypes/ArrayValueExpression");
@@ -30,6 +31,7 @@ const { MethodCallExpression } = require("./expressiontypes/MethodCallExpression
 const { NewArray, NewObject } = require("./expressiontypes/NewExpression");
 const { TernaryOpExpression } = require("./expressiontypes/TernaryOpExpression");
 const { ThisMemberExpression } = require("./expressiontypes/ThisMemberExpression");
+const { Variable } = require("./expressiontypes/Variable");
 
 const { BooleanLiteral } = require('./expressiontypes/literals/Boolean');
 const { CharacterLiteral } = require('./expressiontypes/literals/Character');
@@ -843,15 +845,15 @@ function enumValueList(type, tokens, imports, typemap) {
  * @param {Map<string,CEIType>} typemap 
  */
 function statementBlock(tokens, mdecls, method, imports, typemap) {
-    const b = new Block();
+    const block = new Block(tokens.current);
     tokens.expectValue('{');
     mdecls.pushScope();
     while (!tokens.isValue('}')) {
         const s = statement(tokens, mdecls, method, imports, typemap);
-        b.statements.push(s);
+        block.statements.push(s);
     }
     mdecls.popScope();
-    return b;
+    return block;
 }
 
 /**
@@ -1538,15 +1540,16 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
             // the result of a bracketed expression is always a value, never a variable
             // - this prevents things like: (a) = 5;
             return new ResolvedIdent(`(${matches.source})`, [new BracketedExpression(matches)]);
-        case tokens.isValue('{') && 'symbol':
+        case tokens.current.value === '{' && 'symbol':
             // array initer
-            let elements = [];
+            let elements = [], open = tokens.current;
+            tokens.expectValue('{');
             if (!tokens.isValue('}')) {
                 elements = expressionList(tokens, mdecls, scope, imports, typemap, { isArrayLiteral:true });
                 tokens.expectValue('}');
             }
             const ident = `{${elements.map(e => e.source).join(',')}}`;
-            return new ResolvedIdent(ident, [new ArrayValueExpression(elements)]);
+            return new ResolvedIdent(ident, [new ArrayValueExpression(elements, open)]);
         default:
             addproblem(tokens, ParseProblem.Error(tokens.current, 'Expression expected'));
             return new ResolvedIdent('');
@@ -1563,9 +1566,10 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
  * @param {Map<string,CEIType>} typemap 
  */
 function newTerm(tokens, mdecls, scope, imports, typemap) {
+    const new_token = tokens.current;
     tokens.expectValue('new');
-    const { resolved: ctr_type } = typeIdent(tokens, scope, imports, typemap, {no_array_qualifiers:true, type_vars:[]});
-    let match = new ResolvedIdent(`new ${ctr_type.simpleTypeName}`, [], [], [ctr_type]);
+    const ctr_type = typeIdent(tokens, scope, imports, typemap, {no_array_qualifiers:true, type_vars:[]});
+    let match = new ResolvedIdent(`new ${ctr_type.resolved.simpleTypeName}`, [], [], [ctr_type.resolved]);
     let ctr_args = [], type_body = null;
     switch(tokens.current.value) {
         case '[':
@@ -1575,7 +1579,7 @@ function newTerm(tokens, mdecls, scope, imports, typemap) {
                 // array init
                 rootTerm(tokens, mdecls, scope, imports, typemap);
             }
-            return new ResolvedIdent(match.source, [new NewArray(ctr_type, match)]);
+            return new ResolvedIdent(match.source, [new NewArray(new_token, ctr_type, match)]);
         case '(':
             tokens.inc();
             if (!tokens.isValue(')')) {
@@ -1592,7 +1596,7 @@ function newTerm(tokens, mdecls, scope, imports, typemap) {
             addproblem(tokens, ParseProblem.Error(tokens.current, 'Constructor expression expected'));
             break;
     }
-    return new ResolvedIdent(match.source, [new NewObject(ctr_type, ctr_args, type_body)]);
+    return new ResolvedIdent(match.source, [new NewObject(new_token, ctr_type, ctr_args, type_body)]);
 }
 
 /**
@@ -1629,28 +1633,6 @@ function arrayElementOrConstructor(tokens, open_array, instance, index) {
     const ident = `${instance.source}[${index.source}]`;
     return new ResolvedIdent(ident, [new ArrayIndexExpression(instance, index)]);
 }
-
-/**
- * @param {CEIType} type 
- */
-function getTypeInheritanceList(type) {
-    const types = {
-        /** @type {JavaType[]} */
-        list: [type],
-        /** @type {Set<JavaType>} */
-        done: new Set(),
-    };
-    for (let type; type = types.list.shift(); ) {
-        if (types.done.has(type)) {
-            continue;
-        }
-        types.done.add(type);
-        if (type instanceof CEIType)
-            types.list.push(...type.supers);
-    }
-    return Array.from(types.done);
-}
-
 
 /**
  * @param {ResolvedIdent} matches
@@ -1807,7 +1789,7 @@ function arrayTypeExpression(matches) {
  */
 function resolveIdentifier(tokens, mdecls, scope, imports, typemap) {
     const ident = tokens.current.value;
-    const matches = findIdentifier(ident, mdecls, scope, imports, typemap);
+    const matches = findIdentifier(tokens.current, mdecls, scope, imports, typemap);
     checkIdentifierFound(tokens, ident, matches);
     return matches;
 }
@@ -1827,20 +1809,22 @@ function checkIdentifierFound(tokens, ident, matches) {
 }
 
 /**
- * @param {string} ident 
+ * @param {Token} token 
  * @param {MethodDeclarations} mdecls 
  * @param {Scope} scope 
  * @param {ResolvedImport[]} imports 
  * @param {Map<string,CEIType>} typemap 
  */
-function findIdentifier(ident, mdecls, scope, imports, typemap) {
+function findIdentifier(token, mdecls, scope, imports, typemap) {
+    const ident = token.value;
     const matches = new ResolvedIdent(ident);
+    matches.tokens = [token];
 
     // is it a local or parameter - note that locals must be ordered innermost-scope-first
     const local = mdecls.locals.find(local => local.name === ident);
     let param = scope && !(scope instanceof SourceType) && scope.parameters.find(p => p.name === ident);
     if (local || param) {
-        matches.variables = [local || param];
+        matches.variables = [new Variable(token, local || param)];
     } else if (scope) {
         // is it a field, method or enum value in the current type (or any of the outer types or superclasses)
         const scoped_type = scope instanceof SourceType ? scope : scope.owner;
@@ -1857,12 +1841,12 @@ function findIdentifier(ident, mdecls, scope, imports, typemap) {
             if (!matches.variables[0]) {
                 const field = type.fields.find(f => f.name === ident);
                 if (field) {
-                    matches.variables = [field];
+                    matches.variables = [new Variable(token, field)];
                     return;
                 }
                 const enumValue = (type instanceof SourceType) && type.enumValues.find(e => e.ident.value === ident);
                 if (enumValue) {
-                    matches.variables = [enumValue];
+                    matches.variables = [new Variable(token, enumValue)];
                     return;
                 }
             }
@@ -1883,7 +1867,7 @@ function findIdentifier(ident, mdecls, scope, imports, typemap) {
         imp.members.forEach(member => {
             if (member.name === ident) {
                 if (member instanceof Field) {
-                    matches.variables.push(member);
+                    matches.variables.push(new Variable(token, member));
                 } else if (member instanceof Method) {
                     matches.methods.push(member);
                 }

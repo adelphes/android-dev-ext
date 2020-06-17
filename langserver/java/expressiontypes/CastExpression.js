@@ -13,6 +13,10 @@ class CastExpression extends Expression {
         this.castType = castType;
         this.expression = expression;
     }
+
+    tokens() {
+        return [...this.castType.tokens, ...this.expression.tokens];
+    }
 }
 
 exports.CastExpression = CastExpression;

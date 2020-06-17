@@ -7,7 +7,7 @@ const { Token } = require('./tokenizer');
 class ResolvedIdent {
     /**
      * @param {string} ident
-     * @param {(Local|Parameter|Field|Expression)[]} variables
+     * @param {Expression[]} variables
      * @param {Method[]} methods
      * @param {JavaType[]} types
      * @param {string} package_name

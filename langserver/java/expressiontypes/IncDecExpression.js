@@ -16,6 +16,10 @@ class IncDecExpression extends Expression {
         this.operator = operator;
         this.which = which;
     }
+
+    tokens() {
+        return this.operator;
+    }
 }
 
 exports.IncDecExpression = IncDecExpression;
