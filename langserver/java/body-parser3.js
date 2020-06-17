@@ -362,9 +362,6 @@ function importDeclaration(tokens, typemap) {
  */
 function addLocals(tokens, mdecls, new_locals) {
     for (let local of new_locals) {
-        if (mdecls.locals.find(l => l.name === local.name)) {
-            addproblem(tokens, ParseProblem.Error(local.decltoken, `Redeclared variable: ${local.name}`));
-        }
         mdecls.locals.unshift(local);
     }
 }
@@ -446,9 +443,8 @@ function statement(tokens, mdecls, method, imports, typemap) {
         case '}':
             return new EmptyStatement();
     }
-    addproblem(tokens, ParseProblem.Error(tokens.current, `Statement expected`));
     tokens.inc();
-    return new InvalidStatement();
+    return new InvalidStatement(tokens.previous);
 }
 
 /**
@@ -882,16 +878,16 @@ function statementKeyword(tokens, mdecls, method, imports, typemap) {
             tokens.inc();
             s = new IfStatement();
             s.test = bracketedTest(tokens, mdecls, method, imports, typemap);
-            s.statement = nonVarDeclStatement(tokens, mdecls, method, imports, typemap);
+            s.statement = statement(tokens, mdecls, method, imports, typemap);
             if (tokens.isValue('else')) {
-                s.elseStatement = nonVarDeclStatement(tokens, mdecls, method, imports, typemap);
+                s.elseStatement = statement(tokens, mdecls, method, imports, typemap);
             }
             break;
         case 'while':
             tokens.inc();
             s = new WhileStatement();
             s.test = bracketedTest(tokens, mdecls, method, imports, typemap);
-            s.statement = nonVarDeclStatement(tokens, mdecls, method, imports, typemap);
+            s.statement = statement(tokens, mdecls, method, imports, typemap);
             break;
         case 'break':
             tokens.inc();
@@ -962,8 +958,7 @@ function statementKeyword(tokens, mdecls, method, imports, typemap) {
             semicolon(tokens);
             break;
         default:
-            s = new InvalidStatement();
-            addproblem(tokens, ParseProblem.Error(tokens.current, `Unexpected token: ${tokens.current.value}`));
+            s = new InvalidStatement(tokens.current);
             tokens.inc();
             break;
     }
@@ -982,21 +977,6 @@ function bracketedTest(tokens, mdecls, scope, imports, typemap) {
     const e = expression(tokens, mdecls, scope, imports, typemap);
     tokens.expectValue(')');
     return e;
-}
-
-/**
-* @param {TokenList} tokens 
-* @param {MethodDeclarations} mdecls
-* @param {SourceMC} method 
-* @param {ResolvedImport[]} imports
-* @param {Map<string,CEIType>} typemap 
-*/
-function nonVarDeclStatement(tokens, mdecls, method, imports, typemap) {
-    const s = statement(tokens, mdecls, method, imports, typemap);
-    if (Array.isArray(s)) {
-        addproblem(tokens, ParseProblem.Error(tokens.previous, `Variable declarations are not permitted as a single conditional statement.`));
-    }
-    return s;
 }
 
 /**
@@ -1031,8 +1011,6 @@ function tryStatement(s, tokens, mdecls, method, imports, typemap) {
     s.block = statementBlock(tokens, mdecls, method, imports, typemap);
     if (/^(catch|finally)$/.test(tokens.current.value)) {
         catchFinallyBlocks(s, tokens, mdecls, method, imports, typemap);
-    } else if (!is_try_with_resources) {
-        addproblem(tokens, ParseProblem.Error(tokens.current, `Missing catch/finally block`));
     }
     mdecls.popScope();
 }
@@ -1070,7 +1048,7 @@ function forStatement(s, tokens, mdecls, method, imports, typemap) {
         s.update = expressionList(tokens, mdecls, method, imports, typemap);
         tokens.expectValue(')');
     }
-    s.statement = nonVarDeclStatement(tokens, mdecls, method, imports, typemap);
+    s.statement = statement(tokens, mdecls, method, imports, typemap);
 }
 
 /**
@@ -1085,17 +1063,9 @@ function enhancedFor(s, tokens, mdecls, method, imports, typemap) {
     const colon = tokens.current;
     tokens.inc();
     // enhanced for
-    const iter_var = s.init[0];
-    if (!(iter_var instanceof Local)) {
-        addproblem(tokens, ParseProblem.Error(tokens.previous, `For iterator must be a single variable declaration`));
-    }
     s.iterable = expression(tokens, mdecls, method, imports, typemap);
-    const value = s.iterable.variables[0];
-    if (!value) {
-        addproblem(tokens, ParseProblem.Error(tokens.current, `Expression expected`));
-    }
     tokens.expectValue(')');
-    s.statement = nonVarDeclStatement(tokens, mdecls, method, imports, typemap);
+    s.statement = statement(tokens, mdecls, method, imports, typemap);
 }
 
 /**
@@ -1110,7 +1080,7 @@ function synchronizedStatement(s, tokens, mdecls, method, imports, typemap) {
     tokens.expectValue('(');
     s.expression = expression(tokens, mdecls, method, imports, typemap);
     tokens.expectValue(')');
-    s.statement = nonVarDeclStatement(tokens, mdecls, method, imports, typemap);
+    s.statement = statement(tokens, mdecls, method, imports, typemap);
 }
 
 /**
@@ -1139,9 +1109,6 @@ function assertStatement(s, tokens, mdecls, method, imports, typemap) {
 function catchFinallyBlocks(s, tokens, mdecls, method, imports, typemap) {
     for (;;) {
         if (tokens.isValue('finally')) {
-            if (s.catches.find(c => c instanceof Block)) {
-                addproblem(tokens, ParseProblem.Error(tokens.current, `Multiple finally blocks are not permitted`));
-            }
             s.catches.push(statementBlock(tokens, mdecls, method, imports, typemap));
             continue;
         }
@@ -1180,12 +1147,6 @@ function catchFinallyBlocks(s, tokens, mdecls, method, imports, typemap) {
             s.catches.push(catchinfo);
             mdecls.popScope();
             continue;
-        }
-        const first_finally_idx = s.catches.findIndex(c => c instanceof Block);
-        if (first_finally_idx >= 0) {
-            if (s.catches.slice(first_finally_idx).find(c => !(c instanceof Block))) {
-                addproblem(tokens, ParseProblem.Error(tokens.current, `Catch blocks must be declared before a finally block`));
-            }
         }
         return;
     }
@@ -1286,9 +1247,6 @@ function caseExpressionList(cases, tokens, mdecls, method, imports, typemap) {
 function caseExpression(cases, tokens, mdecls, method, imports, typemap) {
     /** @type {boolean|ResolvedIdent} */
     let e = tokens.isValue('default');
-    if (e && cases.find(c => c === e)) {
-        addproblem(tokens, ParseProblem.Error(tokens.previous, `Duplicate case: default`))
-    }
     if (!e) {
         if (tokens.isValue('case')) {
             e = expression(tokens, mdecls, method, imports, typemap);
