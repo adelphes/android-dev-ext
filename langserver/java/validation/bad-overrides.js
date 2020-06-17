@@ -1,5 +1,5 @@
 const ParseProblem = require('../parsetypes/parse-problem');
-const {SourceType, SourceAnnotation} = require('../source-type');
+const {SourceType, SourceAnnotation} = require('../source-types');
 const {CEIType, Method} = require('java-mti');
 
 /**

@@ -1,4 +1,4 @@
-const {SourceType, SourceConstructor} = require('../source-type');
+const {SourceType, SourceConstructor} = require('../source-types');
 const ParseProblem = require('../parsetypes/parse-problem');
 
 /**

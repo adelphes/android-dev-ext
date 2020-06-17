@@ -1,12 +1,12 @@
-const { JavaType } = require('java-mti');
+const { CEIType } = require('java-mti');
 const { resolveImports } = require('../java/import-resolver');
-const { SourceUnit } = require('./source-type');
+const { SourceUnit } = require('./source-types');
 const { parseBody } = require('./body-parser3');
-
 
 /**
  * @param {SourceUnit} unit 
- * @param {Map<string, JavaType>} androidLibrary
+ * @param {Map<string, CEIType>} androidLibrary
+ * @returns {import('./parsetypes/parse-problem')[]}
  */
 function validate(unit, androidLibrary) {
     console.time('validation');
@@ -47,6 +47,7 @@ function validate(unit, androidLibrary) {
         require('./validation/non-implemented-interfaces'),
         require('./validation/bad-overrides'),
         require('./validation/missing-constructor'),
+        //require('./validation/expression-compatibility'),
     ];
     let problems = [
         module_validaters.map(v => v(unit.types, unit)),

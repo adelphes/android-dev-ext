@@ -1,5 +1,5 @@
 const { ArrayType, CEIType, JavaType, PrimitiveType, MethodBase, WildcardType, TypeVariable } = require('java-mti');
-const { SourceTypeIdent, SourceMethod, SourceConstructor, SourceInitialiser } = require('./source-type');
+const { SourceTypeIdent, SourceMethod, SourceConstructor, SourceInitialiser } = require('./source-types');
 const ResolvedImport = require('./parsetypes/resolved-import');
 const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resolver');
 const { Token } = require('./tokenizer');

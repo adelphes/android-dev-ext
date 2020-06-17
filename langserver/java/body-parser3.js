@@ -6,7 +6,7 @@
  */
 const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, TypeVariable, Field, Method } = require('java-mti');
 const { SourceType, SourceTypeIdent, SourceField, SourceMethod, SourceConstructor, SourceInitialiser, SourceParameter, SourceAnnotation,
-    SourceUnit, SourcePackage, SourceImport } = require('./source-types2');
+    SourceUnit, SourcePackage, SourceImport } = require('./source-types');
 const ResolvedImport = require('./parsetypes/resolved-import');
 const ParseProblem = require('./parsetypes/parse-problem');
 const { tokenize, Token } = require('./tokenizer');

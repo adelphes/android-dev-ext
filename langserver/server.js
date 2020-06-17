@@ -21,7 +21,7 @@ const { loadAndroidLibrary, CEIType } = require('java-mti');
 
 const { ParseProblem } = require('./java/parser');
 const { parse } = require('./java/body-parser3');
-const { SourceUnit } = require('./java/source-type');
+const { SourceUnit } = require('./java/source-types');
 const { validate } = require('./java/validater');
 
 /**

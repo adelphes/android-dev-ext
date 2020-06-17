@@ -1,5 +1,5 @@
 const ParseProblem = require('../parsetypes/parse-problem');
-const { SourceType } = require('../source-type');
+const { SourceType } = require('../source-types');
 const {CEIType} = require('java-mti');
 
 function nonAbstractLabel(label) {

@@ -1,4 +1,4 @@
-const { SourceType } = require('../source-type');
+const { SourceType } = require('../source-types');
 const ParseProblem = require('../parsetypes/parse-problem');
 const { AnyType } = require('../anys');
 

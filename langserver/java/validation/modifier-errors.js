@@ -1,4 +1,4 @@
-const { SourceType, SourceMethod, SourceParameter, SourceField, SourceConstructor, SourceInitialiser } = require('../source-type');
+const { SourceType, SourceMethod, SourceParameter, SourceField, SourceConstructor, SourceInitialiser } = require('../source-types');
 const { Token } = require('../tokenizer');
 const ParseProblem = require('../parsetypes/parse-problem');
 

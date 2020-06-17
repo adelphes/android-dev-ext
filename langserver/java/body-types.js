@@ -28,7 +28,7 @@ class Local {
      * @param {Token[]} modifiers 
      * @param {string} name 
      * @param {Token} decltoken 
-     * @param {import('./source-type').SourceTypeIdent} typeIdent 
+     * @param {import('./source-types').SourceTypeIdent} typeIdent 
      * @param {number} postnamearrdims 
      * @param {ResolvedIdent} init 
      */
@@ -62,7 +62,7 @@ class MethodDeclarations {
     locals = [];
     /** @type {Label[]} */
     labels = [];
-    /** @type {import('./source-types2').SourceType[]} */
+    /** @type {import('./source-types').SourceType[]} */
     types = [];
 
     _scopeStack = [];
