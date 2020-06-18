@@ -5,6 +5,7 @@
  */
 const { Expression } = require("./Expression");
 const { AnyType } = require('../anys');
+const ParseProblem = require('../parsetypes/parse-problem');
 
 class ClassMemberExpression extends Expression {
     /**
@@ -23,6 +24,9 @@ class ClassMemberExpression extends Expression {
     resolveExpression(ri) {
         const classType = ri.typemap.get('java/lang/Class');
         const type = this.instance.types[0];
+        if (!type) {
+            ri.problems.push(ParseProblem.Error(this.instance.tokens, `Type expected`));
+        }
         return classType.specialise([type || AnyType.Instance]);
     }
 
