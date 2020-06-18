@@ -1,6 +1,6 @@
 /**
  * @typedef {import('./expressiontypes/Expression').Expression} Expression
- * @typedef {import('./anys').ResolvedType} ResolvedType
+ * @typedef {import('./anys').ResolvedValue} ResolvedValue
  */
 const { JavaType, CEIType, ArrayType, Method } = require('java-mti');
 const { Token } = require('./tokenizer');
@@ -28,7 +28,7 @@ class ResolvedIdent {
 
     /**
      * @param {ResolveInfo} ri 
-     * @returns {ResolvedType}
+     * @returns {ResolvedValue}
      */
     resolveExpression(ri) {
         if (this.variables[0]) {

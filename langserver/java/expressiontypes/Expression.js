@@ -3,14 +3,14 @@
  * @typedef {import('java-mti').CEIType} CEIType
  * @typedef {import('../tokenizer').Token} Token
  * @typedef {import('../body-types').ResolveInfo} ResolveInfo
- * @typedef {import('../anys').ResolvedType} ResolvedType
+ * @typedef {import('../anys').ResolvedValue} ResolvedValue
   */
 
 class Expression {
 
     /**
      * @param {ResolveInfo} ri 
-     * @returns {ResolvedType}
+     * @returns {ResolvedValue}
      */
     resolveExpression(ri) {
         throw new Error('Expression.resolveType');

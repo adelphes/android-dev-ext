@@ -1,7 +1,7 @@
 /**
  * @typedef {import('../body-types').ResolvedIdent} ResolvedIdent
  * @typedef {import('../body-types').ResolveInfo} ResolveInfo
- * @typedef {import('../anys').ResolvedType} ResolvedType
+ * @typedef {import('../anys').ResolvedValue} ResolvedValue
  */
 const { Expression } = require("./Expression");
 const { AnyType, TypeIdentType } = require('../anys');
@@ -45,7 +45,7 @@ class CastExpression extends Expression {
 /**
  * @param {CastExpression} cast
  * @param {JavaType} cast_type 
- * @param {ResolvedType} expr_type 
+ * @param {ResolvedValue} expr_type 
  * @param {ParseProblem[]} problems 
  */
 function checkCastable(cast, cast_type, expr_type, problems) {

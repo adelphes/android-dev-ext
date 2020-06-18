@@ -1,6 +1,6 @@
 /**
  * @typedef {import('./tokenizer').Token} Token
- * @typedef {import('./anys').ResolvedType} ResolvedType
+ * @typedef {import('./anys').ResolvedValue} ResolvedValue
  * @typedef {import('./body-types').ResolvedIdent} ResolvedIdent
  */
 const ParseProblem = require('./parsetypes/parse-problem');
@@ -44,7 +44,7 @@ function checkAssignment(e, assign_type, typemap, problems) {
 /**
  * 
  * @param {JavaType} variable_type 
- * @param {import('./anys').ResolvedType} value_type 
+ * @param {ResolvedValue} value_type 
  * @param {() => Token|Token[]} tokens
  * @param {ParseProblem[]} problems
  */
@@ -100,7 +100,7 @@ function checkArrayLiteral(variable_type, value_type, tokens, problems) {
 
     /**
      * @param {JavaType} element_type 
-     * @param {ResolvedType} value_type 
+     * @param {ResolvedValue} value_type 
      * @param {Token[]} tokens
      */
     function checkArrayElement(element_type, value_type, tokens) {

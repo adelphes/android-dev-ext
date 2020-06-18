@@ -107,7 +107,7 @@ class TypeIdentType {
  */
 class ArrayValueType {
     /**
-     * @param {{tokens:Token[], value: ResolvedType}[]} elements
+     * @param {{tokens:Token[], value: ResolvedValue}[]} elements
      */
     constructor(elements) {
         this.elements = elements;
@@ -122,7 +122,7 @@ class ArrayValueType {
  */
 class MultiValueType {
     /**
-     * @param {ResolvedType[]} types
+     * @param {ResolvedValue[]} types
      */
     constructor(...types) {
         this.types = types;
@@ -130,7 +130,7 @@ class MultiValueType {
 }
 
 /**
- * @typedef {JavaType|MethodType|LambdaType|ArrayValueType|TypeIdentType|MultiValueType} ResolvedType
+ * @typedef {JavaType|MethodType|LambdaType|ArrayValueType|TypeIdentType|MultiValueType} ResolvedValue
  **/
 
 exports.AnyMethod = AnyMethod;
