@@ -5,8 +5,9 @@
  */
 const { Expression } = require("./Expression");
 const { CEIType } = require('java-mti');
-const { AnyType, MethodType } = require('../anys');
+const { AnyType, MethodType, TypeIdentType } = require('../anys');
 const { getTypeInheritanceList } = require('../expression-resolver');
+const ParseProblem = require('../parsetypes/parse-problem');
 
 class MemberExpression extends Expression {
     /**
@@ -24,11 +25,19 @@ class MemberExpression extends Expression {
      * @param {ResolveInfo} ri 
      */
     resolveExpression(ri) {
-        const type = this.instance.resolveExpression(ri);
-        if (!(type instanceof CEIType)) {
-            return AnyType.Instance;
+        let type = this.instance.resolveExpression(ri);
+        if (type instanceof TypeIdentType) {
+            // static member
+            type = type.type;
+        }
+        if (type instanceof AnyType) {
+            return type;
         }
         const ident = this.member.value;
+        if (!(type instanceof CEIType)) {
+            ri.problems.push(ParseProblem.Error(this.member, `Unresolved member: '${ident}'`));
+            return AnyType.Instance;
+        }
         const field = type.fields.find(f => f.name === ident);
         if (field) {
             return field.type;
@@ -45,6 +54,7 @@ class MemberExpression extends Expression {
         if (methods.size > 0) {
             return new MethodType([...methods.values()]);
         }
+        ri.problems.push(ParseProblem.Error(this.member, `Unresolved member: '${ident}' in type '${type.fullyDottedRawName}'`));
         return AnyType.Instance;
     }
 

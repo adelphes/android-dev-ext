@@ -50,14 +50,13 @@ function checkTypeAssignable(variable_type, value_type, tokens, problems) {
         value_type.types.forEach(t => checkTypeAssignable(variable_type, t, tokens, problems));
         return;
     }
-    if (!(value_type instanceof JavaType)) {
+    if (value_type instanceof JavaType) {
+        if (!isTypeAssignable(variable_type, value_type)) {
+            problems.push(ParseProblem.Error(tokens(), `Incompatible types: Expression of type '${value_type.fullyDottedTypeName}' cannot be assigned to a variable of type '${variable_type.fullyDottedTypeName}'`));
+        }
         return;
     }
-    if (!isTypeAssignable(variable_type, value_type)) {
-        const t = tokens();
-        if (t.length || (t && !Array.isArray(t)))
-            problems.push(ParseProblem.Error(t, `Incompatible types: Expression of type '${value_type.fullyDottedTypeName}' cannot be assigned to a variable of type '${variable_type.fullyDottedTypeName}'`));
-    }
+    problems.push(ParseProblem.Error(tokens(), `Field, variable or method call expected`));
 }
 
 /**

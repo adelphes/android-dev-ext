@@ -5,6 +5,7 @@
 const { JavaType, CEIType, ArrayType, Method } = require('java-mti');
 const { Token } = require('./tokenizer');
 const { AnyType, MethodType, TypeIdentType } = require('./anys');
+const ParseProblem = require('./parsetypes/parse-problem');
 
 
 class ResolvedIdent {
@@ -39,6 +40,7 @@ class ResolvedIdent {
         if (this.types[0]) {
             return new TypeIdentType(this.types[0]);
         }
+        ri.problems.push(ParseProblem.Error(this.tokens, `Unresolved identifier: ${this.source}`));
         return AnyType.Instance;
     }
 
