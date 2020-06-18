@@ -1,6 +1,7 @@
 /**
  * @typedef {import('./tokenizer').Token} Token
  * @typedef {import('./anys').ResolvedType} ResolvedType
+ * @typedef {import('./body-types').ResolvedIdent} ResolvedIdent
  */
 const ParseProblem = require('./parsetypes/parse-problem');
 const { TypeVariable, JavaType, PrimitiveType, NullType, ArrayType, CEIType, WildcardType, TypeVariableType, InferredTypeArgument } = require('java-mti');
@@ -117,6 +118,21 @@ function checkArrayLiteral(variable_type, value_type, tokens, problems) {
     }
 }
 
+/**
+ * @param {ResolveInfo} ri 
+ * @param {ResolvedIdent} d 
+ * @param {'index'|'dimension'} kind
+ */
+function checkArrayIndex(ri, d, kind) {
+    const idx = d.resolveExpression(ri);
+    if (idx instanceof PrimitiveType) {
+        if (!/^[BSI]$/.test(idx.typeSignature)) {
+            ri.problems.push(ParseProblem.Error(d.tokens, `Expression of type '${idx.label}' is not valid as an array ${kind}`));
+        }
+        return;
+    }
+    ri.problems.push(ParseProblem.Error(d.tokens, `Integer value expected`));
+}
 
 /**
  * Set of regexes to map source primitives to their destination types.
@@ -250,4 +266,5 @@ function getTypeInheritanceList(type) {
 }
 
 exports.checkAssignment = checkAssignment;
+exports.checkArrayIndex = checkArrayIndex;
 exports.getTypeInheritanceList = getTypeInheritanceList;

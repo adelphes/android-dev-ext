@@ -4,6 +4,7 @@
  */
 const { Expression } = require("./Expression");
 const { ArrayType } = require('java-mti');
+const { checkArrayIndex } = require('../expression-resolver');
 const { AnyType } = require('../anys');
 
 class ArrayIndexExpression extends Expression {
@@ -26,6 +27,7 @@ class ArrayIndexExpression extends Expression {
      */
     resolveExpression(ri) {
         const instance_type = this.instance.resolveExpression(ri);
+        checkArrayIndex(ri, this.index, 'index');
         if (instance_type instanceof ArrayType) {
             return instance_type.elementType;
         }

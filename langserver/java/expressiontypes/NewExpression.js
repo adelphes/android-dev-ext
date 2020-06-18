@@ -6,9 +6,10 @@
  * @typedef {import('java-mti').JavaType} JavaType
  */
 const { Expression } = require("./Expression");
-const { ArrayType, PrimitiveType } = require('java-mti');
+const { ArrayType } = require('java-mti');
 const { FixedLengthArrayType, SourceArrayType } = require('../source-types');
 const ParseProblem = require('../parsetypes/parse-problem');
+const { checkArrayIndex } = require('../expression-resolver');
 
 class NewArray extends Expression {
     /**
@@ -46,14 +47,7 @@ class NewArray extends Expression {
         const array_type = new ArrayType(this.element_type.resolved, arrdims);
 
         fixed_dimensions.forEach(d => {
-            const idx = d.resolveExpression(ri);
-            if (idx instanceof PrimitiveType) {
-                if (!/^[BSI]$/.test(idx.typeSignature)) {
-                    ri.problems.push(ParseProblem.Error(d.tokens, `Expression of type '${idx.label}' is not valid as an array dimension`));
-                }
-                return;
-            }
-            ri.problems.push(ParseProblem.Error(d.tokens, `Integer value expected`));
+            checkArrayIndex(ri, d, 'dimension');
         })
         return array_type;
     }
