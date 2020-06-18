@@ -167,7 +167,7 @@ function isTypeArgumentCompatible(dest_typevar, value_typevar_type) {
         // inferred type arguments of the form `x = List<>` are compatible with every destination type variable
         return value_typevar_type.typeVariable instanceof InferredTypeArgument;
     }
-    return dest_typevar.type === value_typevar_type;
+    return isTypeAssignable(dest_typevar.type, value_typevar_type);
 }
 
 /**
