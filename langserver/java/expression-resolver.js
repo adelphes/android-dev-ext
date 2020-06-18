@@ -24,16 +24,6 @@ function checkAssignment(e, assign_type, typemap, problems) {
         checkTypeAssignable(assign_type, value.type, () => value.name_token, problems);
         return;
     }
-    if (value instanceof NumberLiteral) {
-        if (!value.isCompatibleWith(assign_type)) {
-            incompatibleTypesError(assign_type, value.type, () => value.token, problems);
-        }
-        return;
-    }
-    if (value instanceof LiteralValue) {
-        checkTypeAssignable(assign_type, value.type, () => value.token, problems);
-        return;
-    }
     if (value instanceof Expression) {
         const expression_result_type = value.resolveExpression(new ResolveInfo(typemap, problems));
         checkTypeAssignable(assign_type, expression_result_type, () => value.tokens(), problems);
@@ -44,22 +34,28 @@ function checkAssignment(e, assign_type, typemap, problems) {
 /**
  * 
  * @param {JavaType} variable_type 
- * @param {ResolvedValue} value_type 
+ * @param {ResolvedValue} value 
  * @param {() => Token|Token[]} tokens
  * @param {ParseProblem[]} problems
  */
-function checkTypeAssignable(variable_type, value_type, tokens, problems) {
-    if (value_type instanceof MultiValueType) {
-        value_type.types.forEach(t => checkTypeAssignable(variable_type, t, tokens, problems));
+function checkTypeAssignable(variable_type, value, tokens, problems) {
+    if (value instanceof NumberLiteral) {
+        if (!value.isCompatibleWith(variable_type)) {
+            incompatibleTypesError(variable_type, value.type, () => value.tokens(), problems);
+        }
         return;
     }
-    if (value_type instanceof ArrayValueType) {
-        checkArrayLiteral(variable_type, value_type, tokens, problems);
+    if (value instanceof MultiValueType) {
+        value.types.forEach(t => checkTypeAssignable(variable_type, t, tokens, problems));
         return;
     }
-    if (value_type instanceof JavaType) {
-        if (!isTypeAssignable(variable_type, value_type)) {
-            incompatibleTypesError(variable_type, value_type, tokens, problems);
+    if (value instanceof ArrayValueType) {
+        checkArrayLiteral(variable_type, value, tokens, problems);
+        return;
+    }
+    if (value instanceof JavaType) {
+        if (!isTypeAssignable(variable_type, value)) {
+            incompatibleTypesError(variable_type, value, tokens, problems);
         }
         return;
     }
@@ -104,6 +100,12 @@ function checkArrayLiteral(variable_type, value_type, tokens, problems) {
      * @param {Token[]} tokens
      */
     function checkArrayElement(element_type, value_type, tokens) {
+        if (value_type instanceof NumberLiteral) {
+            if (!value_type.isCompatibleWith(element_type)) {
+                incompatibleTypesError(element_type, value_type.type, () => tokens, problems);
+            }
+            return;
+        }
         if (value_type instanceof JavaType) {
             if (!isTypeAssignable(element_type, value_type)) {
                 incompatibleTypesError(element_type, value_type, () => tokens, problems);
@@ -125,6 +127,15 @@ function checkArrayLiteral(variable_type, value_type, tokens, problems) {
  */
 function checkArrayIndex(ri, d, kind) {
     const idx = d.resolveExpression(ri);
+    if (idx instanceof NumberLiteral) {
+        if (!idx.isCompatibleWith(PrimitiveType.map.I)) {
+            ri.problems.push(ParseProblem.Error(d.tokens, `Value '${idx.toNumber()}' is not valid as an array ${kind}`));
+        }
+        else if (idx.toNumber() < 0) {
+            ri.problems.push(ParseProblem.Error(d.tokens, `Negative array ${kind}: ${idx.toNumber()}`));
+        }
+        return;
+    }
     if (idx instanceof PrimitiveType) {
         if (!/^[BSI]$/.test(idx.typeSignature)) {
             ri.problems.push(ParseProblem.Error(d.tokens, `Expression of type '${idx.label}' is not valid as an array ${kind}`));

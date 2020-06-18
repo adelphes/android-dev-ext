@@ -1,6 +1,7 @@
 /**
  * @typedef {import('../../tokenizer').Token} Token
  * @typedef {import('java-mti').JavaType} JavaType
+ * @typedef {import('../../body-types').ResolveInfo} ResolveInfo
  */
 const { LiteralValue } = require('./LiteralValue');
 const { PrimitiveType } = require('java-mti');
@@ -13,15 +14,43 @@ const { PrimitiveType } = require('java-mti');
  */
 class NumberLiteral extends LiteralValue {
     /**
-     * @param {Token} value
+     * @param {Token[]} tokens
      * @param {string} kind
      * @param {PrimitiveType} default_type 
+     * @param {string} [value]
      */
-    constructor(value, kind, default_type) {
-        super(value, default_type);
+    constructor(tokens, kind, default_type, value = tokens[0].value) {
+        super(tokens, default_type);
+        this.value = value;
         this.numberKind = kind;
     }
 
+    /**
+     * @param {ResolveInfo} ri 
+     */
+    resolveExpression(ri) {
+        return this;
+    }
+
+    /**
+     * @param {NumberLiteral} a 
+     * @param {NumberLiteral} b 
+     * @param {string} kind 
+     * @param {PrimitiveType} type 
+     * @param {number} value 
+     */
+    static calc(a, b, kind, type, value) {
+        let atoks = a.tokens(), btoks = b.tokens();
+        atoks = Array.isArray(atoks) ? atoks : [atoks];
+        btoks = Array.isArray(btoks) ? btoks : [btoks];
+        return new NumberLiteral([...atoks, ...btoks], kind, type, value.toString());
+    }
+
+    /**
+     * @param {NumberLiteral} a 
+     * @param {NumberLiteral} b 
+     * @param {(a,b) => Number} op 
+     */
     static shift(a, b, op) {
         const ai = a.toInt(), bi = b.toInt();
         if (ai === null || bi === null) {
@@ -29,9 +58,14 @@ class NumberLiteral extends LiteralValue {
         }
         const val = op(ai, bi);
         const type = a.type.typeSignature === 'J' ? PrimitiveType.map.J : PrimitiveType.map.I;
-        return new NumberLiteral(val.toString(), 'int-number-literal', type);
+        return NumberLiteral.calc(a, b, 'int-number-literal', type, val);
     }
 
+    /**
+     * @param {NumberLiteral} a 
+     * @param {NumberLiteral} b 
+     * @param {(a,b) => Number} op 
+     */
     static bitwise(a, b, op) {
         const ai = a.toInt(), bi = b.toInt();
         if (ai === null || bi === null) {
@@ -39,27 +73,31 @@ class NumberLiteral extends LiteralValue {
         }
         const val = op(ai, bi);
         const typekey = a.type.typeSignature+ b.type.typeSignature;
-        let type = /J/.test(typekey) ? PrimitiveType.map.J : PrimitiveType.map.I;
-        return new NumberLiteral(val.toString(), 'int-number-literal', type);
+        const type = /J/.test(typekey) ? PrimitiveType.map.J : PrimitiveType.map.I;
+        return NumberLiteral.calc(a, b, 'int-number-literal', type, val);
     }
 
+    /**
+     * @param {NumberLiteral} a 
+     * @param {NumberLiteral} b 
+     * @param {(a,b) => Number} op 
+     * @param {boolean} [divmod]
+     */
     static math(a, b, op, divmod) {
         const ai = a.toNumber(), bi = b.toNumber();
         if (bi === 0 && divmod) {
             return null;
         }
         let val = op(ai, bi);
-        const typekey = a.type.typeSignature+ b.type.typeSignature;
+        const typekey = a.type.typeSignature + b.type.typeSignature;
         if (!/[FD]/.test(typekey) && divmod) {
             val = Math.trunc(val);
         }
-        let type;
-        if (/^(D|F[^D]|J[^FD])/.test(typekey)) {
-            type = a.type;
-        } else {
-            type = b.type;
-        }
-        return new NumberLiteral(val.toString(), 'int-number-literal', type);
+        const type = typekey.includes('D') ? PrimitiveType.map.D
+            : typekey.includes('F') ? PrimitiveType.map.F
+            : typekey.includes('J') ? PrimitiveType.map.J
+            : PrimitiveType.map.I;
+        return NumberLiteral.calc(a, b, 'int-number-literal', type, val);
     }
 
     static '+'(lhs, rhs) { return  NumberLiteral.math(lhs, rhs, (a,b) => a + b) }
@@ -84,13 +122,13 @@ class NumberLiteral extends LiteralValue {
             case 'int-number-literal':
                 // unlike parseInt, BigInt doesn't like invalid characters, so
                 // ensure we strip any trailing long specifier
-                return BigInt(this.token.value.match(/(.+?)[lL]?$/)[1]);
+                return BigInt(this.value.match(/(.+?)[lL]?$/)[1]);
         }
         return null;
     }
 
     toNumber() {
-        return parseFloat(this.token.value);
+        return parseFloat(this.value);
     }
 
     /**
@@ -116,12 +154,12 @@ class NumberLiteral extends LiteralValue {
         }
         let number = 0;
         if (this.numberKind === 'hex-number-literal') {
-            if (this.token.value !== '0x') {
-                const non_leading_zero_digits = this.token.value.match(/0x0*(.+)/)[1];
+            if (this.value !== '0x') {
+                const non_leading_zero_digits = this.value.match(/0x0*(.+)/)[1];
                 number = non_leading_zero_digits.length > 8 ? Number.MAX_SAFE_INTEGER : parseInt(non_leading_zero_digits, 16);
             }
         } else if (this.numberKind === 'int-number-literal') {
-            const non_leading_zero_digits = this.token.value.match(/0*(.+)/)[1];
+            const non_leading_zero_digits = this.value.match(/0*(.+)/)[1];
             number = non_leading_zero_digits.length > 10 ? Number.MAX_SAFE_INTEGER : parseInt(non_leading_zero_digits, 10);
         }
         if (number >= -128 && number <= 127) {
@@ -153,12 +191,12 @@ class NumberLiteral extends LiteralValue {
         switch(token.kind) {
             case 'dec-exp-number-literal':
             case 'dec-number-literal':
-                return new NumberLiteral(token, token.kind, suffix('FfDdLl') || PrimitiveType.map.D);
+                return new NumberLiteral([token], token.kind, suffix('FfDdLl') || PrimitiveType.map.D);
             case 'hex-number-literal':
-                return new NumberLiteral(token, token.kind, suffix('    Ll') || PrimitiveType.map.I);
+                return new NumberLiteral([token], token.kind, suffix('    Ll') || PrimitiveType.map.I);
             case 'int-number-literal':
             default:
-                return new NumberLiteral(token, token.kind, suffix('FfDdLl') || PrimitiveType.map.I);
+                return new NumberLiteral([token], token.kind, suffix('FfDdLl') || PrimitiveType.map.I);
         }
     }
 }

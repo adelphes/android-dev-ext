@@ -130,7 +130,8 @@ class MultiValueType {
 }
 
 /**
- * @typedef {JavaType|MethodType|LambdaType|ArrayValueType|TypeIdentType|MultiValueType} ResolvedValue
+ * @typedef {import('./expressiontypes/literals/Number').NumberLiteral} NumberLiteral
+ * @typedef {JavaType|MethodType|LambdaType|ArrayValueType|TypeIdentType|MultiValueType|NumberLiteral} ResolvedValue
  **/
 
 exports.AnyMethod = AnyMethod;

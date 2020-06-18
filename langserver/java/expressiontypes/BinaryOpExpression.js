@@ -7,6 +7,7 @@ const { Expression } = require("./Expression");
 const { JavaType, PrimitiveType } = require('java-mti');
 const ParseProblem = require('../parsetypes/parse-problem');
 const { AnyType, TypeIdentType } = require('../anys');
+const { NumberLiteral } = require('./literals/Number');
 
 class BinaryOpExpression extends Expression {
     /**
@@ -26,11 +27,29 @@ class BinaryOpExpression extends Expression {
      */
     resolveExpression(ri) {
         const operator = this.op.value;
-        const lhstype = this.lhs.resolveExpression(ri);
-        const rhstype = this.rhs.resolveExpression(ri);
+        let lhstype = this.lhs.resolveExpression(ri);
+        let rhstype = this.rhs.resolveExpression(ri);
 
         if (lhstype instanceof AnyType || rhstype instanceof AnyType) {
             return AnyType.Instance;
+        }
+
+        if (lhstype instanceof NumberLiteral || rhstype instanceof NumberLiteral) {
+            if (lhstype instanceof NumberLiteral && rhstype instanceof NumberLiteral) {
+                // if they are both literals, compute the result
+                if (/^[*/%+-]$/.test(operator)) {
+                    return NumberLiteral[operator](lhstype, rhstype);
+                }
+                if (/^([&|^]|<<|>>>?)$/.test(operator) && !/[FD]/.test(`${lhstype.type.typeSignature}${rhstype.type.typeSignature}`)) {
+                    return NumberLiteral[operator](lhstype, rhstype);
+                }
+            }
+            if (lhstype instanceof NumberLiteral) {
+                lhstype = lhstype.type;
+            }
+            if (rhstype instanceof NumberLiteral) {
+                rhstype = rhstype.type;
+            }
         }
 
         if (operator === 'instanceof') {
