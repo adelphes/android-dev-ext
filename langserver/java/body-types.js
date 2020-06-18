@@ -9,7 +9,7 @@ const { AnyType, MethodType, TypeIdentType } = require('./anys');
 
 class ResolvedIdent {
     /**
-     * @param {string} ident
+     * @param {string|Token} ident
      * @param {Expression[]} variables
      * @param {Method[]} methods
      * @param {JavaType[]} types
@@ -17,13 +17,12 @@ class ResolvedIdent {
      * @param {Token[]} tokens
      */
     constructor(ident, variables = [], methods = [], types = [], package_name = '', tokens = []) {
-        this.source = ident;
+        this.source = ident instanceof Token ? ident.value : ident;
         this.variables = variables;
         this.methods = methods;
         this.types = types;
         this.package_name = package_name;
-        /** @type {Token[]} */
-        this.tokens = tokens;
+        this.tokens = ident instanceof Token ? [ident] : tokens;
     }
 
     /**
@@ -34,7 +33,7 @@ class ResolvedIdent {
         if (this.variables[0]) {
             return this.variables[0].resolveExpression(ri);
         }
-        if (this.methods) {
+        if (this.methods[0]) {
             return new MethodType(this.methods);
         }
         if (this.types[0]) {

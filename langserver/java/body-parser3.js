@@ -1488,28 +1488,28 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
             matches = resolveIdentifier(tokens, mdecls, scope, imports, typemap);
             break;
         case 'primitive-type':
-            matches = new ResolvedIdent(tokens.current.value, [], [], [PrimitiveType.fromName(tokens.current.value)]);
+            matches = new ResolvedIdent(tokens.current, [], [], [PrimitiveType.fromName(tokens.current.value)]);
             break;
         case 'string-literal':
-            matches = new ResolvedIdent(tokens.current.value, [new StringLiteral(tokens.current, typemap.get('java/lang/String'))]);
+            matches = new ResolvedIdent(tokens.current, [new StringLiteral(tokens.current, typemap.get('java/lang/String'))]);
             break;
         case 'char-literal':
-            matches = new ResolvedIdent(tokens.current.value, [new CharacterLiteral(tokens.current)]);
+            matches = new ResolvedIdent(tokens.current, [new CharacterLiteral(tokens.current)]);
             break;
         case 'boolean-literal':
-            matches = new ResolvedIdent(tokens.current.value, [new BooleanLiteral(tokens.current)]);
+            matches = new ResolvedIdent(tokens.current, [new BooleanLiteral(tokens.current)]);
             break;
         case 'object-literal':
             // this, super or null
             const scoped_type = scope instanceof SourceType ? scope : scope.owner;
             if (tokens.current.value === 'this' || tokens.current.value === 'super') {
-                matches = new ResolvedIdent(tokens.current.value, [new InstanceLiteral(tokens.current, scoped_type)]);
+                matches = new ResolvedIdent(tokens.current, [new InstanceLiteral(tokens.current, scoped_type)]);
             } else {
-                matches = new ResolvedIdent(tokens.current.value, [new NullLiteral(tokens.current)]);
+                matches = new ResolvedIdent(tokens.current, [new NullLiteral(tokens.current)]);
             }
             break;
         case /number-literal/.test(tokens.current.kind) && tokens.current.kind:
-            matches = new ResolvedIdent(tokens.current.value, [NumberLiteral.from(tokens.current)]);
+            matches = new ResolvedIdent(tokens.current, [NumberLiteral.from(tokens.current)]);
             break;
         case 'inc-operator':
             let incop = tokens.getIfKind('inc-operator');
