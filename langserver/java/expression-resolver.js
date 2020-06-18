@@ -1,9 +1,10 @@
 /**
  * @typedef {import('./tokenizer').Token} Token
+ * @typedef {import('./anys').ResolvedType} ResolvedType
  */
 const ParseProblem = require('./parsetypes/parse-problem');
 const { TypeVariable, JavaType, PrimitiveType, NullType, ArrayType, CEIType, WildcardType, TypeVariableType, InferredTypeArgument } = require('java-mti');
-const { AnyType, MultiValueType } = require('./anys');
+const { AnyType, ArrayValueType, MultiValueType } = require('./anys');
 const { ResolveInfo } = require('./body-types');
 const { LiteralValue } = require('./expressiontypes/literals/LiteralValue');
 const { NumberLiteral } = require('./expressiontypes/literals/Number');
@@ -24,7 +25,7 @@ function checkAssignment(e, assign_type, typemap, problems) {
     }
     if (value instanceof NumberLiteral) {
         if (!value.isCompatibleWith(assign_type)) {
-            problems.push(ParseProblem.Error(value.token, `Incompatible types: Expression of type '${value.type.fullyDottedTypeName}' cannot be assigned to a variable of type '${assign_type.fullyDottedTypeName}'`));
+            incompatibleTypesError(assign_type, value.type, () => value.token, problems);
         }
         return;
     }
@@ -44,20 +45,78 @@ function checkAssignment(e, assign_type, typemap, problems) {
  * @param {JavaType} variable_type 
  * @param {import('./anys').ResolvedType} value_type 
  * @param {() => Token|Token[]} tokens
+ * @param {ParseProblem[]} problems
  */
 function checkTypeAssignable(variable_type, value_type, tokens, problems) {
     if (value_type instanceof MultiValueType) {
         value_type.types.forEach(t => checkTypeAssignable(variable_type, t, tokens, problems));
         return;
     }
+    if (value_type instanceof ArrayValueType) {
+        checkArrayLiteral(variable_type, value_type, tokens, problems);
+        return;
+    }
     if (value_type instanceof JavaType) {
         if (!isTypeAssignable(variable_type, value_type)) {
-            problems.push(ParseProblem.Error(tokens(), `Incompatible types: Expression of type '${value_type.fullyDottedTypeName}' cannot be assigned to a variable of type '${variable_type.fullyDottedTypeName}'`));
+            incompatibleTypesError(variable_type, value_type, tokens, problems);
         }
         return;
     }
     problems.push(ParseProblem.Error(tokens(), `Field, variable or method call expected`));
 }
+
+/**
+ * 
+ * @param {JavaType} variable_type 
+ * @param {JavaType} value_type 
+ * @param {() => Token|Token[]} tokens
+ * @param {ParseProblem[]} problems
+ */
+function incompatibleTypesError(variable_type, value_type, tokens, problems) {
+    problems.push(ParseProblem.Error(tokens(), `Incompatible types: Expression of type '${value_type.fullyDottedTypeName}' cannot be assigned to a variable of type '${variable_type.fullyDottedTypeName}'`));
+}
+
+/**
+ * 
+ * @param {JavaType} variable_type 
+ * @param {ArrayValueType} value_type 
+ * @param {() => Token|Token[]} tokens
+ * @param {ParseProblem[]} problems
+ */
+function checkArrayLiteral(variable_type, value_type, tokens, problems) {
+    if (!(variable_type instanceof ArrayType)) {
+        problems.push(ParseProblem.Error(tokens(), `Array expression cannot be assigned to a variable of type '${variable_type.fullyDottedTypeName}'`));
+        return;
+    }
+    if (value_type.elements.length === 0) {
+        // empty arrays are compatible with all array types
+        return;
+    }
+    const element_type = variable_type.elementType;
+    value_type.elements.forEach(element => {
+        checkArrayElement(element_type, element.value, element.tokens);
+    });
+
+    /**
+     * @param {JavaType} element_type 
+     * @param {ResolvedType} value_type 
+     * @param {Token[]} tokens
+     */
+    function checkArrayElement(element_type, value_type, tokens) {
+        if (value_type instanceof JavaType) {
+            if (!isTypeAssignable(element_type, value_type)) {
+                incompatibleTypesError(element_type, value_type, () => tokens, problems);
+            }
+            return;
+        }
+        if (value_type instanceof ArrayValueType) {
+            checkArrayLiteral(element_type, value_type, () => tokens, problems);
+            return;
+        }
+        problems.push(ParseProblem.Error(tokens, `Expression expected`));
+    }
+}
+
 
 /**
  * Set of regexes to map source primitives to their destination types.

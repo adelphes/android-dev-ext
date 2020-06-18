@@ -1,5 +1,8 @@
 const { JavaType, Method } = require('java-mti');
 const { Expression } = require('./expressiontypes/Expression');
+/**
+ * @typedef {import('./tokenizer').Token} Token
+ */
 
 /**
  * Custom type designed to be used where a type is missing or unresolved.
@@ -104,10 +107,10 @@ class TypeIdentType {
  */
 class ArrayValueType {
     /**
-     * @param {(ResolvedType)[]} element_types 
+     * @param {{tokens:Token[], value: ResolvedType}[]} elements
      */
-    constructor(element_types) {
-        this.element_types = element_types;
+    constructor(elements) {
+        this.elements = elements;
     }
 }
 

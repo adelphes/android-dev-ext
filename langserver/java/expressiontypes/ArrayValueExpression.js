@@ -25,7 +25,10 @@ class ArrayValueExpression extends Expression {
      * @param {ResolveInfo} ri 
      */
     resolveExpression(ri) {
-        return new ArrayValueType(this.elements.map(e => e.resolveExpression(ri)));
+        return new ArrayValueType(this.elements.map(e => ({
+            tokens: e.tokens,
+            value: e.resolveExpression(ri),
+        })));
     }
 }
 
