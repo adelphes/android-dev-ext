@@ -18,9 +18,8 @@ class NumberLiteral extends LiteralValue {
      * @param {PrimitiveType} default_type 
      */
     constructor(value, kind, default_type) {
-        super(value);
+        super(value, default_type);
         this.numberKind = kind;
-        this.type = default_type;
     }
 
     static shift(a, b, op) {

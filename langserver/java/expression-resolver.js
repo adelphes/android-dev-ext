@@ -3,8 +3,10 @@
  */
 const ParseProblem = require('./parsetypes/parse-problem');
 const { TypeVariable, JavaType, PrimitiveType, NullType, ArrayType, CEIType, WildcardType, TypeVariableType, InferredTypeArgument } = require('java-mti');
-const { AnyType } = require('./anys');
-const { Local } = require('./body-types');
+const { AnyType, MultiValueType } = require('./anys');
+const { ResolveInfo } = require('./body-types');
+const { LiteralValue } = require('./expressiontypes/literals/LiteralValue');
+const { NumberLiteral } = require('./expressiontypes/literals/Number');
 const { Expression } = require('./expressiontypes/Expression');
 const { Variable } = require('./expressiontypes/Variable');
 
@@ -20,9 +22,19 @@ function checkAssignment(e, assign_type, typemap, problems) {
         checkTypeAssignable(assign_type, value.type, () => value.name_token, problems);
         return;
     }
+    if (value instanceof NumberLiteral) {
+        if (!value.isCompatibleWith(assign_type)) {
+            problems.push(ParseProblem.Error(value.token, `Incompatible types: Expression of type '${value.type.fullyDottedTypeName}' cannot be assigned to a variable of type '${assign_type.fullyDottedTypeName}'`));
+        }
+        return;
+    }
+    if (value instanceof LiteralValue) {
+        checkTypeAssignable(assign_type, value.type, () => value.token, problems);
+        return;
+    }
     if (value instanceof Expression) {
-        const expression_result_type = null;//value.resolveType(typemap);
-        checkTypeAssignable(assign_type, expression_result_type, value.tokens, problems);
+        const expression_result_type = value.resolveExpression(new ResolveInfo(typemap, problems));
+        checkTypeAssignable(assign_type, expression_result_type, () => value.tokens(), problems);
         return;
     }
 }
@@ -30,13 +42,21 @@ function checkAssignment(e, assign_type, typemap, problems) {
 /**
  * 
  * @param {JavaType} variable_type 
- * @param {JavaType} value_type 
+ * @param {import('./anys').ResolvedType} value_type 
  * @param {() => Token|Token[]} tokens
  */
 function checkTypeAssignable(variable_type, value_type, tokens, problems) {
+    if (value_type instanceof MultiValueType) {
+        value_type.types.forEach(t => checkTypeAssignable(variable_type, t, tokens, problems));
+        return;
+    }
+    if (!(value_type instanceof JavaType)) {
+        return;
+    }
     if (!isTypeAssignable(variable_type, value_type)) {
         const t = tokens();
-        problems.push(ParseProblem.Error(t, `Incompatible types: Expression of type '${value_type.fullyDottedTypeName}' cannot be assigned to a variable of type '${variable_type.fullyDottedTypeName}'`));
+        if (t.length || (t && !Array.isArray(t)))
+            problems.push(ParseProblem.Error(t, `Incompatible types: Expression of type '${value_type.fullyDottedTypeName}' cannot be assigned to a variable of type '${variable_type.fullyDottedTypeName}'`));
     }
 }
 

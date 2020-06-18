@@ -10,8 +10,7 @@ class CharacterLiteral extends LiteralValue {
      * @param {Token} token 
      */
     constructor(token) {
-        super(token);
-        this.type = PrimitiveType.map.C;
+        super(token, PrimitiveType.map.C);
     }
 }
 

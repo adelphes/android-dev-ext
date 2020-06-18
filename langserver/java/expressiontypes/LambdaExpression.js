@@ -1,8 +1,10 @@
 /**
  * @typedef {import('../body-types').ResolvedIdent} ResolvedIdent
+ * @typedef {import('../body-types').ResolveInfo} ResolveInfo
  */
 const { Expression } = require("./Expression");
 const { Block } = require('../statementtypes/Block');
+const { LambdaType } = require('../anys');
 
 class LambdaExpression extends Expression {
     /**
@@ -14,6 +16,13 @@ class LambdaExpression extends Expression {
         super();
         this.params = params;
         this.body = body;
+    }
+
+    /**
+     * @param {ResolveInfo} ri 
+     */
+    resolveType(ri) {
+        return new LambdaType();
     }
 
     tokens() {

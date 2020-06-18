@@ -1,4 +1,5 @@
 /**
+ * @typedef {import('../../body-types').ResolveInfo} ResolveInfo
  * @typedef {import('../../tokenizer').Token} Token
  * @typedef {import('java-mti').CEIType} CEIType
  */
@@ -11,8 +12,18 @@ class InstanceLiteral extends LiteralValue {
      * @param {CEIType} scoped_type 
      */
     constructor(token, scoped_type) {
-        super(token);
+        super(token, null);
         this.scoped_type = scoped_type;
+    }
+
+    /**
+     * @param {ResolveInfo} ri 
+     */
+    resolveExpression(ri) {
+        if (this.token.value === 'this') {
+            return this.scoped_type;
+        }
+        return this.scoped_type.supers.find(t => t.typeKind === 'class') || ri.typemap.get('java/lang/Object');
     }
 }
 

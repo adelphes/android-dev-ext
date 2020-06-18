@@ -16,7 +16,7 @@ const { TokenList } = require("./TokenList");
 const { AnyMethod, AnyType, AnyValue } = require("./anys");
 const { Label, Local, MethodDeclarations, ResolvedIdent } = require("./body-types");
 const { resolveImports, resolveSingleImport } = require('../java/import-resolver');
-const { getTypeInheritanceList } = require('./expression-resolver');
+const { checkAssignment, getTypeInheritanceList } = require('./expression-resolver');
 
 const { ArrayIndexExpression } = require("./expressiontypes/ArrayIndexExpression");
 const { ArrayValueExpression } = require("./expressiontypes/ArrayValueExpression");
@@ -212,9 +212,15 @@ function parse(source, typemap) {
         time('parse');
         parseUnit(tokens, unit, typemap);
         timeEnd('parse');
+
+        // once all the types have been parsed, resolve any field initialisers
+        unit.types.forEach(t => {
+            t.fields.filter(f => f.init).forEach(f => checkAssignment(f.init, f.type, typemap, tokens.problems));
+        });
+
     } catch(err) {
         timers.forEach(timeEnd);
-        if (tokens) {
+        if (tokens && tokens.current) {
             addproblem(tokens, ParseProblem.Error(tokens.current, `Parse failed: ${err.message}`));
         } else {
             console.log(`Parse failed: ${err.message}`);
@@ -1566,26 +1572,29 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
  * @param {Map<string,CEIType>} typemap 
  */
 function newTerm(tokens, mdecls, scope, imports, typemap) {
+    tokens.mark();
     const new_token = tokens.current;
     tokens.expectValue('new');
     const ctr_type = typeIdent(tokens, scope, imports, typemap, {no_array_qualifiers:true, type_vars:[]});
     let match = new ResolvedIdent(`new ${ctr_type.resolved.simpleTypeName}`, [], [], [ctr_type.resolved]);
-    let ctr_args = [], type_body = null;
+    let ctr_args = [], type_body = null, newtokens;
     switch(tokens.current.value) {
         case '[':
             match = arrayQualifiers(match, tokens, mdecls, scope, imports, typemap);
+            newtokens = tokens.markEnd();
             // @ts-ignore
             if (tokens.current.value === '{') {
                 // array init
                 rootTerm(tokens, mdecls, scope, imports, typemap);
             }
-            return new ResolvedIdent(match.source, [new NewArray(new_token, ctr_type, match)]);
+            return new ResolvedIdent(match.source, [new NewArray(new_token, ctr_type, match)], [], [], '', newtokens);
         case '(':
             tokens.inc();
             if (!tokens.isValue(')')) {
                 ctr_args = expressionList(tokens, mdecls, scope, imports, typemap);
                 tokens.expectValue(')');
             }
+            newtokens = tokens.markEnd();
             // @ts-ignore
             if (tokens.current.value === '{') {
                 // anonymous type - just skip for now
@@ -1593,10 +1602,11 @@ function newTerm(tokens, mdecls, scope, imports, typemap) {
             }
             break;
         default:
+            newtokens = tokens.markEnd();
             addproblem(tokens, ParseProblem.Error(tokens.current, 'Constructor expression expected'));
             break;
     }
-    return new ResolvedIdent(match.source, [new NewObject(new_token, ctr_type, ctr_args, type_body)]);
+    return new ResolvedIdent(match.source, [new NewObject(new_token, ctr_type, ctr_args, type_body)], [], [], '', newtokens);
 }
 
 /**
@@ -1679,6 +1689,7 @@ function qualifiers(matches, tokens, mdecls, scope, imports, typemap) {
  * @param {Map<string,CEIType>} typemap 
  */
 function memberQualifier(matches, tokens, mdecls, scope, imports, typemap) {
+    tokens.mark();
     tokens.expectValue('.');
     let expr, label = `${matches.source}.${tokens.current.value}`;
     let types = [], package_name = '';
@@ -1704,7 +1715,7 @@ function memberQualifier(matches, tokens, mdecls, scope, imports, typemap) {
             break;
     }
     tokens.inc();
-    return new ResolvedIdent(label, [expr], [], types, package_name);
+    return new ResolvedIdent(label, [expr], [], types, package_name, tokens.markEnd());
 }
 
 /**

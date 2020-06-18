@@ -1,6 +1,7 @@
 /**
  * @typedef {import('../body-types').ResolvedIdent} ResolvedIdent
  * @typedef {import('../body-types').Local} Local
+ * @typedef {import('../body-types').ResolveInfo} ResolveInfo
  * @typedef {import('../tokenizer').Token} Token
  * @typedef {import('java-mti').Field} Field
  * @typedef {import('java-mti').Parameter} Parameter
@@ -18,6 +19,13 @@ class Variable extends Expression {
         this.name_token = name_token;
         this.variable = variable;
         this.type = this.variable.type;
+    }
+
+    /**
+     * @param {ResolveInfo} ri 
+     */
+    resolveType(ri) {
+        return this.type;
     }
 
     tokens() {

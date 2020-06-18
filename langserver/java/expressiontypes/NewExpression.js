@@ -1,10 +1,12 @@
 /**
  * @typedef {import('../tokenizer').Token} Token
  * @typedef {import('../body-types').ResolvedIdent} ResolvedIdent
+ * @typedef {import('../body-types').ResolveInfo} ResolveInfo
  * @typedef {import('../source-types').SourceTypeIdent} SourceTypeIdent
  * @typedef {import('java-mti').JavaType} JavaType
  */
 const { Expression } = require("./Expression");
+const { ArrayType } = require('java-mti');
 
 class NewArray extends Expression {
     /**
@@ -17,6 +19,14 @@ class NewArray extends Expression {
         this.new_token = new_token;
         this.element_type = element_type;
         this.dimensions = dimensions;
+        this.array_type = new ArrayType(element_type.resolved, 1);
+    }
+
+    /**
+     * @param {ResolveInfo} ri 
+     */
+    resolveExpression(ri) {
+        return this.array_type;
     }
 
     tokens() {
@@ -37,6 +47,13 @@ class NewObject extends Expression {
         this.object_type = object_type;
         this.ctr_args = ctr_args;
         this.type_body = type_body;
+    }
+
+    /**
+     * @param {ResolveInfo} ri 
+     */
+    resolveExpression(ri) {
+        return this.object_type.resolved;
     }
 
     tokens() {

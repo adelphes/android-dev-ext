@@ -1,8 +1,11 @@
 /**
  * @typedef {import('./expressiontypes/Expression').Expression} Expression
+ * @typedef {import('./anys').ResolvedType} ResolvedType
  */
-const { JavaType, ArrayType, Method, Parameter, Field } = require('java-mti');
+const { JavaType, CEIType, ArrayType, Method } = require('java-mti');
 const { Token } = require('./tokenizer');
+const { AnyType, MethodType, TypeIdentType } = require('./anys');
+
 
 class ResolvedIdent {
     /**
@@ -11,16 +14,35 @@ class ResolvedIdent {
      * @param {Method[]} methods
      * @param {JavaType[]} types
      * @param {string} package_name
+     * @param {Token[]} tokens
      */
-    constructor(ident, variables = [], methods = [], types = [], package_name = '') {
+    constructor(ident, variables = [], methods = [], types = [], package_name = '', tokens = []) {
         this.source = ident;
         this.variables = variables;
         this.methods = methods;
         this.types = types;
         this.package_name = package_name;
         /** @type {Token[]} */
-        this.tokens = [];
+        this.tokens = tokens;
     }
+
+    /**
+     * @param {ResolveInfo} ri 
+     * @returns {ResolvedType}
+     */
+    resolveExpression(ri) {
+        if (this.variables[0]) {
+            return this.variables[0].resolveExpression(ri);
+        }
+        if (this.methods) {
+            return new MethodType(this.methods);
+        }
+        if (this.types[0]) {
+            return new TypeIdentType(this.types[0]);
+        }
+        return AnyType.Instance;
+    }
+
 }
 
 class Local {
@@ -79,7 +101,19 @@ class MethodDeclarations {
     }
 }
 
+class ResolveInfo {
+    /**
+     * @param {Map<string,CEIType>} typemap 
+     * @param {*[]} problems
+     */
+    constructor(typemap, problems) {
+        this.typemap = typemap;
+        this.problems = problems;
+    }
+}
+
 exports.Label = Label;
 exports.Local = Local;
 exports.MethodDeclarations = MethodDeclarations;
 exports.ResolvedIdent = ResolvedIdent;
+exports.ResolveInfo = ResolveInfo;

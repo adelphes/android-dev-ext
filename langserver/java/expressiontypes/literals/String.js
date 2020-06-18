@@ -11,8 +11,7 @@ class StringLiteral extends LiteralValue {
      * @param {CEIType} string_type
      */
     constructor(token, string_type) {
-        super(token);
-        this.type = string_type;
+        super(token, string_type);
     }
 }
 

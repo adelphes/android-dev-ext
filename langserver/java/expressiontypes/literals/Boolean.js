@@ -10,8 +10,7 @@ class BooleanLiteral extends LiteralValue {
      * @param {Token} token 
      */
     constructor(token) {
-        super(token);
-        this.type = PrimitiveType.map.Z;
+        super(token, PrimitiveType.map.Z);
     }
 }
 

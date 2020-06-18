@@ -10,8 +10,7 @@ class NullLiteral extends LiteralValue {
      * @param {Token} token 
      */
     constructor(token) {
-        super(token);
-        this.type = new NullType();
+        super(token, new NullType());
     }
 }
 

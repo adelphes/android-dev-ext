@@ -1,8 +1,10 @@
 /**
  * @typedef {import('../body-types').ResolvedIdent} ResolvedIdent
+ * @typedef {import('../body-types').ResolveInfo} ResolveInfo
  * @typedef {import('../tokenizer').Token} Token
  */
 const { Expression } = require("./Expression");
+const { ArrayValueType } = require('../anys');
 
 class ArrayValueExpression extends Expression {
     /**
@@ -17,6 +19,13 @@ class ArrayValueExpression extends Expression {
 
     tokens() {
         return this.open;
+    }
+
+    /**
+     * @param {ResolveInfo} ri 
+     */
+    resolveExpression(ri) {
+        return new ArrayValueType(this.elements.map(e => e.resolveExpression(ri)));
     }
 }
 

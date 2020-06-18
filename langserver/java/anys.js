@@ -2,9 +2,9 @@ const { JavaType, Method } = require('java-mti');
 const { Expression } = require('./expressiontypes/Expression');
 
 /**
- * AnyType is a special type that's used to fill in types that are missing.
- * To prevent cascading errors, AnyType should be fully assign/cast/type-compatible
- * with any other type
+ * Custom type designed to be used where a type is missing or unresolved.
+ * 
+ * AnyType should be fully assign/cast/type-compatible with any other type
  */
 class AnyType extends JavaType {
     /**
@@ -27,6 +27,10 @@ class AnyType extends JavaType {
     }
 }
 
+/**
+ * Custom method designed to be compatible with
+ * any arguments in method call
+ */
 class AnyMethod extends Method {
     /**
      * @param {string} name 
@@ -40,6 +44,10 @@ class AnyMethod extends Method {
     }
 }
 
+/**
+ * Custom expression designed to be compatiable with
+ * any variable or operator
+ */
 class AnyValue extends Expression {
     /**
      *
@@ -52,6 +60,81 @@ class AnyValue extends Expression {
     }
 }
 
-exports.AnyMethod = AnyMethod;
+/**
+ * Custom type used to represent a method identifier
+ * 
+ * e.g `"".length`
+ */
+class MethodType {
+    /**
+     * @param {Method[]} methods
+     */
+    constructor(methods) {
+        this.methods = methods;
+    }
+}
+
+/**
+ * Custom type used to represent a lambda expression
+ * 
+ * eg. `() => null`
+ */
+class LambdaType {
+
+}
+
+/**
+ * Custom type used to represent type name expressions
+ * 
+ * eg. `x instanceof String`
+ */
+class TypeIdentType {
+    /**
+     * @param {JavaType} type
+     */
+    constructor(type) {
+        this.type = type;
+    }
+}
+
+/**
+ * Custom type used to represent an array literal
+ * 
+ * eg. `new int[] { 1,2,3 }`
+ */
+class ArrayValueType {
+    /**
+     * @param {(ResolvedType)[]} element_types 
+     */
+    constructor(element_types) {
+        this.element_types = element_types;
+    }
+}
+
+/**
+ * Custom type used to represent the types of a 
+ * expression that can return multiple distinct types
+ * 
+ * eg. `x == null ? 0 : 'c'`
+ */
+class MultiValueType {
+    /**
+     * @param {ResolvedType[]} types
+     */
+    constructor(...types) {
+        this.types = types;
+    }
+}
+
+/**
+ * @typedef {JavaType|MethodType|LambdaType|ArrayValueType|TypeIdentType|MultiValueType} ResolvedType
+ **/
+
+ exports.AnyMethod = AnyMethod;
 exports.AnyType = AnyType;
 exports.AnyValue = AnyValue;
+exports.ArrayValueType = ArrayValueType;
+exports.LambdaType = LambdaType;
+exports.MethodType = MethodType;
+exports.MultiValueType = MultiValueType;
+exports.TypeIdentType = TypeIdentType;

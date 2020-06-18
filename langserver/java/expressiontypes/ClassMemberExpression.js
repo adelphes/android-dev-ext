@@ -1,8 +1,10 @@
 /**
  * @typedef {import('../body-types').ResolvedIdent} ResolvedIdent
  * @typedef {import('../tokenizer').Token} Token
+ * @typedef {import('../body-types').ResolveInfo} ResolveInfo
  */
 const { Expression } = require("./Expression");
+const { AnyType } = require('../anys');
 
 class ClassMemberExpression extends Expression {
     /**
@@ -13,6 +15,15 @@ class ClassMemberExpression extends Expression {
         super();
         this.instance = instance;
         this.classToken = class_token;
+    }
+
+    /**
+     * @param {ResolveInfo} ri 
+     */
+    resolveExpression(ri) {
+        const classType = ri.typemap.get('java/lang/Class');
+        const type = this.instance.types[0];
+        return classType.specialise([type || AnyType.Instance]);
     }
 
     tokens() {
