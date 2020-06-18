@@ -130,7 +130,7 @@ class MultiValueType {
  * @typedef {JavaType|MethodType|LambdaType|ArrayValueType|TypeIdentType|MultiValueType} ResolvedType
  **/
 
- exports.AnyMethod = AnyMethod;
+exports.AnyMethod = AnyMethod;
 exports.AnyType = AnyType;
 exports.AnyValue = AnyValue;
 exports.ArrayValueType = ArrayValueType;

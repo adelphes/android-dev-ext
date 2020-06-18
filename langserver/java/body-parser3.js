@@ -6,7 +6,7 @@
  */
 const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, TypeVariable, Field, Method } = require('java-mti');
 const { SourceType, SourceTypeIdent, SourceField, SourceMethod, SourceConstructor, SourceInitialiser, SourceParameter, SourceAnnotation,
-    SourceUnit, SourcePackage, SourceImport } = require('./source-types');
+    SourceUnit, SourcePackage, SourceImport, SourceArrayType, FixedLengthArrayType } = require('./source-types');
 const ResolvedImport = require('./parsetypes/resolved-import');
 const ParseProblem = require('./parsetypes/parse-problem');
 const { tokenize, Token } = require('./tokenizer');
@@ -1641,7 +1641,8 @@ function expressionList(tokens, mdecls, scope, imports, typemap, opts) {
  */
 function arrayElementOrConstructor(tokens, open_array, instance, index) {
     const ident = `${instance.source}[${index.source}]`;
-    return new ResolvedIdent(ident, [new ArrayIndexExpression(instance, index)]);
+    const types = instance.types.map(t => new FixedLengthArrayType(t, index));
+    return new ResolvedIdent(ident, [new ArrayIndexExpression(instance, index)], [], types, '', index.tokens.slice());
 }
 
 /**
@@ -1765,7 +1766,7 @@ function methodCallQualifier(matches, tokens, mdecls, scope, imports, typemap) {
  * @param {ResolvedIdent} matches 
  */
 function arrayTypeExpression(matches) {
-    const types = matches.types.map(t => new ArrayType(t, 1));
+    const types = matches.types.map(t => new SourceArrayType(t));
     return new ResolvedIdent(`${matches.source}[]`, [], [], types);
 }
 

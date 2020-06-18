@@ -487,6 +487,36 @@ class SourceUnit {
     types = [];
 }
 
+class SourceArrayType extends ArrayType {
+    /**
+     * 
+     * @param {JavaType} element_type 
+     */
+    constructor(element_type) {
+        super(element_type, 1);
+        this.parent_type = element_type;
+    }
+    get label() {
+        return `${this.parent_type.label}[]`;
+    }
+}
+
+class FixedLengthArrayType extends SourceArrayType {
+    /**
+     * 
+     * @param {JavaType} element_type 
+     * @param {ResolvedIdent} length 
+     */
+    constructor(element_type, length) {
+        super(element_type);
+        this.length = length;
+    }
+
+    get label() {
+        return `${this.parent_type.label}[${this.length.source}]`;
+    }
+}
+
 exports.SourceType = SourceType;
 exports.SourceTypeIdent = SourceTypeIdent;
 exports.SourceField = SourceField;
@@ -499,3 +529,5 @@ exports.SourceUnit = SourceUnit;
 exports.SourcePackage = SourcePackage;
 exports.SourceImport = SourceImport;
 exports.SourceEnumValue = SourceEnumValue;
+exports.SourceArrayType = SourceArrayType;
+exports.FixedLengthArrayType = FixedLengthArrayType;
