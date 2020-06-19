@@ -4,7 +4,7 @@
  */
 const { JavaType, CEIType, ArrayType, Method } = require('java-mti');
 const { Token } = require('./tokenizer');
-const { AnyType, MethodType, TypeIdentType } = require('./anys');
+const { AnyType, MethodType, PackageNameType, TypeIdentType } = require('./anys');
 const ParseProblem = require('./parsetypes/parse-problem');
 
 
@@ -40,10 +40,12 @@ class ResolvedIdent {
         if (this.types[0]) {
             return new TypeIdentType(this.types[0]);
         }
+        if (this.package_name) {
+            return new PackageNameType(this.package_name);
+        }
         ri.problems.push(ParseProblem.Error(this.tokens, `Unresolved identifier: ${this.source}`));
         return AnyType.Instance;
     }
-
 }
 
 class Local {
@@ -98,7 +100,13 @@ class MethodDeclarations {
     }
 
     popScope() {
-        [this.locals, this.labels, this.types] = this._scopeStack.pop();
+        const prev = {
+            locals: this.locals,
+            labels: this.labels,
+            types: this.types,
+        };
+        ([this.locals, this.labels, this.types] = this._scopeStack.pop());
+        return prev;
     }
 }
 

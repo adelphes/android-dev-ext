@@ -5,8 +5,9 @@
  */
 const { Expression } = require("./Expression");
 const { CEIType } = require('java-mti');
-const { AnyType, MethodType, TypeIdentType } = require('../anys');
+const { AnyType, MethodType, PackageNameType, TypeIdentType } = require('../anys');
 const { getTypeInheritanceList } = require('../expression-resolver');
+const { resolveNextPackage } = require('../type-resolver');
 const ParseProblem = require('../parsetypes/parse-problem');
 
 class MemberExpression extends Expression {
@@ -25,25 +26,36 @@ class MemberExpression extends Expression {
      * @param {ResolveInfo} ri 
      */
     resolveExpression(ri) {
-        let type = this.instance.resolveExpression(ri);
-        if (type instanceof TypeIdentType) {
+        let instance = this.instance.resolveExpression(ri);
+        if (instance instanceof TypeIdentType) {
             // static member
-            type = type.type;
+            instance = instance.type;
         }
-        if (type instanceof AnyType) {
-            return type;
+        if (instance instanceof AnyType) {
+            return instance;
         }
         const ident = this.member.value;
-        if (!(type instanceof CEIType)) {
+
+        if (instance instanceof PackageNameType) {
+            const { sub_package_name, type } = resolveNextPackage(instance.package_name, ident, ri.typemap);
+            if (!type && !sub_package_name) {
+                ri.problems.push(ParseProblem.Error(this.member, `Unresolved identifier: '${ident}'`));
+            }
+            return type ? new TypeIdentType(type)
+             : sub_package_name ? new PackageNameType(sub_package_name)
+             : AnyType.Instance;
+        }
+
+        if (!(instance instanceof CEIType)) {
             ri.problems.push(ParseProblem.Error(this.member, `Unresolved member: '${ident}'`));
             return AnyType.Instance;
         }
-        const field = type.fields.find(f => f.name === ident);
+        const field = instance.fields.find(f => f.name === ident);
         if (field) {
             return field.type;
         }
         let methods = new Map();
-        getTypeInheritanceList(type).forEach(type => {
+        getTypeInheritanceList(instance).forEach(type => {
             type.methods.forEach(m => {
                 let msig;
                 if (m.name === ident && !methods.has(msig = m.methodSignature)) {
@@ -54,7 +66,7 @@ class MemberExpression extends Expression {
         if (methods.size > 0) {
             return new MethodType([...methods.values()]);
         }
-        ri.problems.push(ParseProblem.Error(this.member, `Unresolved member: '${ident}' in type '${type.fullyDottedRawName}'`));
+        ri.problems.push(ParseProblem.Error(this.member, `Unresolved member: '${ident}' in type '${instance.fullyDottedRawName}'`));
         return AnyType.Instance;
     }
 

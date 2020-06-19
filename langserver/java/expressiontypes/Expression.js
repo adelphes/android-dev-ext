@@ -13,7 +13,7 @@ class Expression {
      * @returns {ResolvedValue}
      */
     resolveExpression(ri) {
-        throw new Error('Expression.resolveType');
+        throw new Error('Expression.resolveExpression');
     }
 
     /** @returns {Token|Token[]} */

@@ -37,7 +37,11 @@ class TokenList {
     markEnd() {
         let i = this.idx;
         while (this.tokens[--i].kind === 'wsc') { }
-        return this.tokens.slice(this.marks.shift(), i + 1);
+        const range = [this.marks.shift(), i + 1];
+        if (range[1] <= range[0]) {
+            range[1] = range[0] + 1;
+        }
+        return this.tokens.slice(range[0], range[1]);
     }
 
     /**

@@ -24,7 +24,7 @@ class Variable extends Expression {
     /**
      * @param {ResolveInfo} ri 
      */
-    resolveType(ri) {
+    resolveExpression(ri) {
         return this.type;
     }
 

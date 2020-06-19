@@ -61,6 +61,10 @@ class AnyValue extends Expression {
         this.label = label;
         this.type = AnyType.Instance;
     }
+
+    resolveExpression() {
+        return this.type;
+    }
 }
 
 /**
@@ -101,6 +105,21 @@ class TypeIdentType {
 }
 
 /**
+ * Custom type used to represent package name expressions
+ * 
+ * eg. `java`
+ */
+class PackageNameType {
+    /**
+     * @param {string} package_name
+     */
+    constructor(package_name) {
+        this.package_name = package_name;
+    }
+}
+
+
+/**
  * Custom type used to represent an array literal
  * 
  * eg. `new int[] { 1,2,3 }`
@@ -131,7 +150,7 @@ class MultiValueType {
 
 /**
  * @typedef {import('./expressiontypes/literals/Number').NumberLiteral} NumberLiteral
- * @typedef {JavaType|MethodType|LambdaType|ArrayValueType|TypeIdentType|MultiValueType|NumberLiteral} ResolvedValue
+ * @typedef {JavaType|MethodType|LambdaType|ArrayValueType|TypeIdentType|PackageNameType|MultiValueType|NumberLiteral} ResolvedValue
  **/
 
 exports.AnyMethod = AnyMethod;
@@ -141,4 +160,5 @@ exports.ArrayValueType = ArrayValueType;
 exports.LambdaType = LambdaType;
 exports.MethodType = MethodType;
 exports.MultiValueType = MultiValueType;
+exports.PackageNameType = PackageNameType;
 exports.TypeIdentType = TypeIdentType;

@@ -13,6 +13,7 @@ class InstanceLiteral extends LiteralValue {
      */
     constructor(token, scoped_type) {
         super(token, null);
+        this.token = token;
         this.scoped_type = scoped_type;
     }
 

@@ -364,21 +364,37 @@ function resolveNextTypeOrPackage(ident, outer_types, outer_package_name, typema
     })
 
     if (outer_package_name) {
-        const type_match = `${outer_package_name}/${ident}`;
-        if (typemap.has(type_match)) {
-            // it matches a type
-            types.push(typemap.get(type_match));
+        const { type, sub_package_name } = resolveNextPackage(outer_package_name, ident, typemap);
+        if (type) {
+            types.push(type);
         }
-        const package_match = type_match + '/';
-        if ([...typemap.keys()].find(fqn => fqn.startsWith(package_match))) {
-            // it matches a sub-package
-            package_name = type_match;
-        }
+        package_name = sub_package_name;
     }
 
     return {
         types,
         package_name,
+    }
+}
+
+/**
+ * 
+ * @param {string} package_name 
+ * @param {string} ident 
+ * @param {TypeMap} typemap 
+ */
+function resolveNextPackage(package_name, ident, typemap) {
+    let type = null, sub_package_name = '';
+    const qualified_name = `${package_name}/${ident}`;
+    type = typemap.get(qualified_name) || null;
+    const package_match = qualified_name + '/';
+    if ([...typemap.keys()].find(fqn => fqn.startsWith(package_match))) {
+        // it matches a sub-package
+        sub_package_name = qualified_name;
+    }
+    return {
+        type,
+        sub_package_name
     }
 }
 
@@ -390,4 +406,5 @@ module.exports = {
     ResolvedType,
     resolveTypeOrPackage,
     resolveNextTypeOrPackage,
+    resolveNextPackage,
 }
