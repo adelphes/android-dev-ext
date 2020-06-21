@@ -184,9 +184,6 @@ class SpecialisedSourceType extends CEIType {
                 get parameters() {
                     return this._parameters;
                 }
-                get returnType() {
-                    return this.owner;
-                }
                 get typeVariables() {
                     return this.source.typeVars;
                 }
@@ -318,13 +315,6 @@ class SourceConstructor extends Constructor {
      */
     get parameters() {
         return this.sourceParameters;
-    }
-
-    /**
-     * @returns {SourceType}
-     */
-    get returnType() {
-        return this.owner;
     }
 
     get typeVariables() {
