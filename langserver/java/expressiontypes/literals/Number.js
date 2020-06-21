@@ -81,30 +81,29 @@ class NumberLiteral extends LiteralValue {
      * @param {NumberLiteral} a 
      * @param {NumberLiteral} b 
      * @param {(a,b) => Number} op 
-     * @param {boolean} [divmod]
      */
-    static math(a, b, op, divmod) {
+    static math(a, b, op) {
         const ai = a.toNumber(), bi = b.toNumber();
-        if (bi === 0 && divmod) {
-            return null;
-        }
         let val = op(ai, bi);
         const typekey = a.type.typeSignature + b.type.typeSignature;
-        if (!/[FD]/.test(typekey) && divmod) {
+        if (!/[FD]/.test(typekey)) {
             val = Math.trunc(val);
         }
         const type = typekey.includes('D') ? PrimitiveType.map.D
             : typekey.includes('F') ? PrimitiveType.map.F
             : typekey.includes('J') ? PrimitiveType.map.J
             : PrimitiveType.map.I;
+        // note: Java allows integer division by zero at compile-time - it will
+        // always cause an ArithmeticException at runtime, so the result here (inf or nan)
+        // is largely meaningless
         return NumberLiteral.calc(a, b, 'int-number-literal', type, val);
     }
 
     static '+'(lhs, rhs) { return  NumberLiteral.math(lhs, rhs, (a,b) => a + b) }
     static '-'(lhs, rhs) { return  NumberLiteral.math(lhs, rhs, (a,b) => a - b) }
     static '*'(lhs, rhs) { return  NumberLiteral.math(lhs, rhs, (a,b) => a * b) }
-    static '/'(lhs, rhs) { return  NumberLiteral.math(lhs, rhs, (a,b) => a / b, true) }
-    static '%'(lhs, rhs) { return  NumberLiteral.math(lhs, rhs, (a,b) => a % b, true) }
+    static '/'(lhs, rhs) { return  NumberLiteral.math(lhs, rhs, (a,b) => a / b) }
+    static '%'(lhs, rhs) { return  NumberLiteral.math(lhs, rhs, (a,b) => a % b) }
     static '&'(lhs, rhs) { return  NumberLiteral.bitwise(lhs, rhs, (a,b) => a & b) }
     static '|'(lhs, rhs) { return  NumberLiteral.bitwise(lhs, rhs, (a,b) => a | b) }
     static '^'(lhs, rhs) { return  NumberLiteral.bitwise(lhs, rhs, (a,b) => a ^ b) }

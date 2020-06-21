@@ -4,10 +4,11 @@
  * @typedef {import('../anys').ResolvedValue} ResolvedValue
  */
 const { Expression } = require("./Expression");
-const { AnyType, TypeIdentType } = require('../anys');
+const { AnyType, MultiValueType, TypeIdentType } = require('../anys');
 const ParseProblem = require('../parsetypes/parse-problem');
 const { JavaType, PrimitiveType, NullType, CEIType, ArrayType } = require('java-mti');
 const { getTypeInheritanceList } = require('../expression-resolver');
+const { NumberLiteral } = require('../expressiontypes/literals/Number');
 
 class CastExpression extends Expression {
     /**
@@ -53,6 +54,14 @@ function checkCastable(cast, cast_type, expr_type, problems) {
         if (!isTypeCastable(expr_type, cast_type)) {
             problems.push(ParseProblem.Error(cast.expression.tokens, `Invalid cast: An expression of type '${expr_type.fullyDottedTypeName}' cannot be cast to type '${cast_type.fullyDottedTypeName}'`));
         }
+        return;
+    }
+    if (expr_type instanceof NumberLiteral) {
+        checkCastable(cast, cast_type, expr_type.type, problems);
+        return;
+    }
+    if (expr_type instanceof MultiValueType) {
+        expr_type.types.forEach(type => checkCastable(cast, cast_type, type, problems));
         return;
     }
     problems.push(ParseProblem.Error(cast.expression.tokens, `Invalid cast: expression is not a value or variable`));

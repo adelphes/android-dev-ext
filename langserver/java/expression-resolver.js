@@ -7,28 +7,16 @@ const ParseProblem = require('./parsetypes/parse-problem');
 const { TypeVariable, JavaType, PrimitiveType, NullType, ArrayType, CEIType, WildcardType, TypeVariableType, InferredTypeArgument } = require('java-mti');
 const { AnyType, ArrayValueType, MultiValueType } = require('./anys');
 const { ResolveInfo } = require('./body-types');
-const { LiteralValue } = require('./expressiontypes/literals/LiteralValue');
 const { NumberLiteral } = require('./expressiontypes/literals/Number');
-const { Expression } = require('./expressiontypes/Expression');
-const { Variable } = require('./expressiontypes/Variable');
 
 /**
- * @param {import('./body-types').ResolvedIdent} e 
+ * @param {ResolveInfo} ri
+ * @param {ResolvedIdent} expression 
  * @param {JavaType} assign_type 
- * @param {Map<string,CEIType>} typemap 
- * @param {ParseProblem[]} problems
  */
-function checkAssignment(e, assign_type, typemap, problems) {
-    const value = e.variables[0];
-    if (value instanceof Variable) {
-        checkTypeAssignable(assign_type, value.type, () => value.name_token, problems);
-        return;
-    }
-    if (value instanceof Expression) {
-        const expression_result_type = value.resolveExpression(new ResolveInfo(typemap, problems));
-        checkTypeAssignable(assign_type, expression_result_type, () => value.tokens(), problems);
-        return;
-    }
+function checkAssignment(ri, assign_type, expression) {
+    const value = expression.resolveExpression(ri);
+    checkTypeAssignable(assign_type, value, () => expression.tokens, ri.problems);
 }
 
 /**
@@ -180,9 +168,14 @@ const valid_primitive_types = {
 /**
  * Returns true if a value of value_type is assignable to a variable of dest_type
  * @param {JavaType} dest_type 
- * @param {JavaType} value_type 
+ * @param {JavaType|NumberLiteral} value_type 
  */
 function isTypeAssignable(dest_type, value_type) {
+
+    if (value_type instanceof NumberLiteral) {
+        return value_type.isCompatibleWith(dest_type);
+    }
+
     let is_assignable = false;
     if (dest_type.typeSignature === value_type.typeSignature) {
         // exact signature match
@@ -256,6 +249,23 @@ function isTypeArgumentCompatible(dest_typevar, value_typevar_type) {
 }
 
 /**
+ * 
+ * @param {ResolvedValue} value 
+ * @param {() => Token[]} tokens 
+ * @param {ParseProblem[]} problems 
+ */
+function checkBooleanBranchCondition(value, tokens, problems) {
+    if (value instanceof JavaType) {
+        if (!isTypeAssignable(PrimitiveType.map.Z, value)) {
+            problems.push(ParseProblem.Error(tokens(), `Boolean expression expected, but type '${value.fullyDottedTypeName}' found.`));
+        }
+        return;
+    }
+    problems.push(ParseProblem.Error(tokens(), `Boolean expression expected.`));
+}
+
+
+/**
  * @param {CEIType} type 
  */
 function getTypeInheritanceList(type) {
@@ -276,6 +286,9 @@ function getTypeInheritanceList(type) {
     return Array.from(types.done);
 }
 
-exports.checkAssignment = checkAssignment;
 exports.checkArrayIndex = checkArrayIndex;
+exports.checkAssignment = checkAssignment;
+exports.checkBooleanBranchCondition = checkBooleanBranchCondition;
+exports.checkTypeAssignable = checkTypeAssignable;
 exports.getTypeInheritanceList = getTypeInheritanceList;
+exports.isTypeAssignable = isTypeAssignable;

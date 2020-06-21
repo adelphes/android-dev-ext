@@ -18,6 +18,15 @@ class TokenList {
         this.marks = [];
     }
 
+    /**
+     * Returns and consumes the current token
+     */
+    consume() {
+        const tok = this.current;
+        this.inc();
+        return tok;
+    }
+
     inc() {
         for (; ;) {
             this.current = this.tokens[this.idx += 1];

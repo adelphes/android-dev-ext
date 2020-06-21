@@ -14,9 +14,10 @@ const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resol
 const { genericTypeArgs, typeIdent, typeIdentList } = require('./typeident');
 const { TokenList } = require("./TokenList");
 const { AnyMethod, AnyType, AnyValue } = require("./anys");
-const { Label, Local, MethodDeclarations, ResolvedIdent } = require("./body-types");
+const { Label, Local, MethodDeclarations, ResolvedIdent, ResolveInfo } = require("./body-types");
 const { resolveImports, resolveSingleImport } = require('../java/import-resolver');
 const { checkAssignment, getTypeInheritanceList } = require('./expression-resolver');
+const { checkStatementBlock } = require('./statement-validater');
 
 const { ArrayIndexExpression } = require("./expressiontypes/ArrayIndexExpression");
 const { ArrayValueExpression } = require("./expressiontypes/ArrayValueExpression");
@@ -46,9 +47,11 @@ const { BreakStatement } = require("./statementtypes/BreakStatement");
 const { ContinueStatement } = require("./statementtypes/ContinueStatement");
 const { DoStatement } = require("./statementtypes/DoStatement");
 const { EmptyStatement } = require("./statementtypes/EmptyStatement");
+const { ExpressionStatement } = require("./statementtypes/ExpressionStatement");
 const { ForStatement } = require("./statementtypes/ForStatement");
 const { IfStatement } = require("./statementtypes/IfStatement");
 const { InvalidStatement } = require("./statementtypes/InvalidStatement");
+const { LocalDeclStatement } = require("./statementtypes/LocalDeclStatement");
 const { ReturnStatement } = require("./statementtypes/ReturnStatement");
 const { Statement } = require("./statementtypes/Statement");
 const { SwitchStatement } = require("./statementtypes/SwitchStatement");
@@ -98,6 +101,7 @@ function parseBody(method, imports, typemap) {
     let mdecls = new MethodDeclarations();
     try {
         block = statementBlock(tokenlist, mdecls, method, imports, typemap);
+        checkStatementBlock(block, method, typemap, tokenlist.problems);
     } catch (err) {
         addproblem(tokenlist, ParseProblem.Information(tokenlist.current, `Parse failed: ${err.message}`));
 
@@ -214,8 +218,9 @@ function parse(source, typemap) {
         timeEnd('parse');
 
         // once all the types have been parsed, resolve any field initialisers
+        const ri = new ResolveInfo(typemap, tokens.problems);
         unit.types.forEach(t => {
-            t.fields.filter(f => f.init).forEach(f => checkAssignment(f.init, f.type, typemap, tokens.problems));
+            t.fields.filter(f => f.init).forEach(f => checkAssignment(ri, f.type, f.init));
         });
 
     } catch(err) {
@@ -380,7 +385,7 @@ function addLocals(tokens, mdecls, new_locals) {
  * @param {SourceMC} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,CEIType>} typemap 
- * @returns {ResolvedIdent|Local[]|Statement}
+ * @returns {Statement}
  */
 function statement(tokens, mdecls, method, imports, typemap) {
     let s, modifiers = [];
@@ -399,10 +404,10 @@ function statement(tokens, mdecls, method, imports, typemap) {
     // modifiers are only allowed on local variable decls
     if (modifiers.length) {
         const type = typeIdent(tokens, method, imports, typemap);
-        s = var_ident_list(modifiers, type, null, tokens, mdecls, method, imports, typemap)
-        addLocals(tokens, mdecls, s);
+        const locals = var_ident_list(modifiers, type, null, tokens, mdecls, method, imports, typemap)
+        addLocals(tokens, mdecls, locals);
         semicolon(tokens);
-        return s;
+        return new LocalDeclStatement(locals);
     }
 
     switch(tokens.current.kind) {
@@ -422,9 +427,12 @@ function statement(tokens, mdecls, method, imports, typemap) {
             }
             // fall-through to expression_or_var_decl
         case 'primitive-type':
-            s = expression_or_var_decl(tokens, mdecls, method, imports, typemap);
-            if (Array.isArray(s)) {
-                addLocals(tokens, mdecls, s);
+            const exp_or_vardecl = expression_or_var_decl(tokens, mdecls, method, imports, typemap);
+            if (Array.isArray(exp_or_vardecl)) {
+                addLocals(tokens, mdecls, exp_or_vardecl);
+                s = new LocalDeclStatement(exp_or_vardecl);
+            } else {
+                s = new ExpressionStatement(exp_or_vardecl);
             }
             semicolon(tokens);
             return s;
@@ -438,7 +446,8 @@ function statement(tokens, mdecls, method, imports, typemap) {
         case 'unary-operator':
         case 'open-bracket':
         case 'new-operator':
-            s = expression(tokens, mdecls, method, imports, typemap);
+            const e = expression(tokens, mdecls, method, imports, typemap);
+            s = new ExpressionStatement(e);
             semicolon(tokens);
             return s;
     }
@@ -858,7 +867,7 @@ function statementBlock(tokens, mdecls, method, imports, typemap) {
         const s = statement(tokens, mdecls, method, imports, typemap);
         block.statements.push(s);
     }
-    mdecls.popScope();
+    block.decls = mdecls.popScope();
     return block;
 }
 
@@ -898,21 +907,13 @@ function statementKeyword(tokens, mdecls, method, imports, typemap) {
             s.statement = statement(tokens, mdecls, method, imports, typemap);
             break;
         case 'break':
-            tokens.inc();
-            s = new BreakStatement();
-            if (tokens.current.kind === 'ident') {
-                s.target = tokens.current;
-                tokens.inc();
-            }
+            s = new BreakStatement(tokens.consume());
+            s.target = tokens.getIfKind('ident');
             semicolon(tokens);
             break;
         case 'continue':
-            tokens.inc();
-            s = new ContinueStatement();
-            if (tokens.current.kind === 'ident') {
-                s.target = tokens.current;
-                tokens.inc();
-            }
+            s = new ContinueStatement(tokens.consume());
+            s.target = tokens.getIfKind('ident');
             semicolon(tokens);
             break;
         case 'switch':
@@ -934,8 +935,8 @@ function statementKeyword(tokens, mdecls, method, imports, typemap) {
             tryStatement(s, tokens, mdecls, method, imports, typemap);
             break;
         case 'return':
+            s = new ReturnStatement(tokens.current);
             tokens.inc();
-            s = new ReturnStatement();
             s.expression = isExpressionStart(tokens.current) ? expression(tokens, mdecls, method, imports, typemap) : null;
             semicolon(tokens);
             break;
@@ -1234,25 +1235,24 @@ function caseBlock(s, tokens, mdecls, method, imports, typemap) {
 * @param {Map<string,CEIType>} typemap 
 */
 function caseExpressionList(cases, tokens, mdecls, method, imports, typemap) {
-    let c = caseExpression(cases, tokens, mdecls, method, imports, typemap);
+    let c = caseExpression(tokens, mdecls, method, imports, typemap);
     if (!c) {
         return;
     }
     while (c) {
         cases.push(c);
-        c = caseExpression(cases, tokens, mdecls, method, imports, typemap);
+        c = caseExpression(tokens, mdecls, method, imports, typemap);
     }
 }
 
 /**
-* @param {(ResolvedIdent|boolean)[]} cases
 * @param {TokenList} tokens 
 * @param {MethodDeclarations} mdecls
 * @param {SourceMC} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,CEIType>} typemap 
 */
-function caseExpression(cases, tokens, mdecls, method, imports, typemap) {
+function caseExpression(tokens, mdecls, method, imports, typemap) {
     /** @type {boolean|ResolvedIdent} */
     let e = tokens.isValue('default');
     if (!e) {
@@ -1558,7 +1558,7 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
             return new ResolvedIdent(ident, [new ArrayValueExpression(elements, open)]);
         default:
             addproblem(tokens, ParseProblem.Error(tokens.current, 'Expression expected'));
-            return new ResolvedIdent('');
+            return new ResolvedIdent('', [new AnyValue('')]);
     }
     tokens.inc();
     return matches;

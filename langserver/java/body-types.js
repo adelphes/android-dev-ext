@@ -121,8 +121,18 @@ class ResolveInfo {
     }
 }
 
+class ValidateInfo extends ResolveInfo {
+    constructor(typemap, problems, method) {
+        super(typemap, problems);
+        this.method = method;
+        /** @type {('if'|'else'|'for'|'while'|'do'|'switch'|'try'|'synchronized')[]} */
+        this.statementStack = [];
+    }
+}
+
 exports.Label = Label;
 exports.Local = Local;
 exports.MethodDeclarations = MethodDeclarations;
 exports.ResolvedIdent = ResolvedIdent;
 exports.ResolveInfo = ResolveInfo;
+exports.ValidateInfo = ValidateInfo;

@@ -4,7 +4,7 @@
  * @typedef {import('../tokenizer').Token} Token
  */
 const { Expression } = require("./Expression");
-const { CEIType } = require('java-mti');
+const { JavaType, CEIType } = require('java-mti');
 const { AnyType, MethodType, PackageNameType, TypeIdentType } = require('../anys');
 const { getTypeInheritanceList } = require('../expression-resolver');
 const { resolveNextPackage } = require('../type-resolver');
@@ -46,7 +46,7 @@ class MemberExpression extends Expression {
              : AnyType.Instance;
         }
 
-        if (!(instance instanceof CEIType)) {
+        if (!(instance instanceof JavaType)) {
             ri.problems.push(ParseProblem.Error(this.member, `Unresolved member: '${ident}'`));
             return AnyType.Instance;
         }
@@ -54,6 +54,12 @@ class MemberExpression extends Expression {
         if (field) {
             return field.type;
         }
+
+        if (!(instance instanceof CEIType)) {
+            ri.problems.push(ParseProblem.Error(this.member, `Unresolved member: '${ident}'`));
+            return AnyType.Instance;
+        }
+
         let methods = new Map();
         getTypeInheritanceList(instance).forEach(type => {
             type.methods.forEach(m => {
