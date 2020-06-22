@@ -27,8 +27,10 @@ class AssertStatement extends Statement {
 
         if (this.message) {
             const msg_value = this.message.resolveExpression(vi);
-            if (!(msg_value instanceof JavaType) || !isTypeAssignable(vi.typemap.get('java/lang/String'), msg_value)) {
-                vi.problems.push(ParseProblem.Error(this.message.tokens, `String expression expected`));
+            if (!(msg_value instanceof JavaType)) {
+                vi.problems.push(ParseProblem.Error(this.message.tokens, `Expression expected`));
+            } else if (msg_value === PrimitiveType.map.V) {
+                vi.problems.push(ParseProblem.Error(this.message.tokens, `Expression type cannot be 'void'`));
             }
         }
     }
