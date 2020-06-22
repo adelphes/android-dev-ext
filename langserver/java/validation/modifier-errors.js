@@ -173,7 +173,7 @@ function checkTypeModifiers(type, probs) {
     }
 
     type.fields.forEach(field => checkFieldModifiers(field, probs));
-    type.methods.forEach(method => checkMethodModifiers(type, typemods, method, probs));
+    type.sourceMethods.forEach(method => checkMethodModifiers(type, typemods, method, probs));
     type.constructors.forEach(ctr => checkConstructorModifiers(ctr, probs));
     type.initers.forEach(initer => checkInitialiserModifiers(initer, probs));
 }

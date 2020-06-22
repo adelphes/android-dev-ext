@@ -26,7 +26,7 @@ function checkType(type, is_return_type, probs) {
  */
 function checkInvalidTypes(type, probs) {
     type.fields.forEach(f => checkType(f.fieldTypeIdent, false, probs));
-    type.methods.forEach(m => {
+    type.sourceMethods.forEach(m => {
         checkType(m.returnTypeIdent, true, probs);
         m.parameters.forEach(p => {
             checkType(p.paramTypeIdent, false, probs);

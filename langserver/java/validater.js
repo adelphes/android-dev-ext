@@ -27,7 +27,7 @@ function validate(unit, androidLibrary) {
             if (parsed)
                 probs = probs.concat(parsed.problems)
         })
-        t.methods.forEach(m => {
+        t.sourceMethods.forEach(m => {
             const parsed = parseBody(m, resolved_types, androidLibrary);
             if (parsed)
                 probs = probs.concat(parsed.problems)

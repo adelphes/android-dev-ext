@@ -24,6 +24,39 @@ function generateShortSignature(scope_or_package_name, name) {
     return pkgname ?`${pkgname.replace(/\./g, '/')}/${name}` : name;
 }
 
+/**
+ * @param {SourceType} enum_type 
+ * @param {Map<string,CEIType>} typemap
+ */
+function createImplicitEnumMethods(enum_type, typemap) {
+    return [
+        new class extends Method {
+            constructor() {
+                super(enum_type, 'values', ['public','static'], '');
+                this._returnType = new ArrayType(enum_type, 1);
+            }
+            get returnType() {
+                return this._returnType;
+            }
+        },
+        new class extends Method {
+            constructor() {
+                super(enum_type, 'valueOf', ['public','static'], '');
+                this._parameters = [
+                    new Parameter('name', typemap.get('java/lang/String'), false)
+                ]
+                this._returnType = enum_type;
+            }
+            get parameters() {
+                return this._parameters;
+            }
+            get returnType() {
+                return this._returnType;
+            }
+        }
+    ];
+}
+
 class SourceType extends CEIType {
     /**
      * @param {string} packageName
@@ -55,14 +88,24 @@ class SourceType extends CEIType {
         this.implements_types = [];
         /** @type {SourceConstructor[]} */
         this.constructors = [];
-        /** @type {SourceMethod[]} */
-        this.methods = [];
+        /** @type {Method[]} */
+        this.methods = typeKind === 'enum'
+            ? createImplicitEnumMethods(this, typemap)
+            : [];        
         /** @type {SourceField[]} */
         this.fields = [];
         /** @type {SourceInitialiser[]} */
         this.initers = [];
         /** @type {SourceEnumValue[]} */
         this.enumValues = [];
+    }
+
+    /**
+     * @returns {SourceMethod[]}
+     */
+    get sourceMethods() {
+        // @ts-ignore
+        return this.methods.filter(m => m instanceof SourceMethod);// [...this.implicitMethods, ...this.sourceMethods];
     }
 
     /**
@@ -190,7 +233,11 @@ class SpecialisedSourceType extends CEIType {
             
             };
         });
-        this.methods = source_type.methods.map(m => {
+        this.methods = source_type.methods.map(method => {
+            if (!(method instanceof SourceMethod)) {
+                return method;
+            }
+            const m = method;
             const type = this;
             return new class extends Method {
                 constructor() {

@@ -16,7 +16,7 @@ function checkOverrides(source_type, probs) {
 
     /** @type {{ann:SourceAnnotation, method:Method, method_id:string}[]} */
     const overriden_methods = [];
-    source_type.methods.reduce((arr, method) => {
+    source_type.sourceMethods.reduce((arr, method) => {
         const ann = method.annotations.find(a => a.type.simpleTypeName === 'Override');
         if (ann) {
             arr.push({
