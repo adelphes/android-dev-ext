@@ -4,7 +4,7 @@
  * @typedef {import('../tokenizer').Token} Token
  */
 const { Expression } = require("./Expression");
-const { AnyType, AnyMethod, MethodType } = require('../anys');
+const { AnyType, AnyMethod, LambdaType, MethodType } = require('../anys');
 const { ArrayType, JavaType, Method,PrimitiveType, ReifiedConstructor, ReifiedMethod, Constructor } = require('java-mti');
 const { NumberLiteral } = require('./literals/Number');
 const { InstanceLiteral } = require('./literals/Instance')
@@ -68,11 +68,11 @@ class MethodCallExpression extends Expression {
 function resolveMethodCall(ri, methods, args, tokens) {
     const resolved_args = args.map(arg => arg.resolveExpression(ri));
 
-    // all the arguments must be typed expressions or number literals
-    /** @type {(JavaType|NumberLiteral)[]} */
+    // all the arguments must be typed expressions, number literals or lambdas
+    /** @type {(JavaType|NumberLiteral|LambdaType)[]} */
     const arg_types = [];
     resolved_args.forEach((a, idx) => {
-        if (a instanceof JavaType || a instanceof NumberLiteral) {
+        if (a instanceof JavaType || a instanceof NumberLiteral || a instanceof LambdaType) {
             arg_types.push(a);
             return;
         }
@@ -82,7 +82,11 @@ function resolveMethodCall(ri, methods, args, tokens) {
     });
 
     // reify any methods with type-variables
-    const arg_java_types = arg_types.map(a => a instanceof NumberLiteral ? a.type : a);
+    // - lambda expressions can't be used as type arguments so just pass them as void
+    const arg_java_types = arg_types.map(a => 
+        a instanceof NumberLiteral ? a.type 
+        : a instanceof LambdaType ? PrimitiveType.map.V
+        : a);
     const reified_methods = methods.map(m => {
             if (m.typeVariables.length) {
                 m = ReifiedMethod.build(m, arg_java_types);
@@ -142,11 +146,11 @@ function resolveMethodCall(ri, methods, args, tokens) {
 function resolveConstructorCall(ri, constructors, args, tokens) {
     const resolved_args = args.map(arg => arg.resolveExpression(ri));
 
-    // all the arguments must be typed expressions or number literals
-    /** @type {(JavaType|NumberLiteral)[]} */
+    // all the arguments must be typed expressions, number literals or lambdas
+    /** @type {(JavaType|NumberLiteral|LambdaType)[]} */
     const arg_types = [];
     resolved_args.forEach((a, idx) => {
-        if (a instanceof JavaType || a instanceof NumberLiteral) {
+        if (a instanceof JavaType || a instanceof NumberLiteral || a instanceof LambdaType) {
             arg_types.push(a);
             return;
         }
@@ -156,7 +160,11 @@ function resolveConstructorCall(ri, constructors, args, tokens) {
     });
 
     // reify any methods with type-variables
-    const arg_java_types = arg_types.map(a => a instanceof NumberLiteral ? a.type : a);
+    // - lambda expressions can't be used as type arguments so just pass them as void
+    const arg_java_types = arg_types.map(a => 
+        a instanceof NumberLiteral ? a.type 
+        : a instanceof LambdaType ? PrimitiveType.map.V
+        : a);
     const reifed_ctrs = constructors.map(c => {
             if (c.typeVariables.length) {
                 c = ReifiedConstructor.build(c, arg_java_types);
@@ -206,7 +214,7 @@ function resolveConstructorCall(ri, constructors, args, tokens) {
 /**
  * 
  * @param {Method|Constructor} m 
- * @param {(JavaType | NumberLiteral)[]} arg_types 
+ * @param {(JavaType | NumberLiteral | LambdaType)[]} arg_types 
  */
 function isCallCompatible(m, arg_types) {
     if (m instanceof AnyMethod) {

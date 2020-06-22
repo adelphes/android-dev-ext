@@ -5,7 +5,7 @@
  */
 const ParseProblem = require('./parsetypes/parse-problem');
 const { TypeVariable, JavaType, PrimitiveType, NullType, ArrayType, CEIType, WildcardType, TypeVariableType, InferredTypeArgument } = require('java-mti');
-const { AnyType, ArrayValueType, MultiValueType } = require('./anys');
+const { AnyType, ArrayValueType, LambdaType, MultiValueType } = require('./anys');
 const { ResolveInfo } = require('./body-types');
 const { NumberLiteral } = require('./expressiontypes/literals/Number');
 
@@ -41,6 +41,10 @@ function checkTypeAssignable(variable_type, value, tokens, problems) {
         checkArrayLiteral(variable_type, value, tokens, problems);
         return;
     }
+    if (value instanceof LambdaType) {
+        checkLambdaAssignable(variable_type, value, tokens, problems);
+        return;
+    }
     if (value instanceof JavaType) {
         if (!isTypeAssignable(variable_type, value)) {
             incompatibleTypesError(variable_type, value, tokens, problems);
@@ -59,6 +63,78 @@ function checkTypeAssignable(variable_type, value, tokens, problems) {
  */
 function incompatibleTypesError(variable_type, value_type, tokens, problems) {
     problems.push(ParseProblem.Error(tokens(), `Incompatible types: Expression of type '${value_type.fullyDottedTypeName}' cannot be assigned to a variable of type '${variable_type.fullyDottedTypeName}'`));
+}
+
+/**
+ * 
+ * @param {JavaType} variable_type 
+ * @param {LambdaType} value 
+ * @param {() => Token|Token[]} tokens
+ * @param {ParseProblem[]} problems
+ */
+function checkLambdaAssignable(variable_type, value, tokens, problems) {
+    const res = isLambdaAssignable(variable_type, value);
+    if (res === true) {
+        return;
+    }
+    switch (res[0]) {
+        case 'non-interface':
+            problems.push(ParseProblem.Error(tokens(), `Incompatible types: Cannot assign lambda expression to type '${variable_type.fullyDottedTypeName}'`));
+            return;
+        case 'no-methods':
+            problems.push(ParseProblem.Error(tokens(), `Incompatible types: Interface '${variable_type.fullyDottedTypeName}' contains no abstract methods compatible with the specified lambda expression`));
+            return;
+        case 'param-count':
+            problems.push(ParseProblem.Error(tokens(), `Incompatible types: Interface method '${variable_type.methods[0].label}' and lambda expression have different parameter counts`));
+            return;
+        case 'bad-param':
+            problems.push(ParseProblem.Error(tokens(), `Incompatible types: Interface method '${variable_type.methods[0].label}' and lambda expression have different parameter types`));
+            return;
+    }
+}
+
+/**
+ * 
+ * @param {JavaType} variable_type 
+ * @param {LambdaType} value 
+ */
+function isLambdaAssignable(variable_type, value) {
+    if (!(variable_type instanceof CEIType) || variable_type.typeKind !== 'interface') {
+        return ['non-interface'];
+    }
+    // the functional interface must only contain one abstract method excluding public Object methods
+    // and ignoring type-compatible methods from superinterfaces.
+    // this is quite complicated to calculate, so for now, just check against the most common case: a simple interface type with
+    // a single abstract method
+    if (variable_type.supers.length > 1) {
+        return true;
+    }
+    if (variable_type.methods.length === 0) {
+        return ['no-methods']
+    }
+    if (variable_type.methods.length > 1) {
+        return true;
+    }
+    const intf_method = variable_type.methods[0];
+    const intf_params = intf_method.parameters;
+    if (intf_params.length !== value.param_types.length) {
+        return ['param-count'];
+    }
+
+    for (let i = 0; i < intf_params.length; i++) {
+        // explicit parameter types must match exactly
+        if (value.param_types[i] instanceof AnyType) {
+            continue;
+        }
+        if (intf_params[i].type instanceof AnyType) {
+            continue;
+        }
+        if (intf_params[i].type.typeSignature !== value.param_types[i].typeSignature) {
+            return ['bad-param']
+        }
+    }
+
+    return true;
 }
 
 /**
@@ -168,12 +244,16 @@ const valid_primitive_types = {
 /**
  * Returns true if a value of value_type is assignable to a variable of dest_type
  * @param {JavaType} dest_type 
- * @param {JavaType|NumberLiteral} value_type 
+ * @param {JavaType|NumberLiteral|LambdaType} value_type 
  */
 function isTypeAssignable(dest_type, value_type) {
 
     if (value_type instanceof NumberLiteral) {
         return value_type.isCompatibleWith(dest_type);
+    }
+
+    if (value_type instanceof LambdaType) {
+        return isLambdaAssignable(dest_type, value_type) === true;
     }
 
     let is_assignable = false;

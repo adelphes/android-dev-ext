@@ -87,7 +87,15 @@ class MethodType {
  * eg. `() => null`
  */
 class LambdaType {
-
+    /**
+     * 
+     * @param {JavaType[]} param_types 
+     * @param {ResolvedValue} return_type 
+     */
+    constructor(param_types, return_type) {
+        this.param_types = param_types;
+        this.return_type = return_type;
+    }
 }
 
 /**
