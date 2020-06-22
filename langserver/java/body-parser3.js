@@ -32,6 +32,7 @@ const { MethodCallExpression } = require("./expressiontypes/MethodCallExpression
 const { NewArray, NewObject } = require("./expressiontypes/NewExpression");
 const { TernaryOpExpression } = require("./expressiontypes/TernaryOpExpression");
 const { ThisMemberExpression } = require("./expressiontypes/ThisMemberExpression");
+const { UnaryOpExpression } = require("./expressiontypes/UnaryOpExpression");
 const { Variable } = require("./expressiontypes/Variable");
 
 const { BooleanLiteral } = require('./expressiontypes/literals/Boolean');
@@ -1512,13 +1513,17 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
             matches = new ResolvedIdent(tokens.current, [NumberLiteral.from(tokens.current)]);
             break;
         case 'inc-operator':
-            let incop = tokens.getIfKind('inc-operator');
+            let incop = tokens.consume();
             matches = qualifiedTerm(tokens, mdecls, scope, imports, typemap);
             return new ResolvedIdent(`${incop.value}${matches.source}`, [new IncDecExpression(matches, incop, 'prefix')])
         case 'plumin-operator':
         case 'unary-operator':
-            tokens.inc();
-            return qualifiedTerm(tokens, mdecls, scope, imports, typemap);
+            let unaryop = tokens.consume();
+            matches = qualifiedTerm(tokens, mdecls, scope, imports, typemap);
+            let unary_value = matches.variables[0] instanceof NumberLiteral
+                ? NumberLiteral[unaryop.value](matches.variables[0])
+                : new UnaryOpExpression(matches, unaryop);
+            return new ResolvedIdent(`${unaryop.value}${matches.source}`, [unary_value])
         case 'new-operator':
             return newTerm(tokens, mdecls, scope, imports, typemap);
         case 'open-bracket':

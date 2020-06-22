@@ -79,6 +79,32 @@ class NumberLiteral extends LiteralValue {
 
     /**
      * @param {NumberLiteral} a 
+     * @param {string} opvalue
+     * @param {(a) => Number} op 
+     */
+    static unary(a, opvalue, op) {
+        if (opvalue === '-') {
+            const ai = a.toNumber();
+            if (ai === null) {
+                return null;
+            }
+            const val = op(ai);
+            const type = PrimitiveType.map[a.type.typeSignature];
+            const toks = a.tokens();
+            return new NumberLiteral(Array.isArray(toks) ? toks : [toks], 'int-number-literal', type, val.toString());
+        }
+        const ai = a.toInt();
+        if (ai === null) {
+            return null;
+        }
+        const val = op(ai);
+        const type = /J/.test(a.type.typeSignature) ? PrimitiveType.map.J : PrimitiveType.map.I;
+        const toks = a.tokens();
+        return new NumberLiteral(Array.isArray(toks) ? toks : [toks], 'int-number-literal', type, val.toString());
+    }
+
+    /**
+     * @param {NumberLiteral} a 
      * @param {NumberLiteral} b 
      * @param {(a,b) => Number} op 
      */
@@ -99,8 +125,15 @@ class NumberLiteral extends LiteralValue {
         return NumberLiteral.calc(a, b, 'int-number-literal', type, val);
     }
 
-    static '+'(lhs, rhs) { return  NumberLiteral.math(lhs, rhs, (a,b) => a + b) }
-    static '-'(lhs, rhs) { return  NumberLiteral.math(lhs, rhs, (a,b) => a - b) }
+    static '~'(value) { return  NumberLiteral.unary(value, '~', (a) => ~a) }
+    static '+'(lhs, rhs) { return !rhs
+        ? lhs // unary e.g +5
+        : NumberLiteral.math(lhs, rhs, (a,b) => a + b)
+    }
+    static '-'(lhs, rhs) { return !rhs
+        ? NumberLiteral.unary(lhs, '-', (a) => -a)
+        : NumberLiteral.math(lhs, rhs, (a,b) => a - b)
+    }
     static '*'(lhs, rhs) { return  NumberLiteral.math(lhs, rhs, (a,b) => a * b) }
     static '/'(lhs, rhs) { return  NumberLiteral.math(lhs, rhs, (a,b) => a / b) }
     static '%'(lhs, rhs) { return  NumberLiteral.math(lhs, rhs, (a,b) => a % b) }
