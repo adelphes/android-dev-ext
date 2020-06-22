@@ -7,7 +7,7 @@ const { Expression } = require("./Expression");
 const { AnyType, MultiValueType, TypeIdentType } = require('../anys');
 const ParseProblem = require('../parsetypes/parse-problem');
 const { JavaType, PrimitiveType, NullType, CEIType, ArrayType } = require('java-mti');
-const { getTypeInheritanceList } = require('../expression-resolver');
+const { isTypeAssignable } = require('../expression-resolver');
 const { NumberLiteral } = require('../expressiontypes/literals/Number');
 
 class CastExpression extends Expression {
@@ -91,11 +91,11 @@ function isTypeCastable(source_type, cast_type) {
                 return true;
             }
         }
-        // for other class casts, one type must be in the inheritence tree of the other
-        if (getTypeInheritanceList(source_type).includes(cast_type)) {
+        // for other class casts, one type must be assignable to the other
+        if (isTypeAssignable(source_type, cast_type)) {
             return true;
         }
-        if (getTypeInheritanceList(cast_type).includes(source_type)) {
+        if (isTypeAssignable(cast_type, source_type)) {
             return true;
         }
         return false;
