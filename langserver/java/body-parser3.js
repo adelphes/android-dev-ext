@@ -1639,12 +1639,10 @@ function expressionList(tokens, mdecls, scope, imports, typemap, opts) {
 }
 
 /**
- * @param {TokenList} tokens
- * @param {Token} open_array
  * @param {ResolvedIdent} instance 
  * @param {ResolvedIdent} index
  */
-function arrayElementOrConstructor(tokens, open_array, instance, index) {
+function arrayElementOrConstructor(instance, index) {
     const ident = `${instance.source}[${index.source}]`;
     const types = instance.types.map(t => new FixedLengthArrayType(t, index));
     return new ResolvedIdent(ident, [new ArrayIndexExpression(instance, index)], [], types, '', index.tokens.slice());
@@ -1721,7 +1719,7 @@ function memberQualifier(matches, tokens, mdecls, scope, imports, typemap) {
             break;
     }
     tokens.inc();
-    return new ResolvedIdent(label, [expr], [], types, package_name, tokens.markEnd());
+    return new ResolvedIdent(label, [expr], [], types, package_name, [...matches.tokens, ...tokens.markEnd()]);
 }
 
 /**
@@ -1733,17 +1731,18 @@ function memberQualifier(matches, tokens, mdecls, scope, imports, typemap) {
  * @param {Map<string,CEIType>} typemap 
  */
 function arrayQualifiers(matches, tokens, mdecls, scope, imports, typemap) {
-    while (tokens.isValue('[')) {
-        let open_array = tokens.current;
+    while (tokens.current.value === '[') {
+        tokens.mark();
+        tokens.inc();
         if (tokens.isValue(']')) {
             // array type
-            matches = arrayTypeExpression(matches);
+            matches = arrayTypeExpression(matches, tokens.markEnd());
         } else {
             // array index
             const index = expression(tokens, mdecls, scope, imports, typemap);
-            matches = arrayElementOrConstructor(tokens, open_array, matches, index);
-            // @ts-ignore
             tokens.expectValue(']');
+            tokens.markEnd();
+            matches = arrayElementOrConstructor(matches, index);
         }
     }
     return matches;
@@ -1759,20 +1758,22 @@ function arrayQualifiers(matches, tokens, mdecls, scope, imports, typemap) {
  */
 function methodCallQualifier(matches, tokens, mdecls, scope, imports, typemap) {
     let args = [];
+    tokens.mark();
     tokens.expectValue('(');
     if (!tokens.isValue(')')) {
         args = expressionList(tokens, mdecls, scope, imports, typemap);
         tokens.expectValue(')');
     }
-    return new ResolvedIdent(`${matches.source}(${args.map(a => a.source).join(', ')})`, [new MethodCallExpression(matches, args)]);
+    return new ResolvedIdent(`${matches.source}(${args.map(a => a.source).join(', ')})`, [new MethodCallExpression(matches, args)], [], [], '', [...matches.tokens, ...tokens.markEnd()]);
 }
 
 /**
  * @param {ResolvedIdent} matches 
+ * @param {Token[]} array_tokens
  */
-function arrayTypeExpression(matches) {
+function arrayTypeExpression(matches, array_tokens) {
     const types = matches.types.map(t => new SourceArrayType(t));
-    return new ResolvedIdent(`${matches.source}[]`, [], [], types);
+    return new ResolvedIdent(`${matches.source}[]`, [], [], types, '', [...matches.tokens, ...array_tokens]);
 }
 
 /**
