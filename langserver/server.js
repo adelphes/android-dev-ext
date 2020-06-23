@@ -22,7 +22,7 @@ const { loadAndroidLibrary, CEIType } = require('java-mti');
 const { ParseProblem } = require('./java/parser');
 const { parse } = require('./java/body-parser3');
 const { SourceUnit } = require('./java/source-types');
-const { validate } = require('./java/validater');
+const { validate, parseMethodBodies } = require('./java/validater');
 
 /**
  * @typedef {Map<string, CEIType>} AndroidLibrary
@@ -52,6 +52,9 @@ function reparse(uri, content) {
     }
     const typemap = new Map(androidLibrary);
     const result = parse(content, typemap);
+    if (result) {
+        parseMethodBodies(result.unit, typemap);
+    }
     parsed = {
         content,
         uri,
@@ -261,7 +264,7 @@ async function validateTextDocument(textDocument) {
 
     if (parsed && parsed.result) {
         try {
-            problems = [...parsed.result.problems, ...validate(parsed.result.unit, parsed.typemap)];
+            //problems = [...parsed.result.problems, ...validate(parsed.result.unit, parsed.typemap)];
         } catch(err) {
             console.error(err);
         }
@@ -355,6 +358,38 @@ connection.onCompletion(
         }
         const lib = (parsed && parsed.typemap) || androidLibrary;
         if (!lib) return [];
+        if (parsed.result && parsed.result.unit) {
+            const index = parsed.indexAt(_textDocumentPosition.position);
+            const options = parsed.result.unit.getCompletionOptionsAt(index);
+            console.log(options);
+            if (/^pkgname:/.test(options.loc)) {
+                const pkg = options.loc.split(':').pop();
+                let pkgs;
+                if (pkg === '') {
+                    // root packages
+                    pkgs = [...parsed.typemap.keys()].reduce((set,typename) => {
+                        const m = typename.match(/(.+?)\//);
+                        m && set.add(m[1]);
+                        return set;
+                    }, new Set());
+                } else {
+                    // sub-package
+                    const search_pkg = pkg + '/';
+                    pkgs = [...parsed.typemap.keys()].reduce((arr,typename) => {
+                        if (typename.startsWith(search_pkg)) {
+                            const m = typename.slice(search_pkg.length).match(/^(.+?)\//);
+                            if (m) arr.add(m[1]);
+                        }
+                        return arr;
+                    }, new Set());
+                }
+                return [...pkgs].filter(x => x).sort().map(pkg => ({
+                    label: pkg,
+                    kind: CompletionItemKind.Unit,
+                    data: -1,
+                }));
+        }
+        }
         const typeKindMap = {
             class: CompletionItemKind.Class,
             interface: CompletionItemKind.Interface,

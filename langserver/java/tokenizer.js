@@ -49,6 +49,7 @@ class Token extends TextBlock {
     constructor(text, start, length, kind) {
         super(new BlockRange(text, start, length), tokenKindToSimplified(text, start, length, kind));
         this.kind = kind;
+        this.loc = '';
     }
 
     get value() {

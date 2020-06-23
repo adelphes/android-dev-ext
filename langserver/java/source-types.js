@@ -366,6 +366,7 @@ class SourceConstructor extends Constructor {
         this.sourceParameters = parameters;
         this.throws = throws;
         this.body = body;
+        this.parsed = null;
     }
 
     get hasImplementation() {
@@ -411,6 +412,7 @@ class SourceMethod extends Method {
         this.sourceParameters = parameters;
         this.throws = throws;
         this.body = body;
+        this.parsed = null;
     }
 
     get hasImplementation() {
@@ -449,6 +451,7 @@ class SourceInitialiser extends MethodBase {
         this.owner = owner;
         this.modifierTokens = modifiers;
         this.body = body;
+        this.parsed = null;
     }
 
     /**
@@ -535,12 +538,38 @@ class SourceImport {
 }
 
 class SourceUnit {
+    /** @type {Token[]} */
+    tokens = [];
     /** @type {SourcePackage} */
     package_ = null;
     /** @type {SourceImport[]} */
     imports = [];
     /** @type {SourceType[]} */
     types = [];
+
+    /**
+     * 
+     * @param {number} char_index 
+     */
+    getCompletionOptionsAt(char_index) {
+        let i = 0;
+        let loc = '';
+        for (let tok of this.tokens) {
+            if (char_index > tok.range.start + tok.range.length) {
+                i++;
+                continue;
+            }
+            while (i > 0 && tok.kind === 'wsc') {
+                tok = this.tokens[--i];
+            }
+            loc = tok.loc;
+            break;
+        }
+        return {
+            index: char_index,
+            loc: loc,
+        };
+    }
 }
 
 class SourceArrayType extends ArrayType {

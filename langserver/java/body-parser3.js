@@ -205,7 +205,7 @@ function parse(source, typemap) {
     const timeEnd = name => (timers.delete(name), console.timeEnd(name));
     try {
         time('tokenize');
-        tokens = new TokenList(tokenize(source));
+        tokens = new TokenList(unit.tokens = tokenize(source));
         problems = tokens.problems;
         timeEnd('tokenize');
 
@@ -318,16 +318,22 @@ function parseUnit(tokens, unit, typemap) {
  */
 function packageDeclaration(tokens) {
     tokens.mark();
+    const package_token = tokens.current;
+    package_token.loc = 'pkgname:';
     tokens.expectValue('package');
-    const pkg_name_parts = [];
+    let pkg_name_parts = [], dot;
     for (;;) {
         let name = tokens.current;
         if (!tokens.isKind('ident')) {
             name = null;
             addproblem(tokens, ParseProblem.Error(tokens.current, `Package identifier expected`));
         }
-        if (name) pkg_name_parts.push(name.value);
-        if (tokens.isValue('.')) {
+        if (name) {
+            name.loc = `pkgname:${pkg_name_parts.join('/')}`;
+            pkg_name_parts.push(name.value);
+        }
+        if (dot = tokens.getIfValue('.')) {
+            dot.loc = `pkgname:${pkg_name_parts.join('/')}`;
             continue;
         }
         const decl_tokens = tokens.markEnd();
