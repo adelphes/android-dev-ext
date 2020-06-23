@@ -1,9 +1,25 @@
 const ParseProblem = require('../parsetypes/parse-problem');
 const { SourceType } = require('../source-types');
-const {CEIType} = require('java-mti');
+const { CEIType, Method} = require('java-mti');
+const {isTypeAssignable} = require('../expression-resolver');
 
 function nonAbstractLabel(label) {
     return label.replace(/\babstract /g, '');
+}
+
+/**
+ * 
+ * @param {Method} impl method implementation
+ * @param {Method} method interface method
+ */
+function isMethodCompatible(impl, method) {
+    const impl_params = impl.parameters;
+    const method_params = method.parameters;
+    if (impl_params.length !== method_params.length) {
+        return false;
+    }
+    return impl_params.every((p,idx) => isTypeAssignable(method_params[idx].type, p.type))
+        && isTypeAssignable(method.returnType, impl.returnType);
 }
 
 /**
@@ -44,7 +60,10 @@ function checkImplementedInterfaces(source_type, probs) {
             }
             const namedsig = `${m.name}${m.methodSignature}`
             if (implemented.indexOf(namedsig) < 0) {
-                missing_methods.push(nonAbstractLabel(m.label));
+                // perform a more detailed search for a compatible match
+                if (!source_type.methods.find(source_method => source_method.name === m.name && isMethodCompatible(source_method, m))) {
+                    missing_methods.push(nonAbstractLabel(m.label));
+                }
             }
         })
         if (missing_methods.length) {

@@ -136,7 +136,6 @@ class SourceType extends CEIType {
     }
 
     /**
-     * 
      * @param {JavaType[]} types 
      * @returns {CEIType}
      */
@@ -178,6 +177,7 @@ class SpecialisedSourceType extends CEIType {
      */
     constructor(source_type, typeKind, raw_short_signature, types) {
         super(raw_short_signature, typeKind, source_type.modifiers, source_type.docs);
+        this.source_type = source_type;
         this.typemap = source_type.typemap;
         /** @type {TypeArgument[]} */
         // @ts-ignore
@@ -262,6 +262,25 @@ class SpecialisedSourceType extends CEIType {
             };
         });
     }
+
+    /**
+     * @param {JavaType[]} types 
+     * @returns {CEIType}
+     */
+    specialise(types) {
+        const short_sig = `${this._rawShortSignature}<${types.map(t => t.typeSignature).join('')}>`;
+        if (this.typemap.has(short_sig)) {
+            // @ts-ignore
+            return this.typemap.get(short_sig);
+        }
+        /** @type {'class'|'enum'|'interface'|'@interface'} */
+        // @ts-ignore
+        const typeKind = this.typeKind;
+        const specialised_type = new SpecialisedSourceType(this.source_type, typeKind, this._rawShortSignature, types);
+        this.typemap.set(short_sig, specialised_type);
+        return specialised_type;
+    }
+
 }
 
 class SourceEnumValue extends Field {

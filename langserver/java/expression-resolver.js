@@ -304,8 +304,10 @@ function isTypeAssignable(dest_type, value_type) {
                 }
             }
         }
+    } else if (dest_type instanceof TypeVariableType) {
+        is_assignable = !(value_type instanceof PrimitiveType || value_type instanceof NullType);
     }
-    return is_assignable;
+return is_assignable;
 }
 
 /**
