@@ -244,7 +244,7 @@ const valid_primitive_types = {
 /**
  * Returns true if a value of value_type is assignable to a variable of dest_type
  * @param {JavaType} dest_type 
- * @param {JavaType|NumberLiteral|LambdaType} value_type 
+ * @param {JavaType|NumberLiteral|LambdaType|MultiValueType} value_type 
  */
 function isTypeAssignable(dest_type, value_type) {
 
@@ -254,6 +254,14 @@ function isTypeAssignable(dest_type, value_type) {
 
     if (value_type instanceof LambdaType) {
         return isLambdaAssignable(dest_type, value_type) === true;
+    }
+
+    if (value_type instanceof MultiValueType) {
+        return value_type.types.every(t => {
+            if (t instanceof JavaType || t instanceof NumberLiteral || t instanceof LambdaType || t instanceof MultiValueType)
+                return isTypeAssignable(dest_type, t);
+            return false;
+        });
     }
 
     let is_assignable = false;
