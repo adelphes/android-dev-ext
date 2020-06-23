@@ -318,8 +318,7 @@ function parseUnit(tokens, unit, typemap) {
  */
 function packageDeclaration(tokens) {
     tokens.mark();
-    const package_token = tokens.current;
-    package_token.loc = 'pkgname:';
+    tokens.current.loc = 'pkgname:';
     tokens.expectValue('package');
     let pkg_name_parts = [], dot;
     for (;;) {
@@ -348,10 +347,11 @@ function packageDeclaration(tokens) {
  */
 function importDeclaration(tokens, typemap) {
     tokens.mark();
+    tokens.current.loc = 'fqn:';
     tokens.expectValue('import');
     const static_token = tokens.getIfValue('static');
-    let asterisk_token = null;
-    const pkg_name_parts = [];
+    let asterisk_token = null, dot;
+    const pkg_token_parts = [], pkg_name_parts = [];
     for (;;) {
         let name = tokens.current;
         if (!tokens.isKind('ident')) {
@@ -359,9 +359,12 @@ function importDeclaration(tokens, typemap) {
             addproblem(tokens, ParseProblem.Error(tokens.current, `Package identifier expected`));
         }
         if (name) {
-            pkg_name_parts.push(name);
+            name.loc = `fqn:${pkg_name_parts.join('.')}`;
+            pkg_token_parts.push(name);
+            pkg_name_parts.push(name.value);
         }
-        if (tokens.isValue('.')) {
+        if (dot = tokens.getIfValue('.')) {
+            dot.loc = `fqn:${pkg_name_parts.join('.')}`;
             if (!(asterisk_token = tokens.getIfValue('*'))) {
                 continue;
             }
@@ -369,10 +372,10 @@ function importDeclaration(tokens, typemap) {
         const decl_tokens = tokens.markEnd();
         semicolon(tokens);
 
-        const pkg_name = pkg_name_parts.map(x => x.source).join('.');
+        const pkg_name = pkg_name_parts.join('.');
         const resolved = resolveSingleImport(typemap, pkg_name, !!static_token, !!asterisk_token, 'import');
 
-        return new SourceImport(decl_tokens, pkg_name_parts, pkg_name, static_token, asterisk_token, resolved);
+        return new SourceImport(decl_tokens, pkg_token_parts, pkg_name, static_token, asterisk_token, resolved);
     }
 }
 

@@ -17,7 +17,7 @@ const {
 
 const { TextDocument } = require('vscode-languageserver-textdocument');
 
-const { loadAndroidLibrary, CEIType } = require('java-mti');
+const { loadAndroidLibrary, JavaType, CEIType } = require('java-mti');
 
 const { ParseProblem } = require('./java/parser');
 const { parse } = require('./java/body-parser3');
@@ -343,6 +343,110 @@ connection.onDidChangeWatchedFiles((_change) => {
     connection.console.log('We received a file change event');
 });
 
+function getFullyQualifiedNameCompletion(name) {
+    if (name === '') {
+        return getPackageCompletion('');
+    }
+    // name is a fully dotted name, possibly including a static member
+    let typelist = [...parsed.typemap.keys()];
+
+    const split_name = name.split('.');
+    let pkgname = '';
+    /** @type {JavaType} */
+    let type = null, typename = '';
+    for (let name_part of split_name) {
+        if (type) {
+            if (typelist.includes(`${typename}$${name_part}`)) {
+                type = parsed.typemap.get(typename = `${typename}$${name_part}`);
+                continue;
+            }
+            return [];
+        }
+        typename = pkgname + name_part;
+        if (typelist.includes(typename)) {
+            type = parsed.typemap.get(typename);
+            continue;
+        }
+        pkgname = `${pkgname}${name_part}/`;
+    }
+
+    if (type) {
+        // add inner types and static fields
+        return [
+            ...typelist.map(t => {
+                if (!t.startsWith(typename)) return;
+                const m = t.slice(typename.length).match(/^\$.+/);
+                if (!m) return;
+                return {
+                    label: m[0].slice(1).replace(/\$/g,'.'),
+                    kind: CompletionItemKind.Class,
+                    data: -1,
+                }
+            }).filter(x => x),
+            ...type.fields.filter(m => m.modifiers.includes('static')).map(f => ({
+                label: f.name,
+                kind: CompletionItemKind.Field,
+                data: -1,
+            }))
+        ]
+    }
+
+    // sub-package or type
+    const search_pkg = pkgname;
+    return typelist.reduce((arr,typename) => {
+        if (typename.startsWith(search_pkg)) {
+            const m = typename.slice(search_pkg.length).match(/^(.+?)(\/|$)/);
+            if (m) {
+                if (m[2]) {
+                    // package name
+                    if (!arr.find(x => x.label === m[1])) {
+                        arr.push({
+                            label: m[1],
+                            kind: CompletionItemKind.Unit,
+                            data: -1,
+                        })
+                    }
+                } else {
+                    // type name
+                    arr.push({
+                        label: m[1].replace(/\$/g,'.'),
+                        kind: CompletionItemKind.Class,
+                        data: -1,
+                    })
+                }
+            }
+        }
+        return arr;
+    }, []);
+}
+
+function getPackageCompletion(pkg) {
+    let pkgs;
+    if (pkg === '') {
+        // root packages
+        pkgs = [...parsed.typemap.keys()].reduce((set,typename) => {
+            const m = typename.match(/(.+?)\//);
+            m && set.add(m[1]);
+            return set;
+        }, new Set());
+    } else {
+        // sub-package
+        const search_pkg = pkg + '/';
+        pkgs = [...parsed.typemap.keys()].reduce((arr,typename) => {
+            if (typename.startsWith(search_pkg)) {
+                const m = typename.slice(search_pkg.length).match(/^(.+?)\//);
+                if (m) arr.add(m[1]);
+            }
+            return arr;
+        }, new Set());
+    }
+    return [...pkgs].filter(x => x).sort().map(pkg => ({
+        label: pkg,
+        kind: CompletionItemKind.Unit,
+        data: -1,
+    }));
+}
+
 // This handler provides the initial list of the completion items.
 let allCompletionTypes = null;
 connection.onCompletion(
@@ -363,32 +467,11 @@ connection.onCompletion(
             const options = parsed.result.unit.getCompletionOptionsAt(index);
             console.log(options);
             if (/^pkgname:/.test(options.loc)) {
-                const pkg = options.loc.split(':').pop();
-                let pkgs;
-                if (pkg === '') {
-                    // root packages
-                    pkgs = [...parsed.typemap.keys()].reduce((set,typename) => {
-                        const m = typename.match(/(.+?)\//);
-                        m && set.add(m[1]);
-                        return set;
-                    }, new Set());
-                } else {
-                    // sub-package
-                    const search_pkg = pkg + '/';
-                    pkgs = [...parsed.typemap.keys()].reduce((arr,typename) => {
-                        if (typename.startsWith(search_pkg)) {
-                            const m = typename.slice(search_pkg.length).match(/^(.+?)\//);
-                            if (m) arr.add(m[1]);
-                        }
-                        return arr;
-                    }, new Set());
-                }
-                return [...pkgs].filter(x => x).sort().map(pkg => ({
-                    label: pkg,
-                    kind: CompletionItemKind.Unit,
-                    data: -1,
-                }));
-        }
+                return getPackageCompletion(options.loc.split(':').pop());
+            }
+            if (/^fqn:/.test(options.loc)) {
+                return getFullyQualifiedNameCompletion(options.loc.split(':').pop());
+            }
         }
         const typeKindMap = {
             class: CompletionItemKind.Class,
