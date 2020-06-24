@@ -13,11 +13,13 @@ const ParseProblem = require('../parsetypes/parse-problem');
 class MemberExpression extends Expression {
     /**
      * @param {ResolvedIdent} instance
+     * @param {Token} dot
      * @param {Token|null} member
      */
-    constructor(instance, member) {
+    constructor(instance, dot, member) {
         super();
         this.instance = instance;
+        this.dot = dot;
         // member will be null for incomplete expressions
         this.member = member;
     }
@@ -27,16 +29,18 @@ class MemberExpression extends Expression {
      */
     resolveExpression(ri) {
         let instance = this.instance.resolveExpression(ri);
-        if (instance instanceof TypeIdentType) {
-            // static member
-            instance = instance.type;
-        }
+
         if (instance instanceof AnyType) {
             return instance;
         }
-        const ident = this.member.value;
 
         if (instance instanceof PackageNameType) {
+            this.dot.loc = `fqs:${instance.package_name}`;
+            if (!this.member) {
+                return instance;
+            }
+            this.member.loc = this.dot.loc;
+            const ident = this.member.value;
             const { sub_package_name, type } = resolveNextPackage(instance.package_name, ident, ri.typemap);
             if (!type && !sub_package_name) {
                 ri.problems.push(ParseProblem.Error(this.member, `Unresolved identifier: '${ident}'`));
@@ -46,10 +50,24 @@ class MemberExpression extends Expression {
              : AnyType.Instance;
         }
 
+        let loc = `fqi`;
+        if (instance instanceof TypeIdentType) {
+            loc = 'fqs';
+            instance = instance.type;
+        }
+
         if (!(instance instanceof JavaType)) {
-            ri.problems.push(ParseProblem.Error(this.member, `Unresolved member: '${ident}'`));
             return AnyType.Instance;
         }
+
+        this.dot.loc = `${loc}:${instance.fullyDottedTypeName}`
+        if (!this.member) {
+            ri.problems.push(ParseProblem.Error(this.dot, `Identifier expected`));
+            return instance;
+        }
+        
+        this.member.loc = this.dot.loc;
+        const ident = this.member.value;
         const field = instance.fields.find(f => f.name === ident);
         if (field) {
             return field.type;

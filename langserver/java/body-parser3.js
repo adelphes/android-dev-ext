@@ -1703,6 +1703,7 @@ function qualifiers(matches, tokens, mdecls, scope, imports, typemap) {
  */
 function memberQualifier(matches, tokens, mdecls, scope, imports, typemap) {
     tokens.mark();
+    const dot = tokens.current;
     tokens.expectValue('.');
     let expr, label = `${matches.source}.${tokens.current.value}`;
     let types = [], package_name = '';
@@ -1724,7 +1725,7 @@ function memberQualifier(matches, tokens, mdecls, scope, imports, typemap) {
                 member = null;
                 addproblem(tokens, ParseProblem.Error(tokens.current, `Identifier expected`));
             }
-            expr = new MemberExpression(matches, member);
+            expr = new MemberExpression(matches, dot, member);
             break;
     }
     tokens.inc();

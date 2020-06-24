@@ -23,6 +23,7 @@ const { ParseProblem } = require('./java/parser');
 const { parse } = require('./java/body-parser3');
 const { SourceUnit } = require('./java/source-types');
 const { validate, parseMethodBodies } = require('./java/validater');
+const { getTypeInheritanceList } = require('./java/expression-resolver');
 
 /**
  * @typedef {Map<string, CEIType>} AndroidLibrary
@@ -343,24 +344,28 @@ connection.onDidChangeWatchedFiles((_change) => {
     connection.console.log('We received a file change event');
 });
 
-function getFullyQualifiedNameCompletion(name) {
-    if (name === '') {
+/**
+ * @param {string} dotted_name 
+ * @param {{ statics: boolean }} opts 
+ */
+function getFullyQualifiedNameCompletion(dotted_name, opts) {
+    if (dotted_name === '') {
         return getPackageCompletion('');
     }
-    // name is a fully dotted name, possibly including a static member
+    // name is a fully dotted name, possibly including members and their fields
     let typelist = [...parsed.typemap.keys()];
 
-    const split_name = name.split('.');
+    const split_name = dotted_name.split('.');
     let pkgname = '';
     /** @type {JavaType} */
     let type = null, typename = '';
     for (let name_part of split_name) {
         if (type) {
-            if (typelist.includes(`${typename}$${name_part}`)) {
+            if (opts.statics && typelist.includes(`${typename}$${name_part}`)) {
                 type = parsed.typemap.get(typename = `${typename}$${name_part}`);
                 continue;
             }
-            return [];
+            break;
         }
         typename = pkgname + name_part;
         if (typelist.includes(typename)) {
@@ -371,9 +376,36 @@ function getFullyQualifiedNameCompletion(name) {
     }
 
     if (type) {
-        // add inner types and static fields
+        if (!(type instanceof CEIType)) {
+            return [];
+        }
+        // add inner types, fields and methods
+        class FirstSetMap extends Map {
+            set(key, value) {
+                return this.has(key) ? this : super.set(key, value);
+            }
+        }
+        const fields = new FirstSetMap(), methods = new FirstSetMap();
+        /**
+         * @param {string[]} modifiers 
+         * @param {JavaType} t 
+         */
+        function shouldInclude(modifiers, t) {
+            if (opts.statics !== modifiers.includes('static')) return;
+            if (modifiers.includes('public')) return true;
+            if (modifiers.includes('protected')) return true;
+            if (modifiers.includes('private') && t === type) return true;
+            // @ts-ignore
+            return t.packageName === type.packageName;
+        }
+        function sortByName(a,b) { return a.name.localeCompare(b.name, undefined, {sensitivity: 'base'}) }
+        getTypeInheritanceList(type).forEach((t,idx) => {
+            t.fields.sort(sortByName).filter(f => shouldInclude(f.modifiers, t)).forEach(f => fields.set(f.name, {f, sortText: `${idx+100}${f.name}`}));
+            t.methods.sort(sortByName).filter(f => shouldInclude(f.modifiers, t)).forEach(m => methods.set(m.methodSignature, {m, sortText: `${idx+100}${m.name}`}));
+        });
         return [
             ...typelist.map(t => {
+                if (!opts.statics) return;
                 if (!t.startsWith(typename)) return;
                 const m = t.slice(typename.length).match(/^\$.+/);
                 if (!m) return;
@@ -383,9 +415,20 @@ function getFullyQualifiedNameCompletion(name) {
                     data: -1,
                 }
             }).filter(x => x),
-            ...type.fields.filter(m => m.modifiers.includes('static')).map(f => ({
-                label: f.name,
+            // fields
+            ...[...fields.values()].map(f => ({
+                label: `${f.f.name}: ${f.f.type.simpleTypeName}`,
+                insertText: f.f.name,
                 kind: CompletionItemKind.Field,
+                sortText: f.sortText,
+                data: -1,
+            })),
+            // methods
+            ...[...methods.values()].map(m => ({
+                label: m.m.shortlabel,
+                kind: CompletionItemKind.Method,
+                insertText: m.m.name,
+                sortText: m.sortText,
                 data: -1,
             }))
         ]
@@ -420,26 +463,33 @@ function getFullyQualifiedNameCompletion(name) {
     }, []);
 }
 
+function getRootPackageCompletions() {
+    const pkgs = [...parsed.typemap.keys()].reduce((set,typename) => {
+        const m = typename.match(/(.+?)\//);
+        m && set.add(m[1]);
+        return set;
+    }, new Set());
+    return [...pkgs].filter(x => x).sort().map(pkg => ({
+        label: pkg,
+        kind: CompletionItemKind.Unit,
+        data: -1,
+    }));
+}
+
 function getPackageCompletion(pkg) {
-    let pkgs;
     if (pkg === '') {
-        // root packages
-        pkgs = [...parsed.typemap.keys()].reduce((set,typename) => {
-            const m = typename.match(/(.+?)\//);
-            m && set.add(m[1]);
-            return set;
-        }, new Set());
-    } else {
-        // sub-package
-        const search_pkg = pkg + '/';
-        pkgs = [...parsed.typemap.keys()].reduce((arr,typename) => {
-            if (typename.startsWith(search_pkg)) {
-                const m = typename.slice(search_pkg.length).match(/^(.+?)\//);
-                if (m) arr.add(m[1]);
-            }
-            return arr;
-        }, new Set());
+        return getRootPackageCompletions();
     }
+    // sub-package
+    const search_pkg = pkg + '/';
+    const pkgs = [...parsed.typemap.keys()].reduce((arr,typename) => {
+        if (typename.startsWith(search_pkg)) {
+            const m = typename.slice(search_pkg.length).match(/^(.+?)\//);
+            if (m) arr.add(m[1]);
+        }
+        return arr;
+    }, new Set());
+
     return [...pkgs].filter(x => x).sort().map(pkg => ({
         label: pkg,
         kind: CompletionItemKind.Unit,
@@ -470,7 +520,16 @@ connection.onCompletion(
                 return getPackageCompletion(options.loc.split(':').pop());
             }
             if (/^fqn:/.test(options.loc)) {
-                return getFullyQualifiedNameCompletion(options.loc.split(':').pop());
+                // fully-qualified type/field name
+                return getFullyQualifiedNameCompletion(options.loc.split(':').pop(), { statics: true });
+            }
+            if (/^fqs:/.test(options.loc)) {
+                // fully-qualified expression
+                return getFullyQualifiedNameCompletion(options.loc.split(':').pop(),  { statics: true });
+            }
+            if (/^fqi:/.test(options.loc)) {
+                // fully-qualified expression
+                return getFullyQualifiedNameCompletion(options.loc.split(':').pop(),  { statics: false });
             }
         }
         const typeKindMap = {
@@ -506,6 +565,7 @@ connection.onCompletion(
                             data: t.shortSignature,
                         })
                 ),
+                ...getRootPackageCompletions()
             ])
         );
     }
