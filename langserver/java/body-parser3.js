@@ -347,7 +347,7 @@ function packageDeclaration(tokens) {
  */
 function importDeclaration(tokens, typemap) {
     tokens.mark();
-    tokens.current.loc = 'fqn:';
+    tokens.current.loc = 'fqdi:';
     tokens.expectValue('import');
     const static_token = tokens.getIfValue('static');
     let asterisk_token = null, dot;
@@ -359,12 +359,12 @@ function importDeclaration(tokens, typemap) {
             addproblem(tokens, ParseProblem.Error(tokens.current, `Package identifier expected`));
         }
         if (name) {
-            name.loc = `fqn:${pkg_name_parts.join('.')}`;
+            name.loc = `fqdi:${pkg_name_parts.join('.')}`;
             pkg_token_parts.push(name);
             pkg_name_parts.push(name.value);
         }
         if (dot = tokens.getIfValue('.')) {
-            dot.loc = `fqn:${pkg_name_parts.join('.')}`;
+            dot.loc = `fqdi:${pkg_name_parts.join('.')}`;
             if (!(asterisk_token = tokens.getIfValue('*'))) {
                 continue;
             }

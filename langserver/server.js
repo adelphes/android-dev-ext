@@ -345,10 +345,90 @@ connection.onDidChangeWatchedFiles((_change) => {
 });
 
 /**
+ * @param {Map<string,CEIType>} typemap
+ * @param {string} type_signature 
+ * @param {{ statics: boolean }} opts 
+ * @param {string[]} [typelist]
+ */
+function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
+    if (!/^L.+;/.test(type_signature)) {
+        return [];
+    }
+    const type = typemap.get(type_signature.slice(1,-1));
+    if (!type) {
+        return [];
+    }
+
+    if (!(type instanceof CEIType)) {
+        return [];
+    }
+
+    // add inner types, fields and methods
+    class FirstSetMap extends Map {
+        set(key, value) {
+            return this.has(key) ? this : super.set(key, value);
+        }
+    }
+    const fields = new FirstSetMap(), methods = new FirstSetMap();
+
+    /**
+     * @param {string[]} modifiers 
+     * @param {JavaType} t 
+     */
+    function shouldInclude(modifiers, t) {
+        if (opts.statics !== modifiers.includes('static')) return;
+        if (modifiers.includes('public')) return true;
+        if (modifiers.includes('protected')) return true;
+        if (modifiers.includes('private') && t === type) return true;
+        // @ts-ignore
+        return t.packageName === type.packageName;
+    }
+    function sortByName(a,b) {
+        return a.name.localeCompare(b.name, undefined, {sensitivity: 'base'})
+    }
+
+    getTypeInheritanceList(type).forEach((t,idx) => {
+        t.fields.sort(sortByName).filter(f => shouldInclude(f.modifiers, t)).forEach(f => fields.set(f.name, {f, sortText: `${idx+100}${f.name}`}));
+        t.methods.sort(sortByName).filter(f => shouldInclude(f.modifiers, t)).forEach(m => methods.set(m.methodSignature, {m, sortText: `${idx+100}${m.name}`}));
+    });
+
+    const subtype_search = type.shortSignature + '$';
+
+    return [
+        ...(typelist || [...typemap.keys()]).map(t => {
+            if (!opts.statics) return;
+            if (!t.startsWith(subtype_search)) return;
+            return {
+                label: t.slice(subtype_search.length).replace(/\$/g,'.'),
+                kind: CompletionItemKind.Class,
+                data: -1,
+            }
+        }).filter(x => x),
+        // fields
+        ...[...fields.values()].map(f => ({
+            label: `${f.f.name}: ${f.f.type.simpleTypeName}`,
+            insertText: f.f.name,
+            kind: CompletionItemKind.Field,
+            sortText: f.sortText,
+            data: -1,
+        })),
+        // methods
+        ...[...methods.values()].map(m => ({
+            label: m.m.shortlabel,
+            kind: CompletionItemKind.Method,
+            insertText: m.m.name,
+            sortText: m.sortText,
+            data: -1,
+        }))
+    ]
+}
+    
+/**
+ * @param {Map<string,CEIType>} typemap
  * @param {string} dotted_name 
  * @param {{ statics: boolean }} opts 
  */
-function getFullyQualifiedNameCompletion(dotted_name, opts) {
+function getFullyQualifiedDottedIdentCompletion(typemap, dotted_name, opts) {
     if (dotted_name === '') {
         return getPackageCompletion('');
     }
@@ -376,62 +456,7 @@ function getFullyQualifiedNameCompletion(dotted_name, opts) {
     }
 
     if (type) {
-        if (!(type instanceof CEIType)) {
-            return [];
-        }
-        // add inner types, fields and methods
-        class FirstSetMap extends Map {
-            set(key, value) {
-                return this.has(key) ? this : super.set(key, value);
-            }
-        }
-        const fields = new FirstSetMap(), methods = new FirstSetMap();
-        /**
-         * @param {string[]} modifiers 
-         * @param {JavaType} t 
-         */
-        function shouldInclude(modifiers, t) {
-            if (opts.statics !== modifiers.includes('static')) return;
-            if (modifiers.includes('public')) return true;
-            if (modifiers.includes('protected')) return true;
-            if (modifiers.includes('private') && t === type) return true;
-            // @ts-ignore
-            return t.packageName === type.packageName;
-        }
-        function sortByName(a,b) { return a.name.localeCompare(b.name, undefined, {sensitivity: 'base'}) }
-        getTypeInheritanceList(type).forEach((t,idx) => {
-            t.fields.sort(sortByName).filter(f => shouldInclude(f.modifiers, t)).forEach(f => fields.set(f.name, {f, sortText: `${idx+100}${f.name}`}));
-            t.methods.sort(sortByName).filter(f => shouldInclude(f.modifiers, t)).forEach(m => methods.set(m.methodSignature, {m, sortText: `${idx+100}${m.name}`}));
-        });
-        return [
-            ...typelist.map(t => {
-                if (!opts.statics) return;
-                if (!t.startsWith(typename)) return;
-                const m = t.slice(typename.length).match(/^\$.+/);
-                if (!m) return;
-                return {
-                    label: m[0].slice(1).replace(/\$/g,'.'),
-                    kind: CompletionItemKind.Class,
-                    data: -1,
-                }
-            }).filter(x => x),
-            // fields
-            ...[...fields.values()].map(f => ({
-                label: `${f.f.name}: ${f.f.type.simpleTypeName}`,
-                insertText: f.f.name,
-                kind: CompletionItemKind.Field,
-                sortText: f.sortText,
-                data: -1,
-            })),
-            // methods
-            ...[...methods.values()].map(m => ({
-                label: m.m.shortlabel,
-                kind: CompletionItemKind.Method,
-                insertText: m.m.name,
-                sortText: m.sortText,
-                data: -1,
-            }))
-        ]
+        return getTypedNameCompletion(typemap, type.typeSignature, opts, typelist);
     }
 
     // sub-package or type
@@ -519,17 +544,17 @@ connection.onCompletion(
             if (/^pkgname:/.test(options.loc)) {
                 return getPackageCompletion(options.loc.split(':').pop());
             }
-            if (/^fqn:/.test(options.loc)) {
+            if (/^fqdi:/.test(options.loc)) {
                 // fully-qualified type/field name
-                return getFullyQualifiedNameCompletion(options.loc.split(':').pop(), { statics: true });
+                return getFullyQualifiedDottedIdentCompletion(parsed.typemap, options.loc.split(':').pop(), { statics: true });
             }
             if (/^fqs:/.test(options.loc)) {
                 // fully-qualified expression
-                return getFullyQualifiedNameCompletion(options.loc.split(':').pop(),  { statics: true });
+                return getTypedNameCompletion(parsed.typemap, options.loc.split(':').pop(),  { statics: true });
             }
             if (/^fqi:/.test(options.loc)) {
                 // fully-qualified expression
-                return getFullyQualifiedNameCompletion(options.loc.split(':').pop(),  { statics: false });
+                return getTypedNameCompletion(parsed.typemap, options.loc.split(':').pop(),  { statics: false });
             }
         }
         const typeKindMap = {
