@@ -389,8 +389,12 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
     }
 
     getTypeInheritanceList(type).forEach((t,idx) => {
-        t.fields.sort(sortByName).filter(f => shouldInclude(f.modifiers, t)).forEach(f => fields.set(f.name, {f, t, sortText: `${idx+100}${f.name}`}));
-        t.methods.sort(sortByName).filter(f => shouldInclude(f.modifiers, t)).forEach(m => methods.set(m.methodSignature, {m, t, sortText: `${idx+100}${m.name}`}));
+        t.fields.sort(sortByName)
+            .filter(f => shouldInclude(f.modifiers, t))
+            .forEach(f => fields.set(f.name, {f, t, sortText: `${idx+100}${f.name}`}));
+        t.methods.sort(sortByName)
+            .filter(f => shouldInclude(f.modifiers, t))
+            .forEach(m => methods.set(`${m.name}${m.methodSignature}`, {m, t, sortText: `${idx+100}${m.name}`}));
     });
 
     const subtype_search = type.shortSignature + '$';
@@ -604,13 +608,13 @@ connection.onCompletionResolve(
      */
     (item) => {
         item.detail = item.documentation = '';
-        if (androidLibrary instanceof Promise) {
+        if (!parsed || !parsed.typemap) {
             return item;
         }
         if (typeof item.data !== 'object') {
             return item;
         }
-        const t = androidLibrary.get(item.data.type);
+        const t = parsed.typemap.get(item.data.type);
         const field = t && t.fields[item.data.fidx];
         const method = t && t.methods[item.data.midx];
         if (!t) {
@@ -635,8 +639,9 @@ connection.onCompletionResolve(
             kind: 'markdown',
             value: `${header}\n\n${
                 documentation
-                .replace(/(<p ?.*?>)|(<\/?i>|<\/?em>)|(<\/?b>|<\/?strong>|<\/?dt>)|(<\/?tt>)|(<\/?code>|<\/?pre>)|(\{@link.+?\}|\{@code.+?\})|(<li>)|(<a href="\{@docRoot\}.*?">.+?<\/a>)|(<h\d>)|<\/?dd ?.*?>|<\/p ?.*?>|<\/h\d ?.*?>|<\/?div ?.*?>|<\/?[uo]l ?.*?>/gim, (_,p,i,b,tt,c,lc,li,a,h) => {
-                    return p ? '\n\n' 
+                .replace(/(^\/\*+|(?<=\n)[ \t]*\*+\/?|\*+\/)|(<p ?.*?>)|(<\/?i>|<\/?em>)|(<\/?b>|<\/?strong>|<\/?dt>)|(<\/?tt>)|(<\/?code>|<\/?pre>)|(\{@link.+?\}|\{@code.+?\})|(<li>)|(<a href="\{@docRoot\}.*?">.+?<\/a>)|(<h\d>)|<\/?dd ?.*?>|<\/p ?.*?>|<\/h\d ?.*?>|<\/?div ?.*?>|<\/?[uo]l ?.*?>/gim, (_,cmt,p,i,b,tt,c,lc,li,a,h) => {
+                    return cmt ? ''
+                    : p ? '\n\n' 
                     : i ? '*' 
                     : b ? '**' 
                     : tt ? '`'

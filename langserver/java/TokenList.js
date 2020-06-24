@@ -16,6 +16,7 @@ class TokenList {
         /** @type {ParseProblem[]} */
         this.problems = [];
         this.marks = [];
+        this.last_mlc = '';
     }
 
     /**
@@ -33,7 +34,21 @@ class TokenList {
             if (!this.current || this.current.kind !== 'wsc') {
                 return this.current;
             }
+            const wsc = this.current.value;
+            if (wsc.startsWith('/*')) {
+                this.last_mlc = wsc;
+            }
         }
+    }
+
+    clearMLC() {
+        this.last_mlc = '';
+    }
+
+    getLastMLC() {
+        const s = this.last_mlc;
+        this.last_mlc = '';
+        return s;
     }
     
     mark() {

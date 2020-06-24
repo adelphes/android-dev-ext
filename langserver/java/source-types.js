@@ -109,13 +109,13 @@ class SourceType extends CEIType {
     }
 
     /**
-     * 
+     * @param {string} docs 
      * @param {Token} ident 
      * @param {ResolvedIdent[]} ctr_args 
      * @param {SourceType} anonymousType
      */
-    addEnumValue(ident, ctr_args, anonymousType) {
-        this.enumValues.push(new SourceEnumValue(this, ident, ctr_args, anonymousType));
+    addEnumValue(docs, ident, ctr_args, anonymousType) {
+        this.enumValues.push(new SourceEnumValue(this, docs, ident, ctr_args, anonymousType));
     }
 
     /**
@@ -286,12 +286,13 @@ class SpecialisedSourceType extends CEIType {
 class SourceEnumValue extends Field {
     /**
      * @param {SourceType} owner
+     * @param {string} docs 
      * @param {Token} ident 
      * @param {ResolvedIdent[]} ctr_args 
      * @param {SourceType} anonymousType
      */
-    constructor(owner, ident, ctr_args, anonymousType) {
-        super(['public','static','final'], '');
+    constructor(owner, docs, ident, ctr_args, anonymousType) {
+        super(['public','static','final'], docs);
         this.owner = owner;
         this.ident = ident;
         this.value = ctr_args;
@@ -326,13 +327,14 @@ class SourceTypeIdent {
 class SourceField extends Field {
     /**
      * @param {SourceType} owner 
+     * @param {string} docs 
      * @param {Token[]} modifiers 
      * @param {SourceTypeIdent} field_type_ident 
      * @param {Token} name_token 
      * @param {ResolvedIdent} init
      */
-    constructor(owner, modifiers, field_type_ident, name_token, init) {
-        super(modifiers.map(m => m.value), '');
+    constructor(owner, docs, modifiers, field_type_ident, name_token, init) {
+        super(modifiers.map(m => m.value), docs);
         this.owner = owner;
         this.modifierTokens = modifiers;
         this.fieldTypeIdent = field_type_ident;
@@ -352,14 +354,15 @@ class SourceField extends Field {
 class SourceConstructor extends Constructor {
     /**
      * @param {SourceType} owner 
+     * @param {string} docs 
      * @param {TypeVariable[]} type_vars 
      * @param {Token[]} modifiers 
      * @param {SourceParameter[]} parameters 
      * @param {JavaType[]} throws 
      * @param {Token[]} body 
      */
-    constructor(owner, type_vars, modifiers, parameters, throws, body) {
-        super(owner, modifiers.map(m => m.value), '');
+    constructor(owner, docs, type_vars, modifiers, parameters, throws, body) {
+        super(owner, modifiers.map(m => m.value), docs);
         this.owner = owner;
         this.typeVars = type_vars;
         this.modifierTokens = modifiers;
@@ -392,6 +395,7 @@ class SourceConstructor extends Constructor {
 class SourceMethod extends Method {
     /**
      * @param {SourceType} owner 
+     * @param {string} docs 
      * @param {TypeVariable[]} type_vars 
      * @param {Token[]} modifiers 
      * @param {SourceAnnotation[]} annotations
@@ -401,8 +405,8 @@ class SourceMethod extends Method {
      * @param {JavaType[]} throws 
      * @param {Token[]} body 
      */
-    constructor(owner, type_vars, modifiers, annotations, method_type_ident, name_token, parameters, throws, body) {
-        super(owner, name_token ? name_token.value : '', modifiers.map(m => m.value), '');
+    constructor(owner, docs, type_vars, modifiers, annotations, method_type_ident, name_token, parameters, throws, body) {
+        super(owner, name_token ? name_token.value : '', modifiers.map(m => m.value), docs);
         this.annotations = annotations;
         this.owner = owner;
         this.typeVars = type_vars;
@@ -442,11 +446,12 @@ class SourceMethod extends Method {
 class SourceInitialiser extends MethodBase {
     /**
      * @param {SourceType} owner
+     * @param {string} docs
      * @param {Token[]} modifiers 
      * @param {Token[]} body 
      */
-    constructor(owner, modifiers, body) {
-        super(owner, modifiers.map(m => m.value), '');
+    constructor(owner, docs, modifiers, body) {
+        super(owner, modifiers.map(m => m.value), docs);
         /** @type {SourceType} */
         this.owner = owner;
         this.modifierTokens = modifiers;

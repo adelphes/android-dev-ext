@@ -259,7 +259,7 @@ function parseUnit(tokens, unit, typemap) {
             }
             if (tokens.current.value === '@') {
                 tokens.inc().value === 'interface'
-                    ? sourceType(modifiers, tokens, package_name, '@interface', unit, resolved_imports, typemap)
+                    ? sourceType(tokens.getLastMLC(), modifiers, tokens, package_name, '@interface', unit, resolved_imports, typemap)
                     : annotations.push(annotation(tokens, null, resolved_imports, typemap));
                 continue;
             }
@@ -276,6 +276,7 @@ function parseUnit(tokens, unit, typemap) {
                 if (modifiers[0]) {
                     addproblem(tokens, ParseProblem.Error(tokens.current, `Unexpected modifier: ${modifiers[0].source}`));
                 }
+                tokens.clearMLC();
                 const pkg = packageDeclaration(tokens);
                 if (!package_name) {
                     unit.package_ = pkg;
@@ -290,6 +291,7 @@ function parseUnit(tokens, unit, typemap) {
                 if (modifiers[0]) {
                     addproblem(tokens, ParseProblem.Error(tokens.current, `Unexpected modifier: ${modifiers[0].source}`));
                 }
+                tokens.clearMLC();
                 const imprt = importDeclaration(tokens, typemap);
                 unit.imports.push(imprt);
                 if (imprt.resolved) {
@@ -298,7 +300,7 @@ function parseUnit(tokens, unit, typemap) {
                 continue;
         }
         if (tokens.current.kind === 'type-kw') {
-            sourceType(modifiers, tokens, package_name, tokens.current.value, unit, resolved_imports, typemap);
+            sourceType(tokens.getLastMLC(), modifiers, tokens, package_name, tokens.current.value, unit, resolved_imports, typemap);
             continue;
         }
         addproblem(tokens, ParseProblem.Error(tokens.current, 'Type declaration expected'));
@@ -406,7 +408,7 @@ function statement(tokens, mdecls, method, imports, typemap) {
                 tokens.inc();
                 continue;
             case 'type-kw':
-                sourceType(modifiers.splice(0,1e9), tokens, method, tokens.current.value, mdecls, imports, typemap);
+                sourceType('', modifiers.splice(0,1e9), tokens, method, tokens.current.value, mdecls, imports, typemap);
                 continue;
         }
         break;
@@ -475,6 +477,7 @@ function statement(tokens, mdecls, method, imports, typemap) {
 }
 
 /**
+* @param {string} docs
 * @param {Token[]} modifiers
 * @param {TokenList} tokens 
 * @param {Scope|string} scope_or_pkgname
@@ -483,7 +486,7 @@ function statement(tokens, mdecls, method, imports, typemap) {
 * @param {ResolvedImport[]} imports
 * @param {Map<string,CEIType>} typemap 
 */
-function sourceType(modifiers, tokens, scope_or_pkgname, typeKind, owner, imports, typemap) {
+function sourceType(docs, modifiers, tokens, scope_or_pkgname, typeKind, owner, imports, typemap) {
     let package_name, scope;
     if (typeof scope_or_pkgname === 'string') {
         package_name = scope_or_pkgname;
@@ -493,7 +496,7 @@ function sourceType(modifiers, tokens, scope_or_pkgname, typeKind, owner, import
         package_name = scoped_type.packageName;
         scope = scope_or_pkgname;
     }
-    const type = typeDeclaration(package_name, scope, modifiers, typeKind, tokens.current, tokens, imports, typemap);
+    const type = typeDeclaration(package_name, scope, docs, modifiers, typeKind, tokens.current, tokens, imports, typemap);
     owner.types.push(type);
     if (!(owner instanceof MethodDeclarations)) {
         typemap.set(type.shortSignature, type);
@@ -505,6 +508,7 @@ function sourceType(modifiers, tokens, scope_or_pkgname, typeKind, owner, import
         type.implements_types = typeIdentList(tokens, type, imports, typemap);
     }
     tokens.expectValue('{');
+    tokens.clearMLC();
     if (type.typeKind === 'enum') {
         if (!/[;}]/.test(tokens.current.value)) {
             enumValueList(type, tokens, imports, typemap);
@@ -537,29 +541,32 @@ function typeBody(type, tokens, owner, imports, typemap) {
         switch(tokens.current.kind) {
             case 'ident':
             case 'primitive-type':
-                fmc(modifiers, annotations, [], type, tokens, imports, typemap);
+                fmc(tokens.getLastMLC(), modifiers, annotations, [], type, tokens, imports, typemap);
                 continue;
             case 'type-kw':
-                sourceType(modifiers, tokens, type, tokens.current.value, owner, imports, typemap);
+                sourceType(tokens.getLastMLC(), modifiers, tokens, type, tokens.current.value, owner, imports, typemap);
                 continue;
         }
         switch(tokens.current.value) {
             case '<':
+                const docs = tokens.getLastMLC();
                 const type_variables = typeVariableList(type, tokens, type, imports, typemap);
-                fmc(modifiers, annotations, type_variables, type, tokens, imports, typemap);
+                fmc(docs, modifiers, annotations, type_variables, type, tokens, imports, typemap);
                 continue;
             case '@':
                 tokens.inc().value === 'interface' 
-                    ? sourceType(modifiers, tokens, type, '@interface', owner, imports, typemap)
+                    ? sourceType(tokens.getLastMLC(), modifiers, tokens, type, '@interface', owner, imports, typemap)
                     : annotation(tokens, type, imports, typemap);
                 continue;
             case ';':
                 tokens.inc();
+                tokens.clearMLC();
                 continue;
             case '{':
-                initer(tokens, type, modifiers.splice(0,1e9));
+                initer(tokens.getLastMLC(), tokens, type, modifiers.splice(0,1e9));
                 continue;
             case '}':
+                tokens.clearMLC();
                 return;
         }
         if (!tokens.inc()) {
@@ -569,6 +576,7 @@ function typeBody(type, tokens, owner, imports, typemap) {
 }
 
 /**
+ * @param {string} docs 
  * @param {Token[]} modifiers 
  * @param {SourceAnnotation[]} annotations 
  * @param {TypeVariable[]} type_vars
@@ -577,13 +585,13 @@ function typeBody(type, tokens, owner, imports, typemap) {
  * @param {ResolvedImport[]} imports 
  * @param {Map<string,CEIType>} typemap 
  */
-function fmc(modifiers, annotations, type_vars, type, tokens, imports, typemap) {
+function fmc(docs, modifiers, annotations, type_vars, type, tokens, imports, typemap) {
     let decl_type_ident = typeIdent(tokens, type, imports, typemap, { no_array_qualifiers: false, type_vars });
     if (decl_type_ident.resolved.rawTypeSignature === type.rawTypeSignature) {
         if (tokens.current.value === '(') {
             // constructor
             const { parameters, throws, body } = methodDeclaration(type_vars, type, tokens, imports, typemap);
-            const ctr = new SourceConstructor(type, type_vars, modifiers, parameters, throws, body);
+            const ctr = new SourceConstructor(type, docs, type_vars, modifiers, parameters, throws, body);
             type.constructors.push(ctr);
             return;
         }
@@ -598,7 +606,7 @@ function fmc(modifiers, annotations, type_vars, type, tokens, imports, typemap) 
         if (postnamearrdims > 0) {
             decl_type_ident.resolved = new ArrayType(decl_type_ident.resolved, postnamearrdims);
         }
-        const method = new SourceMethod(type, type_vars, modifiers, annotations, decl_type_ident, name, parameters, throws, body);
+        const method = new SourceMethod(type, docs, type_vars, modifiers, annotations, decl_type_ident, name, parameters, throws, body);
         type.methods.push(method);
     } else {
         if (name) {
@@ -606,7 +614,7 @@ function fmc(modifiers, annotations, type_vars, type, tokens, imports, typemap) 
                 addproblem(tokens, ParseProblem.Error(tokens.current, `Fields cannot declare type variables`));
             }
             const locals = var_ident_list(modifiers, decl_type_ident, name, tokens, new MethodDeclarations(), type, imports, typemap);
-            const fields = locals.map(l => new SourceField(type, modifiers, l.typeIdent, l.decltoken, l.init));
+            const fields = locals.map(l => new SourceField(type, docs, modifiers, l.typeIdent, l.decltoken, l.init));
             type.fields.push(...fields);
         }
         semicolon(tokens);
@@ -614,13 +622,13 @@ function fmc(modifiers, annotations, type_vars, type, tokens, imports, typemap) 
 }
 
 /**
- * 
+ * @param {string} docs
  * @param {TokenList} tokens 
  * @param {SourceType} type 
  * @param {Token[]} modifiers 
  */
-function initer(tokens, type, modifiers) {
-    const i = new SourceInitialiser(type, modifiers, skipBody(tokens));
+function initer(docs, tokens, type, modifiers) {
+    const i = new SourceInitialiser(type, docs, modifiers, skipBody(tokens));
     type.initers.push(i);
 }
 
@@ -671,6 +679,7 @@ function annotation(tokens, scope, imports, typemap) {
 /**
  * @param {string} package_name
  * @param {Scope} scope
+ * @param {string} docs
  * @param {Token[]} modifiers
  * @param {string} typeKind
  * @param {Token} kind_token
@@ -678,7 +687,7 @@ function annotation(tokens, scope, imports, typemap) {
  * @param {ResolvedImport[]} imports
  * @param {Map<string,CEIType>} typemap
  */
-function typeDeclaration(package_name, scope, modifiers, typeKind, kind_token, tokens, imports, typemap) {
+function typeDeclaration(package_name, scope, docs, modifiers, typeKind, kind_token, tokens, imports, typemap) {
     let name = tokens.inc();
     if (!tokens.isKind('ident')) {
         name = null;
@@ -694,7 +703,7 @@ function typeDeclaration(package_name, scope, modifiers, typeKind, kind_token, t
         // update the missing parts
         type.setModifierTokens(modifiers);
     } else {
-        type = new SourceType(package_name, scope, '', modifiers, typeKind, kind_token, name, typemap);
+        type = new SourceType(package_name, scope, docs, modifiers, typeKind, kind_token, name, typemap);
     }
     type.typeVariables = tokens.current.value === '<'
         ? typeVariableList(type, tokens, scope, imports, typemap)
@@ -826,6 +835,7 @@ function parameterDeclaration(type_vars, owner, tokens, imports, typemap) {
 */
 function enumValueList(type, tokens, imports, typemap) {
     for (;;) {
+        const docs = tokens.getLastMLC();
         const ident = tokens.getIfKind('ident');
         if (!ident) {
             addproblem(tokens, ParseProblem.Error(tokens.current, `Identifier expected`));
@@ -850,7 +860,7 @@ function enumValueList(type, tokens, imports, typemap) {
                 } else tokens.inc();
             }
         }
-        type.addEnumValue(ident, ctr_args, anonymousEnumType);
+        type.addEnumValue(docs, ident, ctr_args, anonymousEnumType);
         if (tokens.isValue(',')) {
             continue;
         }
