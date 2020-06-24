@@ -377,6 +377,7 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
      */
     function shouldInclude(modifiers, t) {
         if (opts.statics !== modifiers.includes('static')) return;
+        if (modifiers.includes('abstract')) return;
         if (modifiers.includes('public')) return true;
         if (modifiers.includes('protected')) return true;
         if (modifiers.includes('private') && t === type) return true;
@@ -388,8 +389,8 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
     }
 
     getTypeInheritanceList(type).forEach((t,idx) => {
-        t.fields.sort(sortByName).filter(f => shouldInclude(f.modifiers, t)).forEach(f => fields.set(f.name, {f, sortText: `${idx+100}${f.name}`}));
-        t.methods.sort(sortByName).filter(f => shouldInclude(f.modifiers, t)).forEach(m => methods.set(m.methodSignature, {m, sortText: `${idx+100}${m.name}`}));
+        t.fields.sort(sortByName).filter(f => shouldInclude(f.modifiers, t)).forEach(f => fields.set(f.name, {f, t, sortText: `${idx+100}${f.name}`}));
+        t.methods.sort(sortByName).filter(f => shouldInclude(f.modifiers, t)).forEach(m => methods.set(m.methodSignature, {m, t, sortText: `${idx+100}${m.name}`}));
     });
 
     const subtype_search = type.shortSignature + '$';
@@ -401,7 +402,6 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
             return {
                 label: t.slice(subtype_search.length).replace(/\$/g,'.'),
                 kind: CompletionItemKind.Class,
-                data: -1,
             }
         }).filter(x => x),
         // fields
@@ -410,7 +410,7 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
             insertText: f.f.name,
             kind: CompletionItemKind.Field,
             sortText: f.sortText,
-            data: -1,
+            data: { type: f.t.shortSignature, fidx: f.t.fields.indexOf(f.f) },
         })),
         // methods
         ...[...methods.values()].map(m => ({
@@ -418,7 +418,7 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
             kind: CompletionItemKind.Method,
             insertText: m.m.name,
             sortText: m.sortText,
-            data: -1,
+            data: { type: m.t.shortSignature, midx: m.t.methods.indexOf(m.m) },
         }))
     ]
 }
@@ -587,7 +587,7 @@ connection.onCompletion(
                         ({
                             label: t.dottedTypeName,
                             kind: typeKindMap[t.typeKind],
-                            data: t.shortSignature,
+                            data: {type:t.shortSignature},
                         })
                 ),
                 ...getRootPackageCompletions()
@@ -603,18 +603,38 @@ connection.onCompletionResolve(
      * @param {CompletionItem} item
      */
     (item) => {
+        item.detail = item.documentation = '';
         if (androidLibrary instanceof Promise) {
             return item;
         }
-        const t = androidLibrary.get(item.data);
+        if (typeof item.data !== 'object') {
+            return item;
+        }
+        const t = androidLibrary.get(item.data.type);
+        const field = t && t.fields[item.data.fidx];
+        const method = t && t.methods[item.data.midx];
         if (!t) {
             return item;
         }
-        item.detail = t.fullyDottedRawName;
-        item.documentation = t.docs && {
+        let detail, documentation, header;
+        if (field) {
+            detail = field.label;
+            documentation = field.docs;
+            header = `${field.type.simpleTypeName} **${field.name}**`;
+        } else if (method) {
+            detail = `${method.modifiers.join(' ')} ${t.simpleTypeName}.${method.name}`;
+            documentation = method.docs;
+            header = method.shortlabel.replace(/^\w+/, x => `**${x}**`).replace(/^(.+?)\s*:\s*(.+)/, (_,a,b) => `${b} ${a}`);
+        } else {
+            detail = t.fullyDottedRawName,
+            documentation = t.docs,
+            header = `${t.typeKind} **${t.dottedTypeName}**`;
+        }
+        item.detail = detail || '';
+        item.documentation = documentation && {
             kind: 'markdown',
-            value: `${t.typeKind} **${t.dottedTypeName}**\n\n${
-                t.docs
+            value: `${header}\n\n${
+                documentation
                 .replace(/(<p ?.*?>)|(<\/?i>|<\/?em>)|(<\/?b>|<\/?strong>|<\/?dt>)|(<\/?tt>)|(<\/?code>|<\/?pre>)|(\{@link.+?\}|\{@code.+?\})|(<li>)|(<a href="\{@docRoot\}.*?">.+?<\/a>)|(<h\d>)|<\/?dd ?.*?>|<\/p ?.*?>|<\/h\d ?.*?>|<\/?div ?.*?>|<\/?[uo]l ?.*?>/gim, (_,p,i,b,tt,c,lc,li,a,h) => {
                     return p ? '\n\n' 
                     : i ? '*' 
