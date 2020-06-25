@@ -365,13 +365,22 @@ function getTypeInheritanceList(type) {
         /** @type {Set<JavaType>} */
         done: new Set(),
     };
+    let object = null;
     for (let type; type = types.list.shift(); ) {
+        // always add Object last
+        if (type.rawTypeSignature === 'Ljava/lang/Object;') {
+            object = type;
+            continue;
+        }
         if (types.done.has(type)) {
             continue;
         }
         types.done.add(type);
         if (type instanceof CEIType)
             types.list.push(...type.supers);
+    }
+    if (object) {
+        types.done.add(object);
     }
     return Array.from(types.done);
 }
