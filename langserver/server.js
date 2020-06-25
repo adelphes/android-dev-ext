@@ -36,58 +36,98 @@ let androidLibrary = null;
 let connection = createConnection(ProposedFeatures.all);
 
 /**
- * @typedef LiveParseInfo
- * @property {string} uri
- * @property {JavaTokenizer.LineInfo[]} lines
- * @property {{startState: string, states: string[], endState: string}[]} states
+ * 
+ * @param {{line:number,character:number}} pos 
+ * @param {string} content 
  */
+function indexAt(pos, content) {
+    let idx = 0;
+    for (let i = 0; i < pos.line; i++) {
+        idx = content.indexOf('\n', idx) + 1;
+        if (idx === 0) {
+            return content.length;
+        }
+    }
+    return Math.min(idx + pos.character, content.length);
+}
 
-///** @type {LiveParseInfo[]} */
-//const liveParsers = [];
-/** @type {{content: string, uri: string, result: {unit:SourceUnit, problems:*[]}, typemap:Map<string,CEIType>, positionAt:(n) => Position, indexAt:(p:Position) => number}} */
-let parsed = null;
+/**
+ * @param {number} index 
+ * @param {string} content 
+ */
+function positionAt(index, content) {
+    let line = 0,
+        last_nl_idx = 0,
+        character = 0;
+    if (index <= 0) return { line, character };
+    for (let idx = 0; ;) {
+        idx = content.indexOf('\n', idx) + 1;
+        if (idx === 0 || idx > index) {
+            if (idx === 0) index = content.length;
+            character = index - last_nl_idx;
+            return { line, character };
+        }
+        last_nl_idx = idx;
+        line++;
+    }
+}
 
-function reparse(uri, content) {
+class JavaDocInfo {
+     /**
+      * @param {string} uri 
+      * @param {string} content 
+      * @param {number} version 
+      */
+     constructor(uri, content, version) {
+         this.uri = uri;
+         this.content = content;
+         this.version = version;
+         /** @type {ParsedInfo} */
+         this.parsed = null;
+     }
+}
+
+class ParsedInfo {
+    /**
+     * @param {string} uri 
+     * @param {string} content 
+     * @param {number} version 
+     * @param {Map<string,CEIType>} typemap 
+     * @param {SourceUnit} unit 
+     * @param {ParseProblem[]} problems 
+     */
+    constructor(uri, content, version, typemap, unit, problems) {
+        this.uri = uri;
+        this.content = content;
+        this.version = version;
+        this.typemap = typemap;
+        this.unit = unit;
+        this.problems = problems;
+    }
+}
+
+/** @type {Map<string,JavaDocInfo>} */
+const liveParsers = new Map();
+
+/**
+ * 
+ * @param {string} uri 
+ */
+function reparse(uri) {
     if (androidLibrary instanceof Promise) {
         return;
     }
+    const doc = liveParsers.get(uri);
+    if (!doc) {
+        return;
+    }
+    const { content, version } = doc;
     const typemap = new Map(androidLibrary);
     const result = parse(content, typemap);
     if (result) {
         parseMethodBodies(result.unit, typemap);
     }
-    parsed = {
-        content,
-        uri,
-        result,
-        typemap,
-        positionAt(n) {
-            let line = 0,
-                last_nl_idx = 0,
-                character = 0;
-            if (n <= 0) return { line, character };
-            for (let idx = 0; ;) {
-                idx = this.content.indexOf('\n', idx) + 1;
-                if (idx === 0 || idx > n) {
-                    if (idx === 0) n = content.length;
-                    character = n - last_nl_idx;
-                    return { line, character };
-                }
-                last_nl_idx = idx;
-                line++;
-            }
-        },
-        indexAt(pos) {
-            let idx = 0;
-            for (let i = 0; i < pos.line; i++) {
-                idx = this.content.indexOf('\n', idx) + 1;
-                if (idx === 0) {
-                    return this.content.length;
-                }
-            }
-            return Math.min(idx + pos.character, this.content.length);
-        },
-    };
+    doc.parsed = new ParsedInfo(uri, content, version, typemap, result.unit, result.problems);
 }
 
 // Create a simple text document manager. The text document manager
@@ -101,21 +141,10 @@ let documents = new TextDocuments({
      * @param {string} content
      */
     create(uri, languageId, version, content) {
-        //connection.console.log(JSON.stringify({what:'create',uri,languageId,version,content}));
         // tokenize the file content and build the initial parse state
         connection.console.log(`create parse ${version}`);
-        reparse(uri, content);
-        //connection.console.log(res.imports.length.toString());
-        // const lines = JavaTokenizer.get().tokenizeSource(content);
-        // const initialParse = new JavaParser().parseLines(lines);
-
-        // liveParsers.push({
-        //   uri,
-        //   lines,
-        //   states: initialParse,
-        // })
-        // console.log(initialParse.map(x => x.decls).filter(x => x.length).map(x => JSON.stringify(x, null, '  ')));
-
+        liveParsers.set(uri, new JavaDocInfo(uri, content, version));
+        reparse(uri);
         return { uri };
     },
     /**
@@ -126,22 +155,25 @@ let documents = new TextDocuments({
      */
     update(document, changes, version) {
         connection.console.log(JSON.stringify({ what: 'update', /* changes, */ version }));
-        //connection.console.log(`update ${version}`);
-        //return document;
-        if (parsed && document && parsed.uri === document.uri) {
-            changes.forEach((change) => {
-                /** @type {import('vscode-languageserver').Range} */
-                const r = change['range'];
-                if (r) {
-                    const start_index = parsed.indexAt(r.start);
-                    let end_index = start_index + (r.end.character - r.start.character);
-                    if (r.end.line !== r.start.line) end_index = parsed.indexAt(r.end);
-                    parsed.content = `${parsed.content.slice(0, start_index)}${change.text}${parsed.content.slice(end_index)}`;
-                }
-            });
-            //connection.console.log(JSON.stringify(parsed.content));
-            reparse(document.uri, parsed.content);
+        if (!document || !liveParsers.has(document.uri)) {
+            return;
         }
+        const docinfo = liveParsers.get(document.uri);
+        if (!docinfo) {
+            return;
+        }
+        
+        changes.forEach((change) => {
+            /** @type {import('vscode-languageserver').Range} */
+            const r = change['range'];
+            if (r) {
+                const start_index = indexAt(r.start, docinfo.content);
+                let end_index = start_index + (r.end.character - r.start.character);
+                if (r.end.line !== r.start.line) end_index = indexAt(r.end, docinfo.content);
+                docinfo.content = `${docinfo.content.slice(0, start_index)}${change.text}${docinfo.content.slice(end_index)}`;
+            }
+        });
+        reparse(document.uri);
         return document;
     },
 });
@@ -239,7 +271,7 @@ function getDocumentSettings(resource) {
 // Only keep settings for open documents
 documents.onDidClose((e) => {
     connection.console.log(`doc closed ${e.document.uri}`);
-    parsed = null;
+    liveParsers.delete(e.document.uri);
     documentSettings.delete(e.document.uri);
     connection.sendDiagnostics({ uri: e.document.uri, diagnostics: [] });
 });
@@ -261,9 +293,10 @@ async function validateTextDocument(textDocument) {
     }
     /** @type {ParseProblem[]} */
     let problems = [];
-    connection.console.log('validateTextDocument');
+    const parsed = liveParsers.get(textDocument.uri);
 
-    if (parsed && parsed.result) {
+
+    if (parsed) {
         try {
             //problems = [...parsed.result.problems, ...validate(parsed.result.unit, parsed.typemap)];
         } catch(err) {
@@ -274,8 +307,8 @@ async function validateTextDocument(textDocument) {
     const diagnostics = problems
         .filter((p) => p)
         .map((p) => {
-            const start = parsed.positionAt(p.startIdx);
-            const end = parsed.positionAt(p.endIdx);
+            const start = positionAt(p.startIdx, parsed.content);
+            const end = positionAt(p.endIdx, parsed.content);
             /** @type {Diagnostic} */
             let diagnostic = {
                 severity: p.severity,
@@ -449,10 +482,10 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
  */
 function getFullyQualifiedDottedIdentCompletion(typemap, dotted_name, opts) {
     if (dotted_name === '') {
-        return getPackageCompletion('');
+        return getPackageCompletion(typemap, '');
     }
     // name is a fully dotted name, possibly including members and their fields
-    let typelist = [...parsed.typemap.keys()];
+    let typelist = [...typemap.keys()];
 
     const split_name = dotted_name.split('.');
     let pkgname = '';
@@ -461,14 +494,14 @@ function getFullyQualifiedDottedIdentCompletion(typemap, dotted_name, opts) {
     for (let name_part of split_name) {
         if (type) {
             if (opts.statics && typelist.includes(`${typename}$${name_part}`)) {
-                type = parsed.typemap.get(typename = `${typename}$${name_part}`);
+                type = typemap.get(typename = `${typename}$${name_part}`);
                 continue;
             }
             break;
         }
         typename = pkgname + name_part;
         if (typelist.includes(typename)) {
-            type = parsed.typemap.get(typename);
+            type = typemap.get(typename);
             continue;
         }
         pkgname = `${pkgname}${name_part}/`;
@@ -507,8 +540,11 @@ function getFullyQualifiedDottedIdentCompletion(typemap, dotted_name, opts) {
     }, []);
 }
 
-function getRootPackageCompletions() {
-    const pkgs = [...parsed.typemap.keys()].reduce((set,typename) => {
+/**
+ * @param {Map<string,CEIType>} typemap
+ */
+function getRootPackageCompletions(typemap) {
+    const pkgs = [...typemap.keys()].reduce((set,typename) => {
         const m = typename.match(/(.+?)\//);
         m && set.add(m[1]);
         return set;
@@ -520,13 +556,17 @@ function getRootPackageCompletions() {
     }));
 }
 
-function getPackageCompletion(pkg) {
+/**
+ * @param {Map<string,CEIType>} typemap
+ * @param {string} pkg
+ */
+function getPackageCompletion(typemap, pkg) {
     if (pkg === '') {
-        return getRootPackageCompletions();
+        return getRootPackageCompletions(typemap);
     }
     // sub-package
     const search_pkg = pkg + '/';
-    const pkgs = [...parsed.typemap.keys()].reduce((arr,typename) => {
+    const pkgs = [...typemap.keys()].reduce((arr,typename) => {
         if (typename.startsWith(search_pkg)) {
             const m = typename.slice(search_pkg.length).match(/^(.+?)\//);
             if (m) arr.add(m[1]);
@@ -542,6 +582,8 @@ function getPackageCompletion(pkg) {
 }
 
 let defaultCompletionTypes = null;
+/** @type {Map<string,CEIType>} */
+let lastCompletionTypeMap = null;
 const typeKindMap = {
     class: CompletionItemKind.Class,
     interface: CompletionItemKind.Interface,
@@ -586,7 +628,7 @@ function initDefaultCompletionTypes(lib) {
             ).sort((a,b) => a.label.localeCompare(b.label, undefined, {sensitivity:'base'})),
 
         // package names
-        packageNames: getRootPackageCompletions(),
+        packageNames: getRootPackageCompletions(lib),
     }
 }
 
@@ -603,16 +645,19 @@ connection.onCompletion(
         if (androidLibrary instanceof Promise) {
             androidLibrary = await androidLibrary;
         }
-        const lib = (parsed && parsed.typemap) || androidLibrary;
-        if (!lib) return [];
+        const docinfo = liveParsers.get(_textDocumentPosition.textDocument.uri);
+        if (!docinfo || !docinfo.parsed) {
+            return [];
+        }
+        const parsed = docinfo.parsed;
+        const lib = lastCompletionTypeMap = (parsed && parsed.typemap) || androidLibrary;
         let locals = [], sourceTypes = [], show_instances = false;
-        if (parsed.result && parsed.result.unit) {
-            const index = parsed.indexAt(_textDocumentPosition.position);
-            const options = parsed.result.unit.getCompletionOptionsAt(index);
-            console.log(options);
+        if (parsed.unit) {
+            const index = indexAt(_textDocumentPosition.position, parsed.content);
+            const options = parsed.unit.getCompletionOptionsAt(index);
             if (options.loc) {
                 if (/^pkgname:/.test(options.loc.key)) {
-                    return getPackageCompletion(options.loc.key.split(':').pop());
+                    return getPackageCompletion(parsed.typemap, options.loc.key.split(':').pop());
                 }
                 if (/^fqdi:/.test(options.loc.key)) {
                     // fully-qualified type/field name
@@ -635,7 +680,7 @@ connection.onCompletion(
                     sortText: p.name,
                 }))
             }
-            sourceTypes = parsed.result.unit.types.map(t => ({
+            sourceTypes = parsed.unit.types.map(t => ({
                 label: t.dottedTypeName,
                 kind: typeKindMap[t.typeKind],
                 data: { type:t.shortSignature },
@@ -672,13 +717,13 @@ connection.onCompletionResolve(
      */
     (item) => {
         item.detail = item.documentation = '';
-        if (!parsed || !parsed.typemap) {
+        if (!lastCompletionTypeMap) {
             return item;
         }
         if (typeof item.data !== 'object') {
             return item;
         }
-        const t = parsed.typemap.get(item.data.type);
+        const t = lastCompletionTypeMap.get(item.data.type);
         const field = t && t.fields[item.data.fidx];
         const method = t && t.methods[item.data.midx];
         if (!t) {
