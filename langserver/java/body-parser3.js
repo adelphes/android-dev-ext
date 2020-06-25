@@ -507,8 +507,8 @@ function sourceType(docs, modifiers, tokens, scope_or_pkgname, typeKind, owner, 
     if (tokens.isValue('implements')) {
         type.implements_types = typeIdentList(tokens, type, imports, typemap);
     }
-    tokens.expectValue('{');
     tokens.clearMLC();
+    tokens.expectValue('{');
     if (type.typeKind === 'enum') {
         if (!/[;}]/.test(tokens.current.value)) {
             enumValueList(type, tokens, imports, typemap);
@@ -702,6 +702,7 @@ function typeDeclaration(package_name, scope, docs, modifiers, typeKind, kind_to
     if (type instanceof SourceType) {
         // update the missing parts
         type.setModifierTokens(modifiers);
+        type.docs = docs;
     } else {
         type = new SourceType(package_name, scope, docs, modifiers, typeKind, kind_token, name, typemap);
     }
@@ -1702,32 +1703,27 @@ function qualifiers(matches, tokens, mdecls, scope, imports, typemap) {
  */
 function memberQualifier(matches, tokens, mdecls, scope, imports, typemap) {
     tokens.mark();
-    const dot = tokens.current;
-    tokens.expectValue('.');
+    const dot = tokens.consume();
     let expr, label = `${matches.source}.${tokens.current.value}`;
     let types = [], package_name = '';
     switch (tokens.current.value) {
         case 'class':
-            expr = new ClassMemberExpression(matches, tokens.current);
+            expr = new ClassMemberExpression(matches, tokens.consume());
             break;
         case 'this':
         case 'super':
-            expr = new ThisMemberExpression(matches, tokens.current);
+            expr = new ThisMemberExpression(matches, tokens.consume());
             break;
         default:
-            let member = tokens.current;
-            if (member.kind === 'ident') {
+            let member = tokens.getIfKind('ident');
+            if (member) {
                 if (matches.package_name || matches.types[0]) {
                     ({ types, package_name } = resolveNextTypeOrPackage(member.value, matches.types, matches.package_name, typemap));
                 }
-            } else {
-                member = null;
-                addproblem(tokens, ParseProblem.Error(tokens.current, `Identifier expected`));
             }
             expr = new MemberExpression(matches, dot, member);
             break;
     }
-    tokens.inc();
     return new ResolvedIdent(label, [expr], [], types, package_name, [...matches.tokens, ...tokens.markEnd()]);
 }
 
