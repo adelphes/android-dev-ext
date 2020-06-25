@@ -345,12 +345,12 @@ connection.onDidChangeWatchedFiles((_change) => {
 });
 
 /**
- * 
  * @param {{name:string}} a 
  * @param {{name:string}} b 
  */
-function sortByName(a,b) {
-    return a.name.localeCompare(b.name, undefined, {sensitivity: 'base'})
+const sortBy = {
+    label: (a,b) => a.label.localeCompare(b.label, undefined, {sensitivity: 'base'}),
+    name: (a,b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base'}),
 }
 
 /**
@@ -406,10 +406,10 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
     }
 
     types.forEach((t,idx) => {
-        t.fields.sort(sortByName)
+        t.fields.sort(sortBy.name)
             .filter(f => shouldInclude(f.modifiers, t))
             .forEach(f => fields.set(f.name, {f, t, sortText: `${idx+100}${f.name}`}));
-        t.methods.sort(sortByName)
+        t.methods.sort(sortBy.name)
             .filter(f => shouldInclude(f.modifiers, t))
             .forEach(m => methods.set(`${m.name}${m.methodSignature}`, {m, t, sortText: `${idx+100}${m.name}`}));
     });
@@ -568,7 +568,7 @@ function initDefaultCompletionTypes(lib) {
             sortText: t,
         })),
         // literals
-        literals: 'false true null super'.split(' ').map((t) => ({
+        literals: 'false true null'.split(' ').map((t) => ({
             label: t,
             kind: CompletionItemKind.Value,
             sortText: t
@@ -605,7 +605,7 @@ connection.onCompletion(
         }
         const lib = (parsed && parsed.typemap) || androidLibrary;
         if (!lib) return [];
-        let locals = [], sortIdx = 10000;
+        let locals = [], sourceTypes = [], show_instances = false;
         if (parsed.result && parsed.result.unit) {
             const index = parsed.indexAt(_textDocumentPosition.position);
             const options = parsed.result.unit.getCompletionOptionsAt(index);
@@ -628,12 +628,19 @@ connection.onCompletion(
                 }
             }
             if (options.method) {
-                locals = options.method.parameters.sort(sortByName).map(p => ({
+                show_instances = !options.method.modifiers.includes('static');
+                locals = options.method.parameters.sort(sortBy.name).map(p => ({
                     label: p.name,
                     kind: CompletionItemKind.Variable,
                     sortText: p.name,
                 }))
             }
+            sourceTypes = parsed.result.unit.types.map(t => ({
+                label: t.dottedTypeName,
+                kind: typeKindMap[t.typeKind],
+                data: { type:t.shortSignature },
+                sortText: t.dottedTypeName,
+            }))
         }
 
         if (!defaultCompletionTypes) {
@@ -641,11 +648,14 @@ connection.onCompletion(
         }
         return [
             ...locals,
-            ...defaultCompletionTypes.instances,
+            ...(show_instances ? defaultCompletionTypes.instances : []),
             ...defaultCompletionTypes.primitiveTypes,
             ...defaultCompletionTypes.literals,
             ...defaultCompletionTypes.modifiers,
-            ...defaultCompletionTypes.types,
+            ...[
+                ...defaultCompletionTypes.types,
+                ...sourceTypes,
+            ].sort(sortBy.label),
             ...defaultCompletionTypes.packageNames,
         ].map((x,idx) => {
             x.sortText = `${10000+idx}-${x.label}`;
