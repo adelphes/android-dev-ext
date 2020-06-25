@@ -93,11 +93,11 @@ function flattenBlocks(blocks, isMethod) {
  * @param {Map<string,CEIType>} typemap 
  */
 function parseBody(method, imports, typemap) {
-    const body = method.body;
-    if (!body || body[0].value !== '{') {
+    const body_tokens = method.body.tokens;
+    if (!body_tokens || body_tokens[0].value !== '{') {
         return null;
     }
-    const tokenlist = new TokenList(flattenBlocks(body, true));
+    const tokenlist = new TokenList(flattenBlocks(body_tokens, true));
     let block = null;
     let mdecls = new MethodDeclarations();
     try {
@@ -320,7 +320,7 @@ function parseUnit(tokens, unit, typemap) {
  */
 function packageDeclaration(tokens) {
     tokens.mark();
-    tokens.current.loc = 'pkgname:';
+    tokens.current.loc = { key:'pkgname' };
     tokens.expectValue('package');
     let pkg_name_parts = [], dot;
     for (;;) {
@@ -330,11 +330,11 @@ function packageDeclaration(tokens) {
             addproblem(tokens, ParseProblem.Error(tokens.current, `Package identifier expected`));
         }
         if (name) {
-            name.loc = `pkgname:${pkg_name_parts.join('/')}`;
+            name.loc = { key: `pkgname:${pkg_name_parts.join('/')}` };
             pkg_name_parts.push(name.value);
         }
         if (dot = tokens.getIfValue('.')) {
-            dot.loc = `pkgname:${pkg_name_parts.join('/')}`;
+            dot.loc = { key :`pkgname:${pkg_name_parts.join('/')}` };
             continue;
         }
         const decl_tokens = tokens.markEnd();
@@ -349,7 +349,7 @@ function packageDeclaration(tokens) {
  */
 function importDeclaration(tokens, typemap) {
     tokens.mark();
-    tokens.current.loc = 'fqdi:';
+    tokens.current.loc = { key: 'fqdi:' };
     tokens.expectValue('import');
     const static_token = tokens.getIfValue('static');
     let asterisk_token = null, dot;
@@ -361,12 +361,12 @@ function importDeclaration(tokens, typemap) {
             addproblem(tokens, ParseProblem.Error(tokens.current, `Package identifier expected`));
         }
         if (name) {
-            name.loc = `fqdi:${pkg_name_parts.join('.')}`;
+            name.loc = { key: `fqdi:${pkg_name_parts.join('.')}` };
             pkg_token_parts.push(name);
             pkg_name_parts.push(name.value);
         }
         if (dot = tokens.getIfValue('.')) {
-            dot.loc = `fqdi:${pkg_name_parts.join('.')}`;
+            dot.loc = name && name.loc;
             if (!(asterisk_token = tokens.getIfValue('*'))) {
                 continue;
             }
@@ -382,10 +382,11 @@ function importDeclaration(tokens, typemap) {
 }
 
 /**
+ * @param {SourceMethodLike} method
  * @param {MethodDeclarations} mdecls 
  * @param {Local[]} new_locals 
  */
-function addLocals(tokens, mdecls, new_locals) {
+function addLocals(method, mdecls, new_locals) {
     for (let local of new_locals) {
         mdecls.locals.unshift(local);
     }
@@ -417,7 +418,7 @@ function statement(tokens, mdecls, method, imports, typemap) {
     if (modifiers.length) {
         const type = typeIdent(tokens, method, imports, typemap);
         const locals = var_ident_list(modifiers, type, null, tokens, mdecls, method, imports, typemap)
-        addLocals(tokens, mdecls, locals);
+        addLocals(method, mdecls, locals);
         semicolon(tokens);
         return new LocalDeclStatement(method, locals);
     }
@@ -441,7 +442,7 @@ function statement(tokens, mdecls, method, imports, typemap) {
         case 'primitive-type':
             const exp_or_vardecl = expression_or_var_decl(tokens, mdecls, method, imports, typemap);
             if (Array.isArray(exp_or_vardecl)) {
-                addLocals(tokens, mdecls, exp_or_vardecl);
+                addLocals(method, mdecls, exp_or_vardecl);
                 s = new LocalDeclStatement(method, exp_or_vardecl);
             } else {
                 s = new ExpressionStatement(method, exp_or_vardecl);

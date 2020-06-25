@@ -345,6 +345,15 @@ connection.onDidChangeWatchedFiles((_change) => {
 });
 
 /**
+ * 
+ * @param {{name:string}} a 
+ * @param {{name:string}} b 
+ */
+function sortByName(a,b) {
+    return a.name.localeCompare(b.name, undefined, {sensitivity: 'base'})
+}
+
+/**
  * @param {Map<string,CEIType>} typemap
  * @param {string} type_signature 
  * @param {{ statics: boolean }} opts 
@@ -394,9 +403,6 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
         if (modifiers.includes('private') && t === type) return true;
         // @ts-ignore
         return t.packageName === type.packageName;
-    }
-    function sortByName(a,b) {
-        return a.name.localeCompare(b.name, undefined, {sensitivity: 'base'})
     }
 
     types.forEach((t,idx) => {
@@ -510,7 +516,7 @@ function getRootPackageCompletions() {
     return [...pkgs].filter(x => x).sort().map(pkg => ({
         label: pkg,
         kind: CompletionItemKind.Unit,
-        data: -1,
+        sortText: pkg,
     }));
 }
 
@@ -535,8 +541,57 @@ function getPackageCompletion(pkg) {
     }));
 }
 
+let defaultCompletionTypes = null;
+const typeKindMap = {
+    class: CompletionItemKind.Class,
+    interface: CompletionItemKind.Interface,
+    '@interface': CompletionItemKind.Interface,
+    enum: CompletionItemKind.Enum,
+};
+function initDefaultCompletionTypes(lib) {
+    defaultCompletionTypes = {
+        instances: 'this super'.split(' ').map(t => ({
+            label: t,
+            kind: CompletionItemKind.Value,
+            sortText: t
+        })),
+        // primitive types
+        primitiveTypes:'boolean byte char double float int long short void'.split(' ').map((t) => ({
+            label: t,
+            kind: CompletionItemKind.Keyword,
+            sortText: t,
+        })),
+        // modifiers
+        modifiers: 'public private protected static final abstract volatile native transient strictfp synchronized'.split(' ').map((t) => ({
+            label: t,
+            kind: CompletionItemKind.Keyword,
+            sortText: t,
+        })),
+        // literals
+        literals: 'false true null super'.split(' ').map((t) => ({
+            label: t,
+            kind: CompletionItemKind.Value,
+            sortText: t
+        })),
+        // type names
+        types: [...lib.values()].map(
+            t =>
+                /** @type {CompletionItem} */
+                ({
+                    label: t.dottedTypeName,
+                    kind: typeKindMap[t.typeKind],
+                    data: { type:t.shortSignature },
+                    sortText: t.dottedTypeName,
+                })
+            ).sort((a,b) => a.label.localeCompare(b.label, undefined, {sensitivity:'base'})),
+
+        // package names
+        packageNames: getRootPackageCompletions(),
+    }
+}
+
+
 // This handler provides the initial list of the completion items.
-let allCompletionTypes = null;
 connection.onCompletion(
     /**
      * @param {*} _textDocumentPosition TextDocumentPositionParams
@@ -550,62 +605,52 @@ connection.onCompletion(
         }
         const lib = (parsed && parsed.typemap) || androidLibrary;
         if (!lib) return [];
+        let locals = [], sortIdx = 10000;
         if (parsed.result && parsed.result.unit) {
             const index = parsed.indexAt(_textDocumentPosition.position);
             const options = parsed.result.unit.getCompletionOptionsAt(index);
             console.log(options);
-            if (/^pkgname:/.test(options.loc)) {
-                return getPackageCompletion(options.loc.split(':').pop());
+            if (options.loc) {
+                if (/^pkgname:/.test(options.loc.key)) {
+                    return getPackageCompletion(options.loc.key.split(':').pop());
+                }
+                if (/^fqdi:/.test(options.loc.key)) {
+                    // fully-qualified type/field name
+                    return getFullyQualifiedDottedIdentCompletion(parsed.typemap, options.loc.key.split(':').pop(), { statics: true });
+                }
+                if (/^fqs:/.test(options.loc.key)) {
+                    // fully-qualified expression
+                    return getTypedNameCompletion(parsed.typemap, options.loc.key.split(':').pop(),  { statics: true });
+                }
+                if (/^fqi:/.test(options.loc.key)) {
+                    // fully-qualified expression
+                    return getTypedNameCompletion(parsed.typemap, options.loc.key.split(':').pop(),  { statics: false });
+                }
             }
-            if (/^fqdi:/.test(options.loc)) {
-                // fully-qualified type/field name
-                return getFullyQualifiedDottedIdentCompletion(parsed.typemap, options.loc.split(':').pop(), { statics: true });
-            }
-            if (/^fqs:/.test(options.loc)) {
-                // fully-qualified expression
-                return getTypedNameCompletion(parsed.typemap, options.loc.split(':').pop(),  { statics: true });
-            }
-            if (/^fqi:/.test(options.loc)) {
-                // fully-qualified expression
-                return getTypedNameCompletion(parsed.typemap, options.loc.split(':').pop(),  { statics: false });
+            if (options.method) {
+                locals = options.method.parameters.sort(sortByName).map(p => ({
+                    label: p.name,
+                    kind: CompletionItemKind.Variable,
+                    sortText: p.name,
+                }))
             }
         }
-        const typeKindMap = {
-            class: CompletionItemKind.Class,
-            interface: CompletionItemKind.Interface,
-            '@interface': CompletionItemKind.Interface,
-            enum: CompletionItemKind.Enum,
-        };
-        return (
-            allCompletionTypes ||
-            (allCompletionTypes = [
-                ...'boolean byte char double float int long short void'.split(' ').map((t) => ({
-                    label: t,
-                    kind: CompletionItemKind.Keyword,
-                    data: -1,
-                })),
-                ...'public private protected static final abstract volatile native transient strictfp'.split(' ').map((t) => ({
-                    label: t,
-                    kind: CompletionItemKind.Keyword,
-                    data: -1,
-                })),
-                ...'false true null this super'.split(' ').map((t) => ({
-                    label: t,
-                    kind: CompletionItemKind.Value,
-                    data: -1,
-                })),
-                ...[...lib.values()].map(
-                    (t, idx) =>
-                        /** @type {CompletionItem} */
-                        ({
-                            label: t.dottedTypeName,
-                            kind: typeKindMap[t.typeKind],
-                            data: {type:t.shortSignature},
-                        })
-                ),
-                ...getRootPackageCompletions()
-            ])
-        );
+
+        if (!defaultCompletionTypes) {
+            initDefaultCompletionTypes(androidLibrary);
+        }
+        return [
+            ...locals,
+            ...defaultCompletionTypes.instances,
+            ...defaultCompletionTypes.primitiveTypes,
+            ...defaultCompletionTypes.literals,
+            ...defaultCompletionTypes.modifiers,
+            ...defaultCompletionTypes.types,
+            ...defaultCompletionTypes.packageNames,
+        ].map((x,idx) => {
+            x.sortText = `${10000+idx}-${x.label}`;
+            return x;
+        })
     }
 );
 

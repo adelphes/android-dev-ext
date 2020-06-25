@@ -35,7 +35,7 @@ class MemberExpression extends Expression {
         }
 
         if (instance instanceof PackageNameType) {
-            this.dot.loc = `fqdi:${instance.package_name}`;
+            this.dot.loc = { key: `fqdi:${instance.package_name}` };
             if (!this.member) {
                 return instance;
             }
@@ -50,9 +50,9 @@ class MemberExpression extends Expression {
              : AnyType.Instance;
         }
 
-        let loc = `fqi`;
+        let loc_key = `fqi`;
         if (instance instanceof TypeIdentType) {
-            loc = 'fqs';
+            loc_key = 'fqs';
             instance = instance.type;
         }
 
@@ -60,7 +60,7 @@ class MemberExpression extends Expression {
             return AnyType.Instance;
         }
 
-        this.dot.loc = `${loc}:${instance.typeSignature}`
+        this.dot.loc = { key: `${loc_key}:${instance.typeSignature}` };
         if (!this.member) {
             ri.problems.push(ParseProblem.Error(this.dot, `Identifier expected`));
             return instance;

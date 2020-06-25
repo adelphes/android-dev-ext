@@ -359,16 +359,20 @@ class SourceConstructor extends Constructor {
      * @param {Token[]} modifiers 
      * @param {SourceParameter[]} parameters 
      * @param {JavaType[]} throws 
-     * @param {Token[]} body 
+     * @param {Token[]} body_tokens 
      */
-    constructor(owner, docs, type_vars, modifiers, parameters, throws, body) {
+    constructor(owner, docs, type_vars, modifiers, parameters, throws, body_tokens) {
         super(owner, modifiers.map(m => m.value), docs);
         this.owner = owner;
         this.typeVars = type_vars;
         this.modifierTokens = modifiers;
         this.sourceParameters = parameters;
         this.throws = throws;
-        this.body = body;
+        this.body = {
+            tokens: body_tokens,
+            /** @type {import('./body-types').Local[]} */
+            locals: [],
+        }
         this.parsed = null;
     }
 
@@ -403,9 +407,9 @@ class SourceMethod extends Method {
      * @param {Token} name_token 
      * @param {SourceParameter[]} parameters 
      * @param {JavaType[]} throws 
-     * @param {Token[]} body 
+     * @param {Token[]} body_tokens 
      */
-    constructor(owner, docs, type_vars, modifiers, annotations, method_type_ident, name_token, parameters, throws, body) {
+    constructor(owner, docs, type_vars, modifiers, annotations, method_type_ident, name_token, parameters, throws, body_tokens) {
         super(owner, name_token ? name_token.value : '', modifiers.map(m => m.value), docs);
         this.annotations = annotations;
         this.owner = owner;
@@ -415,7 +419,11 @@ class SourceMethod extends Method {
         this.nameToken = name_token;
         this.sourceParameters = parameters;
         this.throws = throws;
-        this.body = body;
+        this.body = {
+            tokens: body_tokens,
+            /** @type {import('./body-types').Local[]} */
+            locals: [],
+        }
         this.parsed = null;
     }
 
@@ -448,14 +456,18 @@ class SourceInitialiser extends MethodBase {
      * @param {SourceType} owner
      * @param {string} docs
      * @param {Token[]} modifiers 
-     * @param {Token[]} body 
+     * @param {Token[]} body_tokens
      */
-    constructor(owner, docs, modifiers, body) {
+    constructor(owner, docs, modifiers, body_tokens) {
         super(owner, modifiers.map(m => m.value), docs);
         /** @type {SourceType} */
         this.owner = owner;
         this.modifierTokens = modifiers;
-        this.body = body;
+        this.body = {
+            tokens: body_tokens,
+            /** @type {import('./body-types').Local[]} */
+            locals: [],
+        }
         this.parsed = null;
     }
 
@@ -553,12 +565,27 @@ class SourceUnit {
     types = [];
 
     /**
-     * 
+     * @param {Token} token 
+     */
+    getSourceMethodAtToken(token) {
+        if (!token) {
+            return null;
+        }
+        for (let type of this.types) {
+            for (let method of type.sourceMethods) {
+                if (method.body && method.body.tokens && method.body.tokens.includes(token)) {
+                    return method;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * @param {number} char_index 
      */
-    getCompletionOptionsAt(char_index) {
+    getTokenAt(char_index) {
         let i = 0;
-        let loc = '';
         for (let tok of this.tokens) {
             if (char_index > tok.range.start + tok.range.length) {
                 i++;
@@ -567,12 +594,24 @@ class SourceUnit {
             while (i > 0 && tok.kind === 'wsc') {
                 tok = this.tokens[--i];
             }
-            loc = tok.loc;
-            break;
+            return tok;
         }
+        return null;
+    }
+
+    /**
+     * 
+     * @param {number} char_index 
+     */
+    getCompletionOptionsAt(char_index) {
+        const token = this.getTokenAt(char_index);
+        const method = this.getSourceMethodAtToken(token);
+        // we should also include local variables here, but
+        // it's currently difficult to map an individual token to a scope
         return {
             index: char_index,
-            loc: loc,
+            loc: token && token.loc,
+            method,
         };
     }
 }
