@@ -1,7 +1,17 @@
+/**
+ * @typedef {import('../source-types').SourceMethodLike} SourceMethodLike
+ */
+
 class Statement {
 
-    validate(vi) {}
+    /**
+     * @param {SourceMethodLike} owner 
+     */
+    constructor(owner) {
+        this.owner = owner;
+    }
 
+    validate(vi) {}
 }
 
 exports.Statement = Statement;

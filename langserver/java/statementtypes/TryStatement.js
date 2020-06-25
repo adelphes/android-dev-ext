@@ -3,11 +3,10 @@
  * @typedef {import('./Block').Block} Block
  * @typedef {import('../body-types').Local} Local
  */
-const { Statement } = require("./Statement");
+const { KeywordStatement } = require("./KeywordStatement");
 const { ResolvedIdent } = require('../body-types');
-const ParseProblem = require('../parsetypes/parse-problem');
 
-class TryStatement extends Statement {
+class TryStatement extends KeywordStatement {
     /** @type {(ResolvedIdent|Local[])[]} */
     resources = [];
     /** @type {Block} */

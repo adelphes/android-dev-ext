@@ -607,6 +607,10 @@ class FixedLengthArrayType extends SourceArrayType {
     }
 }
 
+/**
+ * @typedef {SourceMethod|SourceConstructor|SourceInitialiser} SourceMethodLike
+ */
+
 exports.SourceType = SourceType;
 exports.SourceTypeIdent = SourceTypeIdent;
 exports.SourceField = SourceField;

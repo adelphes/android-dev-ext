@@ -3,6 +3,7 @@
  * @typedef {import('../body-types').ResolvedIdent} ResolvedIdent
  * @typedef {import('../body-types').ValidateInfo} ValidateInfo
  * @typedef {import('../expressiontypes/Expression').Expression} Expression
+ * @typedef {import('../source-types').SourceMethodLike} SourceMethodLike
  */
 const { Statement } = require("./Statement");
 const { BinaryOpExpression } = require('../expressiontypes/BinaryOpExpression');
@@ -13,10 +14,11 @@ const ParseProblem = require('../parsetypes/parse-problem');
 
 class ExpressionStatement extends Statement {
     /**
+     * @param {SourceMethodLike} owner
      * @param {ResolvedIdent} expression 
      */
-    constructor(expression) {
-        super();
+    constructor(owner, expression) {
+        super(owner);
         this.expression = expression;
     }
 

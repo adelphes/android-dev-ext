@@ -1,12 +1,13 @@
 /**
+ * @typedef {import('./Statement').Statement} Statement
  * @typedef {import('../body-types').ResolvedIdent} ResolvedIdent
  * @typedef {import('../body-types').ValidateInfo} ValidateInfo
  */
-const { Statement } = require("./Statement");
+const { KeywordStatement } = require("./KeywordStatement");
 const { checkBooleanBranchCondition } = require('../expression-resolver');
 const { checkNonVarDeclStatement } = require('../statement-validater');
 
-class IfStatement extends Statement {
+class IfStatement extends KeywordStatement {
     /** @type {ResolvedIdent} */
     test = null;
     /** @type {Statement} */

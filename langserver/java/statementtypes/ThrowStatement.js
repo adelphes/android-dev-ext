@@ -3,11 +3,11 @@
  * @typedef {import('../body-types').ValidateInfo} ValidateInfo
  */
 const { JavaType } = require('java-mti');
-const { Statement } = require("./Statement");
+const { KeywordStatement } = require("./KeywordStatement");
 const { isTypeAssignable } = require('../expression-resolver');
 const ParseProblem = require('../parsetypes/parse-problem');
 
-class ThrowStatement extends Statement {
+class ThrowStatement extends KeywordStatement {
     /** @type {ResolvedIdent} */
     expression = null;
 

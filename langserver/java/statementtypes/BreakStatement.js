@@ -1,28 +1,21 @@
 /**
  * @typedef {import('../tokenizer').Token} Token
  * @typedef {import('../body-types').ValidateInfo} ValidateInfo
+ * @typedef {import('../source-types').SourceMethodLike} SourceMethodLike
  */
-const { Statement } = require("./Statement");
+const { KeywordStatement } = require("./KeywordStatement");
 const ParseProblem = require('../parsetypes/parse-problem');
 
-class BreakStatement extends Statement {
+class BreakStatement extends KeywordStatement {
     /** @type {Token} */
     target = null;
-
-    /**
-     * @param {Token} token 
-     */
-    constructor(token) {
-        super();
-        this.break_token = token;
-    }
 
     /**
      * @param {ValidateInfo} vi 
      */
     validate(vi) {
         if (!vi.statementStack.find(s => /^(for|do|while|switch)$/.test(s))) {
-            vi.problems.push(ParseProblem.Error(this.break_token, `break can only be specified inside loop/switch statements`));
+            vi.problems.push(ParseProblem.Error(this.keyword, `break can only be specified inside loop/switch statements`));
         }
     }
 }

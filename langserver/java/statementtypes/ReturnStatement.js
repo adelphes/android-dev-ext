@@ -2,26 +2,19 @@
  * @typedef {import('../body-types').ResolvedIdent} ResolvedIdent
  * @typedef {import('../body-types').ValidateInfo} ValidateInfo
  * @typedef {import('../body-types').ResolvedValue} ResolvedValue
+ * @typedef {import('../source-types').SourceMethodLike} SourceMethodLike
  * @typedef {import('../tokenizer').Token} Token
  */
 const { JavaType, PrimitiveType } = require('java-mti');
-const { Statement } = require("./Statement");
+const { KeywordStatement } = require("./KeywordStatement");
 const ParseProblem = require('../parsetypes/parse-problem');
 const { isTypeAssignable } = require('../expression-resolver');
 const { NumberLiteral } = require('../expressiontypes/literals/Number');
 const { LambdaType, MultiValueType } = require('../anys');
 
-class ReturnStatement extends Statement {
+class ReturnStatement extends KeywordStatement {
     /** @type {ResolvedIdent} */
     expression = null;
-
-    /**
-     * @param {Token} return_token 
-     */
-    constructor(return_token) {
-        super();
-        this.return_token = return_token;
-    }
 
     /**
      * @param {ValidateInfo} vi 
@@ -30,7 +23,7 @@ class ReturnStatement extends Statement {
         const method_return_type = vi.method.returnType;
         if (!this.expression) {
             if (method_return_type !== PrimitiveType.map.V) {
-                vi.problems.push(ParseProblem.Error(this.return_token, `Method must return a value of type '${method_return_type.fullyDottedTypeName}'`));
+                vi.problems.push(ParseProblem.Error(this.keyword, `Method must return a value of type '${method_return_type.fullyDottedTypeName}'`));
             }
             return;
         }

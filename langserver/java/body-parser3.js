@@ -62,8 +62,8 @@ const { TryStatement } = require("./statementtypes/TryStatement");
 const { WhileStatement } = require("./statementtypes/WhileStatement");
 
 /**
- * @typedef {SourceMethod|SourceConstructor|SourceInitialiser} SourceMC
- * @typedef {SourceType|SourceMC} Scope
+ * @typedef {import('./source-types').SourceMethodLike} SourceMethodLike
+ * @typedef {SourceType|SourceMethodLike} Scope
  */
 
 
@@ -394,7 +394,7 @@ function addLocals(tokens, mdecls, new_locals) {
 /**
  * @param {TokenList} tokens 
  * @param {MethodDeclarations} mdecls
- * @param {SourceMC} method 
+ * @param {SourceMethodLike} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,CEIType>} typemap 
  * @returns {Statement}
@@ -419,7 +419,7 @@ function statement(tokens, mdecls, method, imports, typemap) {
         const locals = var_ident_list(modifiers, type, null, tokens, mdecls, method, imports, typemap)
         addLocals(tokens, mdecls, locals);
         semicolon(tokens);
-        return new LocalDeclStatement(locals);
+        return new LocalDeclStatement(method, locals);
     }
 
     switch(tokens.current.kind) {
@@ -442,9 +442,9 @@ function statement(tokens, mdecls, method, imports, typemap) {
             const exp_or_vardecl = expression_or_var_decl(tokens, mdecls, method, imports, typemap);
             if (Array.isArray(exp_or_vardecl)) {
                 addLocals(tokens, mdecls, exp_or_vardecl);
-                s = new LocalDeclStatement(exp_or_vardecl);
+                s = new LocalDeclStatement(method, exp_or_vardecl);
             } else {
-                s = new ExpressionStatement(exp_or_vardecl);
+                s = new ExpressionStatement(method, exp_or_vardecl);
             }
             semicolon(tokens);
             return s;
@@ -459,21 +459,20 @@ function statement(tokens, mdecls, method, imports, typemap) {
         case 'open-bracket':
         case 'new-operator':
             const e = expression(tokens, mdecls, method, imports, typemap);
-            s = new ExpressionStatement(e);
+            s = new ExpressionStatement(method, e);
             semicolon(tokens);
             return s;
     }
     switch(tokens.current.value) {
         case ';':
             tokens.inc();
-            return new EmptyStatement();
+            return new EmptyStatement(method);
         case '{':
             return statementBlock(tokens, mdecls, method, imports, typemap);
         case '}':
-            return new EmptyStatement();
+            return new EmptyStatement(method);
     }
-    tokens.inc();
-    return new InvalidStatement(tokens.previous);
+    return new InvalidStatement(method, tokens.consume());
 }
 
 /**
@@ -875,12 +874,12 @@ function enumValueList(type, tokens, imports, typemap) {
 /**
  * @param {TokenList} tokens 
  * @param {MethodDeclarations} mdecls
- * @param {SourceMC} method 
+ * @param {SourceMethodLike} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,CEIType>} typemap 
  */
 function statementBlock(tokens, mdecls, method, imports, typemap) {
-    const block = new Block(tokens.current);
+    const block = new Block(method, tokens.current);
     tokens.expectValue('{');
     mdecls.pushScope();
     while (!tokens.isValue('}')) {
@@ -904,7 +903,7 @@ function semicolon(tokens) {
 /**
 * @param {TokenList} tokens 
 * @param {MethodDeclarations} mdecls
-* @param {SourceMC} method 
+* @param {SourceMethodLike} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,CEIType>} typemap 
 */
@@ -912,8 +911,7 @@ function statementKeyword(tokens, mdecls, method, imports, typemap) {
     let s;
     switch (tokens.current.value) {
         case 'if':
-            tokens.inc();
-            s = new IfStatement();
+            s = new IfStatement(method, tokens.consume());
             s.test = bracketedTest(tokens, mdecls, method, imports, typemap);
             s.statement = statement(tokens, mdecls, method, imports, typemap);
             if (tokens.isValue('else')) {
@@ -921,74 +919,64 @@ function statementKeyword(tokens, mdecls, method, imports, typemap) {
             }
             break;
         case 'while':
-            tokens.inc();
-            s = new WhileStatement();
+            s = new WhileStatement(method, tokens.consume());
             s.test = bracketedTest(tokens, mdecls, method, imports, typemap);
             s.statement = statement(tokens, mdecls, method, imports, typemap);
             break;
         case 'break':
-            s = new BreakStatement(tokens.consume());
+            s = new BreakStatement(method, tokens.consume());
             s.target = tokens.getIfKind('ident');
             semicolon(tokens);
             break;
         case 'continue':
-            s = new ContinueStatement(tokens.consume());
+            s = new ContinueStatement(method, tokens.consume());
             s.target = tokens.getIfKind('ident');
             semicolon(tokens);
             break;
         case 'switch':
-            tokens.inc();
-            s = new SwitchStatement();
+            s = new SwitchStatement(method, tokens.consume());
             switchBlock(s, tokens, mdecls, method, imports, typemap);
             break;
         case 'do':
-            tokens.inc();
-            s = new DoStatement();
+            s = new DoStatement(method, tokens.consume());
             s.block = statementBlock(tokens, mdecls, method, imports, typemap);
             tokens.expectValue('while');
             s.test = bracketedTest(tokens, mdecls, method, imports, typemap);
             semicolon(tokens);
             break;
         case 'try':
-            tokens.inc();
-            s = new TryStatement();
+            s = new TryStatement(method, tokens.consume());
             tryStatement(s, tokens, mdecls, method, imports, typemap);
             break;
         case 'return':
-            s = new ReturnStatement(tokens.current);
-            tokens.inc();
+            s = new ReturnStatement(method, tokens.consume());
             s.expression = isExpressionStart(tokens.current) ? expression(tokens, mdecls, method, imports, typemap) : null;
             semicolon(tokens);
             break;
         case 'throw':
-            tokens.inc();
-            s = new ThrowStatement();
+            s = new ThrowStatement(method, tokens.consume());
             if (!tokens.isValue(';')) {
                 s.expression = isExpressionStart(tokens.current) ? expression(tokens, mdecls, method, imports, typemap) : null;
                 semicolon(tokens);
             }
             break;
         case 'for':
-            tokens.inc();
-            s = new ForStatement();
+            s = new ForStatement(method, tokens.consume());
             mdecls.pushScope();
             forStatement(s, tokens, mdecls, method, imports, typemap);
             mdecls.popScope();
             break;
         case 'synchronized':
-            tokens.inc();
-            s = new SynchronizedStatement();
+            s = new SynchronizedStatement(method, tokens.consume());
             synchronizedStatement(s, tokens, mdecls, method, imports, typemap);
             break;
         case 'assert':
-            tokens.inc();
-            s = new AssertStatement();
+            s = new AssertStatement(method, tokens.consume());
             assertStatement(s, tokens, mdecls, method, imports, typemap);
             semicolon(tokens);
             break;
         default:
-            s = new InvalidStatement(tokens.current);
-            tokens.inc();
+            s = new InvalidStatement(method, tokens.consume());
             break;
     }
     return s;
@@ -1012,7 +1000,7 @@ function bracketedTest(tokens, mdecls, scope, imports, typemap) {
 * @param {TryStatement} s
 * @param {TokenList} tokens 
 * @param {MethodDeclarations} mdecls
-* @param {SourceMC} method 
+* @param {SourceMethodLike} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,CEIType>} typemap 
 */
@@ -1048,7 +1036,7 @@ function tryStatement(s, tokens, mdecls, method, imports, typemap) {
 * @param {ForStatement} s
 * @param {TokenList} tokens 
 * @param {MethodDeclarations} mdecls
-* @param {SourceMC} method 
+* @param {SourceMethodLike} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,CEIType>} typemap 
 */
@@ -1084,7 +1072,7 @@ function forStatement(s, tokens, mdecls, method, imports, typemap) {
 * @param {ForStatement} s
 * @param {TokenList} tokens 
 * @param {MethodDeclarations} mdecls
-* @param {SourceMC} method 
+* @param {SourceMethodLike} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,CEIType>} typemap 
 */
@@ -1101,7 +1089,7 @@ function enhancedFor(s, tokens, mdecls, method, imports, typemap) {
 * @param {SynchronizedStatement} s
 * @param {TokenList} tokens 
 * @param {MethodDeclarations} mdecls
-* @param {SourceMC} method 
+* @param {SourceMethodLike} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,CEIType>} typemap 
 */
@@ -1116,7 +1104,7 @@ function synchronizedStatement(s, tokens, mdecls, method, imports, typemap) {
 * @param {AssertStatement} s
 * @param {TokenList} tokens 
 * @param {MethodDeclarations} mdecls
-* @param {SourceMC} method 
+* @param {SourceMethodLike} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,CEIType>} typemap 
 */
@@ -1131,7 +1119,7 @@ function assertStatement(s, tokens, mdecls, method, imports, typemap) {
 * @param {TryStatement} s
 * @param {TokenList} tokens 
 * @param {MethodDeclarations} mdecls
-* @param {SourceMC} method 
+* @param {SourceMethodLike} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,CEIType>} typemap 
 */
@@ -1184,7 +1172,7 @@ function catchFinallyBlocks(s, tokens, mdecls, method, imports, typemap) {
 /**
 * @param {TokenList} tokens 
 * @param {MethodDeclarations} mdecls
-* @param {SourceMC} method 
+* @param {SourceMethodLike} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,CEIType>} typemap 
 */
@@ -1201,7 +1189,7 @@ function catchType(tokens, mdecls, method, imports, typemap) {
 * @param {SwitchStatement} s
 * @param {TokenList} tokens 
 * @param {MethodDeclarations} mdecls
-* @param {SourceMC} method 
+* @param {SourceMethodLike} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,CEIType>} typemap 
 */
@@ -1225,7 +1213,7 @@ function switchBlock(s, tokens, mdecls, method, imports, typemap) {
 * @param {SwitchStatement} s
 * @param {TokenList} tokens 
 * @param {MethodDeclarations} mdecls
-* @param {SourceMC} method 
+* @param {SourceMethodLike} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,CEIType>} typemap 
 */
@@ -1250,7 +1238,7 @@ function caseBlock(s, tokens, mdecls, method, imports, typemap) {
 * @param {(ResolvedIdent|boolean)[]} cases
 * @param {TokenList} tokens 
 * @param {MethodDeclarations} mdecls
-* @param {SourceMC} method 
+* @param {SourceMethodLike} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,CEIType>} typemap 
 */
@@ -1268,7 +1256,7 @@ function caseExpressionList(cases, tokens, mdecls, method, imports, typemap) {
 /**
 * @param {TokenList} tokens 
 * @param {MethodDeclarations} mdecls
-* @param {SourceMC} method 
+* @param {SourceMethodLike} method 
 * @param {ResolvedImport[]} imports
 * @param {Map<string,CEIType>} typemap 
 */

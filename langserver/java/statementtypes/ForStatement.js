@@ -1,13 +1,14 @@
 /**
+ * @typedef {import('./Statement').Statement} Statement
  * @typedef {import('../body-types').Local} Local
  * @typedef {import('../body-types').ResolvedIdent} ResolvedIdent
  * @typedef {import('../body-types').ValidateInfo} ValidateInfo
  * @typedef {import('../tokenizer').Token} Token
  */
-const { Statement } = require("./Statement");
+const { KeywordStatement } = require("./KeywordStatement");
 const { checkNonVarDeclStatement } = require('../statement-validater');
 
-class ForStatement extends Statement {
+class ForStatement extends KeywordStatement {
     /** @type {ResolvedIdent[] | Local[]} */
     init = null;
     /** @type {ResolvedIdent} */

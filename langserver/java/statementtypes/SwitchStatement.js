@@ -1,15 +1,16 @@
 /**
+ * @typedef {import('./Statement').Statement} Statement
  * @typedef {import('../body-types').ResolvedIdent} ResolvedIdent
  * @typedef {import('../body-types').ValidateInfo} ValidateInfo
  * @typedef {import('../tokenizer').Token} Token
  */
 const { JavaType, PrimitiveType } = require('java-mti');
-const { Statement } = require("./Statement");
+const { KeywordStatement } = require("./KeywordStatement");
 const ParseProblem = require('../parsetypes/parse-problem');
 const { isTypeAssignable } = require('../expression-resolver');
 const { NumberLiteral } = require('../expressiontypes/literals/Number');
 
-class SwitchStatement extends Statement {
+class SwitchStatement extends KeywordStatement {
     /** @type {ResolvedIdent} */
     test = null;
     /** @type {(ResolvedIdent|boolean)[]} */

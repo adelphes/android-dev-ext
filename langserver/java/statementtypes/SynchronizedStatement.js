@@ -1,12 +1,13 @@
 /**
+ * @typedef {import('./Statement').Statement} Statement
  * @typedef {import('../body-types').ResolvedIdent} ResolvedIdent
  * @typedef {import('../body-types').ValidateInfo} ValidateInfo
  */
 const { CEIType } = require('java-mti');
-const { Statement } = require("./Statement");
+const { KeywordStatement } = require("./KeywordStatement");
 const ParseProblem = require('../parsetypes/parse-problem');
 
-class SynchronizedStatement extends Statement {
+class SynchronizedStatement extends KeywordStatement {
     /** @type {ResolvedIdent} */
     expression = null;
     /** @type {Statement} */

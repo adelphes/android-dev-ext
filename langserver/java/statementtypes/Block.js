@@ -4,10 +4,10 @@
  * @typedef {import('../body-types').Label} Label
  * @typedef {import('../body-types').ValidateInfo} ValidateInfo
  * @typedef {import('../source-types').SourceType} SourceType
+ * @typedef {import('../source-types').SourceMethodLike} SourceMethodLike
  */
 const { Statement } = require("./Statement");
 const ParseProblem = require('../parsetypes/parse-problem');
-const { checkAssignment } = require('../expression-resolver');
 
 class Block extends Statement {
     /** @type {Statement[]} */
@@ -17,10 +17,11 @@ class Block extends Statement {
     decls = null;
 
     /**
+     * @param {SourceMethodLike} owner
      * @param {Token} open 
      */
-    constructor(open) {
-        super();
+    constructor(owner, open) {
+        super(owner);
         this.open = open;
     }
 

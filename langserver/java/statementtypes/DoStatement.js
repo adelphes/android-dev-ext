@@ -5,10 +5,10 @@
  * @typedef {import('../expressiontypes/Expression').Expression} Expression
  * @typedef {import('../statementtypes/Block').Block} Block
  */
-const { Statement } = require("./Statement");
+const { KeywordStatement } = require("./KeywordStatement");
 const { checkBooleanBranchCondition } = require('../expression-resolver');
 
-class DoStatement extends Statement {
+class DoStatement extends KeywordStatement {
     /** @type {ResolvedIdent} */
     test = null;
     /** @type {Block} */
