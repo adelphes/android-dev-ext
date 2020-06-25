@@ -17,7 +17,7 @@ const {
 
 const { TextDocument } = require('vscode-languageserver-textdocument');
 
-const { loadAndroidLibrary, JavaType, CEIType } = require('java-mti');
+const { loadAndroidLibrary, JavaType, CEIType, ArrayType, PrimitiveType } = require('java-mti');
 
 const { ParseProblem } = require('./java/parser');
 const { parse } = require('./java/body-parser3');
@@ -351,17 +351,28 @@ connection.onDidChangeWatchedFiles((_change) => {
  * @param {string[]} [typelist]
  */
 function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
-    if (!/^L.+;/.test(type_signature)) {
+    let type, types, subtype_search;
+    const arr_match = type_signature.match(/^\[+/);
+    if (arr_match) {
+        // for arrays, just create a dummy type
+        types = [
+            type = new ArrayType(PrimitiveType.map.V, arr_match[0].length),
+            typemap.get('java/lang/Object'),
+        ];
+    } else if (!/^L.+;/.test(type_signature)) {
         return [];
-    }
-    const type = typemap.get(type_signature.slice(1,-1));
-    if (!type) {
-        return [];
+    } else {
+        type = typemap.get(type_signature.slice(1,-1));
+        if (!type) {
+            return [];
+        }
+        if (!(type instanceof CEIType)) {
+            return [];
+        }
+        types = getTypeInheritanceList(type);
+        subtype_search = type.shortSignature + '$';
     }
 
-    if (!(type instanceof CEIType)) {
-        return [];
-    }
 
     // add inner types, fields and methods
     class FirstSetMap extends Map {
@@ -388,7 +399,7 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
         return a.name.localeCompare(b.name, undefined, {sensitivity: 'base'})
     }
 
-    getTypeInheritanceList(type).forEach((t,idx) => {
+    types.forEach((t,idx) => {
         t.fields.sort(sortByName)
             .filter(f => shouldInclude(f.modifiers, t))
             .forEach(f => fields.set(f.name, {f, t, sortText: `${idx+100}${f.name}`}));
@@ -397,12 +408,10 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
             .forEach(m => methods.set(`${m.name}${m.methodSignature}`, {m, t, sortText: `${idx+100}${m.name}`}));
     });
 
-    const subtype_search = type.shortSignature + '$';
-
     return [
         ...(typelist || [...typemap.keys()]).map(t => {
             if (!opts.statics) return;
-            if (!t.startsWith(subtype_search)) return;
+            if (!subtype_search || !t.startsWith(subtype_search)) return;
             return {
                 label: t.slice(subtype_search.length).replace(/\$/g,'.'),
                 kind: CompletionItemKind.Class,
@@ -639,8 +648,9 @@ connection.onCompletionResolve(
             kind: 'markdown',
             value: `${header}\n\n${
                 documentation
-                .replace(/(^\/\*+|(?<=\n)[ \t]*\*+\/?|\*+\/)|(<p ?.*?>)|(<\/?i>|<\/?em>)|(<\/?b>|<\/?strong>|<\/?dt>)|(<\/?tt>)|(<\/?code>|<\/?pre>)|(\{@link.+?\}|\{@code.+?\})|(<li>)|(<a href="\{@docRoot\}.*?">.+?<\/a>)|(<h\d>)|<\/?dd ?.*?>|<\/p ?.*?>|<\/h\d ?.*?>|<\/?div ?.*?>|<\/?[uo]l ?.*?>/gim, (_,cmt,p,i,b,tt,c,lc,li,a,h) => {
-                    return cmt ? ''
+                .replace(/(^\/\*+|(?<=\n)[ \t]*\*+\/?|\*+\/)/gm, '')
+                .replace(/(\n[ \t]*@[a-z]+)|(<p(?: .*)?>)|(<\/?i>|<\/?em>)|(<\/?b>|<\/?strong>|<\/?dt>)|(<\/?tt>)|(<\/?code>|<\/?pre>|<\/?blockquote>)|(\{@link.+?\}|\{@code.+?\})|(<li>)|(<a href="\{@docRoot\}.*?">.+?<\/a>)|(<h\d>)|<\/?dd ?.*?>|<\/p ?.*?>|<\/h\d ?.*?>|<\/?div ?.*?>|<\/?[uo]l ?.*?>/gim, (_,prm,p,i,b,tt,c,lc,li,a,h) => {
+                    return prm ? `  ${prm}`
                     : p ? '\n\n' 
                     : i ? '*' 
                     : b ? '**' 
