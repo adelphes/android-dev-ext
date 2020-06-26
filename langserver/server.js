@@ -73,6 +73,13 @@ function positionAt(index, content) {
     }
 }
 
+/**
+ * @param {string} s 
+ */
+function trace(s) {
+    console.log(`${Date.now()}: ${s}`);
+}
+
 class JavaDocInfo {
      /**
       * @param {string} uri 
@@ -111,13 +118,29 @@ class ParsedInfo {
 const liveParsers = new Map();
 
 /**
- * 
+ * Marker to prevent early parsing of source files before we've completed our
+ * initial source file load
+ * @type {Set<string>}
+ */
+let first_parse_waiting = new Set();
+
+/**
  * @param {string[]} uris
- * @param {{includeMethods: boolean}} [opts]
+ * @param {{includeMethods: boolean, first_parse?: boolean}} [opts]
  */
 function reparse(uris, opts) {
     if (androidLibrary instanceof Promise) {
         return;
+    }
+    if (!uris || !uris.length) {
+        return;
+    }
+    if (first_parse_waiting) {
+        if (!opts || !opts.first_parse) {
+            uris.forEach(uri => first_parse_waiting.add(uri));
+            trace('waiting for first parse')
+            return;
+        }
     }
     const cached_units = [], parsers = [];
     for (let docinfo of liveParsers.values()) {
@@ -135,14 +158,6 @@ function reparse(uris, opts) {
     const typemap = new Map(androidLibrary);
     const units = parse(parsers, cached_units, typemap);
 
-    if (opts && opts.includeMethods) {
-        console.time('parse-methods');
-        units.forEach(unit => {
-            parseMethodBodies(unit, typemap);
-        });
-        console.timeEnd('parse-methods');
-    }
-
     units.forEach(unit => {
         const parser = parsers.find(p => p.uri === unit.uri);
         if (!parser) return;
@@ -150,6 +165,29 @@ function reparse(uris, opts) {
         if (!doc) return;
         doc.parsed = new ParsedInfo(doc.uri, parser.content, parser.version, typemap, unit, []);
     });
+
+    let method_body_uris = [];
+    if (first_parse_waiting) {
+        // this is the first parse - parse the bodies of any waiting
+        method_body_uris = [...first_parse_waiting];
+        first_parse_waiting = null;
+    }
+
+    if (opts && opts.includeMethods) {
+        method_body_uris = uris;
+    }
+
+    if (method_body_uris.length) {
+        console.time('parse-methods');
+        method_body_uris.forEach(uri => {
+            const doc = liveParsers.get(uri);
+            if (!doc || !doc.parsed) {
+                return;
+            }
+            parseMethodBodies(doc.parsed.unit, typemap);
+        })
+        console.timeEnd('parse-methods');
+    }
 }
 
 // Create a simple text document manager. The text document manager
@@ -164,7 +202,7 @@ let documents = new TextDocuments({
      */
     create(uri, languageId, version, content) {
         // tokenize the file content and build the initial parse state
-        connection.console.log(`create parse ${version}`);
+        trace(`create ${uri}:${version}`);
         liveParsers.set(uri, new JavaDocInfo(uri, content, version));
         reparse([uri], { includeMethods: true });
         return { uri };
@@ -176,7 +214,7 @@ let documents = new TextDocuments({
      * @param {number} version
      */
     update(document, changes, version) {
-        connection.console.log(JSON.stringify({ what: 'update', /* changes, */ version }));
+        trace(`update ${document.uri}:${version}`);
         if (!document || !liveParsers.has(document.uri)) {
             return;
         }
@@ -210,7 +248,7 @@ connection.onInitialize((params) => {
             console.timeEnd('android-library-load')
             return androidLibrary = lib;
     }, err => {
-        console.log(`android library load failed: ${err.message}`);
+        trace(`android library load failed: ${err.message}`);
         return androidLibrary = new Map();
     });
     let capabilities = params.capabilities;
@@ -246,7 +284,7 @@ connection.onInitialized(async () => {
     }
     if (hasWorkspaceFolderCapability) {
         connection.workspace.onDidChangeWorkspaceFolders((_event) => {
-            connection.console.log('Workspace folder change event received.');
+            trace('Workspace folder change event received.');
         });
     }
 
@@ -259,7 +297,7 @@ connection.onInitialized(async () => {
         }
         const uri = `file://${file.fpn}`;    // todo - handle case-differences on Windows
         if (liveParsers.has(uri)) {
-            console.log(`already loaded: ${uri}`);
+            trace(`already loaded: ${uri}`);
             continue;
         }
         try {
@@ -268,7 +306,9 @@ connection.onInitialized(async () => {
         } catch {}
     }
 
-    reparse([...liveParsers.keys()])
+    reparse([...liveParsers.keys()], { includeMethods: false, first_parse: true });
+
+    trace('Initialization complete');
 });
 
 
@@ -285,16 +325,14 @@ async function loadWorkingFileList() {
         } catch {}
     });
     if (!src_folder) {
-        connection.console.log(`Failed to find src root from workspace folders:\n - ${folders.map(f => f.uri).join('\n - ')}`);
+        trace(`Failed to find src root from workspace folders:\n - ${folders.map(f => f.uri).join('\n - ')}`);
         return;
     }
 
-    connection.console.log(`Found src root: ${src_folder}. Beginning search for source files...`);
+    trace(`Found src root: ${src_folder}. Beginning search for source files...`);
     console.time('source file search')
     const files = scanSourceFiles(src_folder);
     console.timeEnd('source file search')
-    const java_files = files.filter(f => /\.java$/i.test(f.fpn) && !f.stat.isDirectory());
-    connection.console.log(`${java_files.length} files found`);
     return files;
 
     /**
@@ -310,7 +348,7 @@ async function loadWorkingFileList() {
             }
             done.add(folder);
             try {
-                connection.console.log(`scan source folder ${folder}`)
+                trace(`scan source folder ${folder}`)
                 fs.readdirSync(folder)
                     .forEach(name => {
                         const fpn = path.join(folder, name);
@@ -321,7 +359,7 @@ async function loadWorkingFileList() {
                         }
                     });
             } catch (err) {
-                connection.console.log(`Failed to scan source folder ${folder}: ${err.message}`)
+                trace(`Failed to scan source folder ${folder}: ${err.message}`)
             }
         }
         return files;
@@ -373,7 +411,7 @@ function getDocumentSettings(resource) {
 
 // Only keep settings for open documents
 documents.onDidClose((e) => {
-    connection.console.log(`doc closed ${e.document.uri}`);
+    trace(`doc closed ${e.document.uri}`);
     documentSettings.delete(e.document.uri);
     connection.sendDiagnostics({ uri: e.document.uri, diagnostics: [] });
 });
@@ -381,7 +419,7 @@ documents.onDidClose((e) => {
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
 documents.onDidChangeContent((change) => {
-    connection.console.log(JSON.stringify(change));
+    trace('onDidChangeContent');
     validateTextDocument(change.document);
 });
 
@@ -390,7 +428,7 @@ documents.onDidChangeContent((change) => {
  */
 async function validateTextDocument(textDocument) {
     if (androidLibrary instanceof Promise) {
-        connection.console.log('Waiting for Android Library load');
+        trace('Waiting for Android Library load');
         androidLibrary = await androidLibrary;
     }
     /** @type {ParseProblem[]} */
@@ -476,7 +514,7 @@ async function validateTextDocument2(textDocument) {
 
 connection.onDidChangeWatchedFiles((_change) => {
     // Monitored files have change in VS Code
-    connection.console.log('We received a file change event');
+    trace('We received a file change event');
 });
 
 /**
@@ -953,18 +991,18 @@ connection.onSignatureHelp(onSignatureHelp);
         // A text document got opened in VS Code.
         // params.uri uniquely identifies the document. For documents store on disk this is a file URI.
         // params.text the initial full content of the document.
-        connection.console.log(`${params.textDocument.uri} opened.`);
+        trace(`${params.textDocument.uri} opened.`);
     });
     connection.onDidChangeTextDocument((params) => {
         // The content of a text document did change in VS Code.
         // params.uri uniquely identifies the document.
         // params.contentChanges describe the content changes to the document.
-        connection.console.log(`${params.textDocument.uri} changed: ${JSON.stringify(params.contentChanges)}`);
+        trace(`${params.textDocument.uri} changed: ${JSON.stringify(params.contentChanges)}`);
     });
     connection.onDidCloseTextDocument((params) => {
         // A text document got closed in VS Code.
         // params.uri uniquely identifies the document.
-        connection.console.log(`${params.textDocument.uri} closed.`);
+        trace(`${params.textDocument.uri} closed.`);
     });
     */
 
