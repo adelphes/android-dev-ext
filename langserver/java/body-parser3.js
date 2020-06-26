@@ -853,7 +853,7 @@ function enumValueList(type, tokens, imports, typemap) {
         let ctr_args = [];
         if (tokens.isValue('(')) {
             if (!tokens.isValue(')')) {
-                ctr_args = expressionList(tokens, new MethodDeclarations(), type, imports, typemap);
+                ({ expressions: ctr_args } = expressionList(tokens, new MethodDeclarations(), type, imports, typemap));
                 tokens.expectValue(')');
             }
         }
@@ -1073,7 +1073,7 @@ function forStatement(s, tokens, mdecls, method, imports, typemap) {
     }
     // for-updated
     if (!tokens.isValue(')')) {
-        s.update = expressionList(tokens, mdecls, method, imports, typemap);
+        ({ expressions: s.update } = expressionList(tokens, mdecls, method, imports, typemap));
         tokens.expectValue(')');
     }
     s.statement = statement(tokens, mdecls, method, imports, typemap);
@@ -1574,7 +1574,7 @@ function rootTerm(tokens, mdecls, scope, imports, typemap) {
             let elements = [], open = tokens.current;
             tokens.expectValue('{');
             if (!tokens.isValue('}')) {
-                elements = expressionList(tokens, mdecls, scope, imports, typemap, { isArrayLiteral:true });
+                ({ expressions: elements } = expressionList(tokens, mdecls, scope, imports, typemap, { isArrayLiteral:true }));
                 tokens.expectValue('}');
             }
             const ident = `{${elements.map(e => e.source).join(',')}}`;
@@ -1614,7 +1614,7 @@ function newTerm(tokens, mdecls, scope, imports, typemap) {
         case '(':
             tokens.inc();
             if (!tokens.isValue(')')) {
-                ctr_args = expressionList(tokens, mdecls, scope, imports, typemap);
+                ({ expressions: ctr_args } = expressionList(tokens, mdecls, scope, imports, typemap));
                 tokens.expectValue(')');
             }
             newtokens = tokens.markEnd();
@@ -1643,9 +1643,12 @@ function newTerm(tokens, mdecls, scope, imports, typemap) {
 function expressionList(tokens, mdecls, scope, imports, typemap, opts) {
     let e = expression(tokens, mdecls, scope, imports, typemap);
     const expressions = [e];
-    while (tokens.isValue(',')) {
+    const commas = [];
+    while (tokens.current.value === ',') {
+        commas.push(tokens.consume());
         if (opts && opts.isArrayLiteral) {
             // array literals are allowed a single trailing comma
+            // @ts-ignore
             if (tokens.current.value === '}') {
                 break;
             }
@@ -1653,7 +1656,7 @@ function expressionList(tokens, mdecls, scope, imports, typemap, opts) {
         e = expression(tokens, mdecls, scope, imports, typemap);
         expressions.push(e);
     }
-    return expressions;
+    return { expressions, commas };
 }
 
 /**
@@ -1771,14 +1774,14 @@ function arrayQualifiers(matches, tokens, mdecls, scope, imports, typemap) {
  * @param {Map<string,CEIType>} typemap 
  */
 function methodCallQualifier(matches, tokens, mdecls, scope, imports, typemap) {
-    let args = [];
+    let args = [], commas = [];
     tokens.mark();
-    tokens.expectValue('(');
+    const open_bracket = tokens.consume();
     if (!tokens.isValue(')')) {
-        args = expressionList(tokens, mdecls, scope, imports, typemap);
+        ({ expressions: args, commas } = expressionList(tokens, mdecls, scope, imports, typemap));
         tokens.expectValue(')');
     }
-    return new ResolvedIdent(`${matches.source}(${args.map(a => a.source).join(', ')})`, [new MethodCallExpression(matches, args)], [], [], '', [...matches.tokens, ...tokens.markEnd()]);
+    return new ResolvedIdent(`${matches.source}(${args.map(a => a.source).join(', ')})`, [new MethodCallExpression(matches, open_bracket, args, commas)], [], [], '', [...matches.tokens, ...tokens.markEnd()]);
 }
 
 /**

@@ -18,7 +18,7 @@ const {
 
 const { TextDocument } = require('vscode-languageserver-textdocument');
 
-const { loadAndroidLibrary, JavaType, CEIType, ArrayType, PrimitiveType } = require('java-mti');
+const { loadAndroidLibrary, JavaType, CEIType, ArrayType, PrimitiveType, Method } = require('java-mti');
 
 const { ParseProblem } = require('./java/parser');
 const { parse } = require('./java/body-parser3');
@@ -231,6 +231,10 @@ connection.onInitialize((params) => {
             completionProvider: {
                 resolveProvider: true,
             },
+            // Tell the client that the server supports method signature information
+            signatureHelpProvider : {
+                triggerCharacters: [ '(' ]
+            }
         },
     };
 });
@@ -758,15 +762,15 @@ connection.onCompletion(
                     return getPackageCompletion(parsed.typemap, options.loc.key.split(':').pop());
                 }
                 if (/^fqdi:/.test(options.loc.key)) {
-                    // fully-qualified type/field name
+                    // fully-qualified dotted identifier
                     return getFullyQualifiedDottedIdentCompletion(parsed.typemap, options.loc.key.split(':').pop(), { statics: true });
                 }
                 if (/^fqs:/.test(options.loc.key)) {
-                    // fully-qualified expression
+                    // fully-qualified static expression
                     return getTypedNameCompletion(parsed.typemap, options.loc.key.split(':').pop(),  { statics: true });
                 }
                 if (/^fqi:/.test(options.loc.key)) {
-                    // fully-qualified expression
+                    // fully-qualified instance expression
                     return getTypedNameCompletion(parsed.typemap, options.loc.key.split(':').pop(),  { statics: false });
                 }
             }
@@ -851,29 +855,98 @@ connection.onCompletionResolve(
             header = `${t.typeKind} **${t.dottedTypeName}**`;
         }
         item.detail = detail || '';
-        item.documentation = documentation && {
-            kind: 'markdown',
-            value: `${header}\n\n${
-                documentation
-                .replace(/(^\/\*+|(?<=\n)[ \t]*\*+\/?|\*+\/)/gm, '')
-                .replace(/(\n[ \t]*@[a-z]+)|(<p(?: .*)?>)|(<\/?i>|<\/?em>)|(<\/?b>|<\/?strong>|<\/?dt>)|(<\/?tt>)|(<\/?code>|<\/?pre>|<\/?blockquote>)|(\{@link.+?\}|\{@code.+?\})|(<li>)|(<a href="\{@docRoot\}.*?">.+?<\/a>)|(<h\d>)|<\/?dd ?.*?>|<\/p ?.*?>|<\/h\d ?.*?>|<\/?div ?.*?>|<\/?[uo]l ?.*?>/gim, (_,prm,p,i,b,tt,c,lc,li,a,h) => {
-                    return prm ? `  ${prm}`
-                    : p ? '\n\n' 
-                    : i ? '*' 
-                    : b ? '**' 
-                    : tt ? '`'
-                    : c ? '\n```'
-                    : lc ? lc.replace(/\{@\w+\s*(.+)\}/, (_,x) => `\`${x.trim()}\``)
-                    : li ? '\n- '
-                    : a ? a.replace(/.+?\{@docRoot\}(.*?)">(.+?)<\/a>/m, (_,p,t) => `[${t}](https://developer.android.com/${p})`)
-                    : h ? `\n${'#'.repeat(1 + parseInt(h.slice(2,-1),10))} `
-                    : '';
-                })
-            }`,
-        };
+        item.documentation = formatDoc(header, documentation);
         return item;
     }
 );
+
+/**
+ * @param {string} header 
+ * @param {string} documentation 
+ * @returns {import('vscode-languageserver').MarkupContent}
+ */
+function formatDoc(header, documentation) {
+    if (!documentation) {
+        return null;
+    }
+    return {
+        kind: 'markdown',
+        value: `${header ? header + '\n\n' : ''}${
+            documentation
+            .replace(/(^\/\*+|(?<=\n)[ \t]*\*+\/?|\*+\/)/gm, '')
+            .replace(/(\n[ \t]*@[a-z]+)|(<p(?: .*)?>)|(<\/?i>|<\/?em>)|(<\/?b>|<\/?strong>|<\/?dt>)|(<\/?tt>)|(<\/?code>|<\/?pre>|<\/?blockquote>)|(\{@link.+?\}|\{@code.+?\})|(<li>)|(<a href="\{@docRoot\}.*?">.+?<\/a>)|(<h\d>)|<\/?dd ?.*?>|<\/p ?.*?>|<\/h\d ?.*?>|<\/?div ?.*?>|<\/?[uo]l ?.*?>/gim, (_,prm,p,i,b,tt,c,lc,li,a,h) => {
+                return prm ? `  ${prm}`
+                : p ? '\n\n'
+                : i ? '*'
+                : b ? '**'
+                : tt ? '`'
+                : c ? '\n```'
+                : lc ? lc.replace(/\{@\w+\s*(.+)\}/, (_,x) => `\`${x.trim()}\``)
+                : li ? '\n- '
+                : a ? a.replace(/.+?\{@docRoot\}(.*?)">(.+?)<\/a>/m, (_,p,t) => `[${t}](https://developer.android.com/${p})`)
+                : h ? `\n${'#'.repeat(1 + parseInt(h.slice(2,-1),10))} `
+                : '';
+            })
+        }`,
+    };
+}
+
+/**
+ * @param {import('vscode-languageserver').SignatureHelpParams} request the reeust
+ */
+async function onSignatureHelp(request) {
+    /** @type {import('vscode-languageserver').SignatureHelp} */
+    let sighelp = {
+        signatures: [],
+        activeSignature: 0,
+        activeParameter: 0,
+    }
+    const docinfo = liveParsers.get(request.textDocument.uri);
+    if (!docinfo || !docinfo.parsed) {
+        return sighelp;
+    }
+    const index = indexAt(request.position, docinfo.content);
+    const token = docinfo.parsed.unit.getTokenAt(index);
+    if (!token || !token.methodCallInfo) {
+        return sighelp;
+    }
+    sighelp = {
+        signatures: token.methodCallInfo.methods.map(m => {
+            /** @type {import('vscode-languageserver').SignatureInformation} */
+            let si = {
+                label: m.label,
+                documentation: formatDoc(`#### ${m.owner.simpleTypeName}${m instanceof Method ? `.${m.name}` : ''}()`, m.docs),
+                parameters: m.parameters.map(p => {
+                    /** @type {import('vscode-languageserver').MarkupContent} */
+                    let param_documentation = null;
+                    // include a space at the end of the search string so we don't inadvertently match substring parameters, eg: method(type, typeName)
+                    const param_doc_offset = m.docs.indexOf(`@param ${p.name} `);
+                    if (param_doc_offset > 0) {
+                        const doc_match = m.docs.slice(param_doc_offset).match(/@param (\S+)([\d\D]+?)(\n\n|\n[ \t*]*@\w+|$)/);
+                        if (doc_match) {
+                            param_documentation = {
+                                kind:'markdown',
+                                value: `**${doc_match[1]}**: ${formatDoc('', doc_match[2].trim()).value}`,
+                            }
+                        }
+                    }
+                    /** @type {import('vscode-languageserver').ParameterInformation} */
+                    let pi = {
+                        documentation: param_documentation,
+                        label: p.label
+                    }
+                    return pi;
+                })
+            }
+            return si;
+        }),
+        activeSignature: token.methodCallInfo.methodIdx,
+        activeParameter: token.methodCallInfo.argIdx,
+    }
+    return sighelp;
+    
+}
+connection.onSignatureHelp(onSignatureHelp);
 
 /*
     connection.onDidOpenTextDocument((params) => {

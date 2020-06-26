@@ -16,12 +16,16 @@ const { SourceConstructor } = require('../source-types');
 class MethodCallExpression extends Expression {
     /**
      * @param {ResolvedIdent} instance
+     * @param {Token} open_bracket
      * @param {ResolvedIdent[]} args
+     * @param {Token[]} commas
      */
-    constructor(instance, args) {
+    constructor(instance, open_bracket, args, commas) {
         super();
         this.instance = instance;
+        this.open_bracket = open_bracket;
         this.args = args;
+        this.commas = commas;
     }
 
     /**
@@ -44,14 +48,14 @@ class MethodCallExpression extends Expression {
                 is_ctr = ri.method instanceof SourceConstructor;
             }
             if (is_ctr) {
-                resolveConstructorCall(ri, type.constructors, this.args, () => this.instance.tokens);
+                resolveConstructorCall(ri, type.constructors, this.open_bracket, this.args, this.commas, () => this.instance.tokens);
             } else {
                 ri.problems.push(ParseProblem.Error(this.instance.tokens, `'this'/'super' constructor calls can only be used as the first statement of a constructor`));
             }
             return PrimitiveType.map.V;
         }
 
-        return resolveMethodCall(ri, type.methods, this.args, () => this.instance.tokens);
+        return resolveMethodCall(ri, type.methods, this.open_bracket, this.args, this.commas, () => this.instance.tokens);
     }
 
     tokens() {
@@ -62,11 +66,13 @@ class MethodCallExpression extends Expression {
 /**
  * @param {ResolveInfo} ri 
  * @param {Method[]} methods 
+ * @param {Token} open_bracket 
  * @param {ResolvedIdent[]} args 
+ * @param {Token[]} commas 
  * @param {() => Token[]} tokens 
  */
-function resolveMethodCall(ri, methods, args, tokens) {
-    const resolved_args = args.map(arg => arg.resolveExpression(ri));
+function resolveMethodCall(ri, methods, open_bracket, args, commas, tokens) {
+    const resolved_args = args.map((arg,idx) => arg.resolveExpression(ri));
 
     // all the arguments must be typed expressions, number literals or lambdas
     /** @type {(JavaType|NumberLiteral|LambdaType|MultiValueType)[]} */
@@ -99,6 +105,32 @@ function resolveMethodCall(ri, methods, args, tokens) {
     // work out which methods are compatible with the call arguments
     const compatible_methods = reified_methods.filter(m => isCallCompatible(m, arg_types));
     const return_types = new Set(compatible_methods.map(m => m.returnType));
+
+    // store the methods and argument position for signature help
+    const methodIdx = Math.max(reified_methods.indexOf(compatible_methods[0]), 0);
+    open_bracket.methodCallInfo = {
+        methods: reified_methods,
+        methodIdx,
+        argIdx: 0,
+    }
+    args.forEach((arg, idx) => {
+        const methodCallInfo = {
+            methods: reified_methods,
+            methodIdx,
+            argIdx: idx,
+        }
+        // add the info to the previous comma
+        const c = commas[idx-1];
+        if (c) {
+            c.methodCallInfo = methodCallInfo;
+        }
+        // set the info on all the tokens used in the argument
+        arg.tokens.forEach(tok => {
+            if (tok.methodCallInfo === null) {
+                tok.methodCallInfo = methodCallInfo;
+            }
+        })
+    })
 
     if (!compatible_methods[0]) {
         // if any of the arguments is AnyType, just return AnyType
@@ -142,10 +174,12 @@ function resolveMethodCall(ri, methods, args, tokens) {
 /**
  * @param {ResolveInfo} ri 
  * @param {Constructor[]} constructors 
+ * @param {Token} open_bracket 
  * @param {ResolvedIdent[]} args 
+ * @param {Token[]} commas 
  * @param {() => Token[]} tokens 
  */
-function resolveConstructorCall(ri, constructors, args, tokens) {
+function resolveConstructorCall(ri, constructors, open_bracket, args, commas, tokens) {
     const resolved_args = args.map(arg => arg.resolveExpression(ri));
 
     // all the arguments must be typed expressions, number literals or lambdas
@@ -176,6 +210,32 @@ function resolveConstructorCall(ri, constructors, args, tokens) {
 
     // work out which methods are compatible with the call arguments
     const compatible_ctrs = reifed_ctrs.filter(m => isCallCompatible(m, arg_types));
+
+    // store the methods and argument position for signature help
+    const methodIdx = reifed_ctrs.indexOf(compatible_ctrs[0]);
+    open_bracket.methodCallInfo = {
+        methods: reifed_ctrs,
+        methodIdx,
+        argIdx: 0,
+    }
+    args.forEach((arg, idx) => {
+        const methodCallInfo = {
+            methods: reifed_ctrs,
+            methodIdx,
+            argIdx: idx,
+        }
+        // add the info to the previous comma
+        const c = commas[idx-1];
+        if (c) {
+            c.methodCallInfo = methodCallInfo;
+        }
+        // set the info on all the tokens used in the argument
+        arg.tokens.forEach(tok => {
+            if (tok.methodCallInfo === null) {
+                tok.methodCallInfo = methodCallInfo;
+            }
+        })
+    })
 
     if (!compatible_ctrs[0]) {
         // if any of the arguments is AnyType, just ignore the call

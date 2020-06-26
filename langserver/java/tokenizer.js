@@ -1,3 +1,7 @@
+/**
+ * @typedef {import('java-mti').Method} Method
+ * @typedef {import('java-mti').Constructor} Constructor
+ */
 const { TextBlock, BlockRange } = require('./parsetypes/textblock');
 
 /**
@@ -51,6 +55,13 @@ class Token extends TextBlock {
         this.kind = kind;
         /** @type {{key:string}} */
         this.loc = null;
+
+        /** 
+         * Stores information about the resolved methods/constructors this token is an argument for.
+         * This is used to provide method signature info to vscode
+         * @type {{methods:(Method|Constructor)[], methodIdx:number, argIdx:number}}
+         */
+        this.methodCallInfo = null;
     }
 
     get value() {
