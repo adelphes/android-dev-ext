@@ -1598,8 +1598,8 @@ function newTerm(tokens, mdecls, scope, imports, typemap) {
     const new_token = tokens.current;
     tokens.expectValue('new');
     const ctr_type = typeIdent(tokens, scope, imports, typemap, {no_array_qualifiers:true, type_vars:[]});
-    let match = new ResolvedIdent(`new ${ctr_type.resolved.simpleTypeName}`, [], [], [ctr_type.resolved]);
-    let ctr_args = [], type_body = null, newtokens;
+    let match = new ResolvedIdent(`new ${ctr_type.resolved.simpleTypeName}`, [], [], []);
+    let newtokens;
     switch(tokens.current.value) {
         case '[':
             match = arrayQualifiers(match, tokens, mdecls, scope, imports, typemap);
@@ -1611,9 +1611,10 @@ function newTerm(tokens, mdecls, scope, imports, typemap) {
             }
             return new ResolvedIdent(match.source, [new NewArray(new_token, ctr_type, match)], [], [], '', newtokens);
         case '(':
-            tokens.inc();
+            let ctr_args = [], commas = [], type_body = null;
+            let open_bracket = tokens.consume();
             if (!tokens.isValue(')')) {
-                ({ expressions: ctr_args } = expressionList(tokens, mdecls, scope, imports, typemap));
+                ({ expressions: ctr_args, commas } = expressionList(tokens, mdecls, scope, imports, typemap));
                 tokens.expectValue(')');
             }
             newtokens = tokens.markEnd();
@@ -1622,13 +1623,11 @@ function newTerm(tokens, mdecls, scope, imports, typemap) {
                 // anonymous type - just skip for now
                 type_body = skipBody(tokens);
             }
-            break;
-        default:
-            newtokens = tokens.markEnd();
-            addproblem(tokens, ParseProblem.Error(tokens.current, 'Constructor expression expected'));
-            break;
+            return new ResolvedIdent(match.source, [new NewObject(new_token, ctr_type, open_bracket, ctr_args, commas, type_body)], [], [], '', newtokens);
     }
-    return new ResolvedIdent(match.source, [new NewObject(new_token, ctr_type, ctr_args, type_body)], [], [], '', newtokens);
+    newtokens = tokens.markEnd();
+    addproblem(tokens, ParseProblem.Error(tokens.current, 'Constructor expression expected'));
+    return match;
 }
 
 /**

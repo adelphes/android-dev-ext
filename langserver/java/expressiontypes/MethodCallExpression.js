@@ -317,3 +317,4 @@ function isCallCompatible(m, arg_types) {
 }
 
 exports.MethodCallExpression = MethodCallExpression;
+exports.resolveConstructorCall = resolveConstructorCall;

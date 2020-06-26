@@ -8,8 +8,8 @@
 const { Expression } = require("./Expression");
 const { ArrayType } = require('java-mti');
 const { FixedLengthArrayType, SourceArrayType } = require('../source-types');
-const ParseProblem = require('../parsetypes/parse-problem');
 const { checkArrayIndex } = require('../expression-resolver');
+const { resolveConstructorCall } = require('./MethodCallExpression');
 
 class NewArray extends Expression {
     /**
@@ -61,14 +61,18 @@ class NewObject extends Expression {
     /**
      * @param {Token} new_token
      * @param {SourceTypeIdent} object_type
+     * @param {Token} open_bracket
      * @param {ResolvedIdent[]} ctr_args
+     * @param {Token[]} commas
      * @param {Token[]} type_body
      */
-    constructor(new_token, object_type, ctr_args, type_body) {
+    constructor(new_token, object_type, open_bracket, ctr_args, commas, type_body) {
         super();
         this.new_token = new_token;
         this.object_type = object_type;
+        this.open_bracket = open_bracket;
         this.ctr_args = ctr_args;
+        this.commas = commas;
         this.type_body = type_body;
     }
 
@@ -76,6 +80,7 @@ class NewObject extends Expression {
      * @param {ResolveInfo} ri 
      */
     resolveExpression(ri) {
+        resolveConstructorCall(ri, this.object_type.resolved.constructors, this.open_bracket, this.ctr_args, this.commas, () => this.tokens());
         return this.object_type.resolved;
     }
 
