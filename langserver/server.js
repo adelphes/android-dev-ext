@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 const {
     createConnection,
     TextDocuments,
@@ -112,8 +113,9 @@ const liveParsers = new Map();
 /**
  * 
  * @param {string[]} uris
+ * @param {{includeMethods: boolean}} [opts]
  */
-function reparse(uris) {
+function reparse(uris, opts) {
     if (androidLibrary instanceof Promise) {
         return;
     }
@@ -129,15 +131,24 @@ function reparse(uris) {
     if (!parsers.length) {
         return;
     }
+
     const typemap = new Map(androidLibrary);
     const units = parse(parsers, cached_units, typemap);
+
+    if (opts && opts.includeMethods) {
+        console.time('parse-methods');
+        units.forEach(unit => {
+            parseMethodBodies(unit, typemap);
+        });
+        console.timeEnd('parse-methods');
+    }
+
     units.forEach(unit => {
         const parser = parsers.find(p => p.uri === unit.uri);
         if (!parser) return;
         const doc = liveParsers.get(unit.uri);
         if (!doc) return;
         doc.parsed = new ParsedInfo(doc.uri, parser.content, parser.version, typemap, unit, []);
-        parseMethodBodies(unit, typemap);
     });
 }
 
@@ -155,7 +166,7 @@ let documents = new TextDocuments({
         // tokenize the file content and build the initial parse state
         connection.console.log(`create parse ${version}`);
         liveParsers.set(uri, new JavaDocInfo(uri, content, version));
-        reparse([uri]);
+        reparse([uri], { includeMethods: true });
         return { uri };
     },
     /**
@@ -184,7 +195,7 @@ let documents = new TextDocuments({
                 docinfo.content = `${docinfo.content.slice(0, start_index)}${change.text}${docinfo.content.slice(end_index)}`;
             }
         });
-        reparse([document.uri]);
+        reparse([document.uri], { includeMethods: true });
         return document;
     },
 });
@@ -224,7 +235,7 @@ connection.onInitialize((params) => {
     };
 });
 
-connection.onInitialized(() => {
+connection.onInitialized(async () => {
     if (hasConfigurationCapability) {
         // Register for all configuration changes.
         connection.client.register(DidChangeConfigurationNotification.type, undefined);
@@ -234,7 +245,84 @@ connection.onInitialized(() => {
             connection.console.log('Workspace folder change event received.');
         });
     }
+
+    const files = await loadWorkingFileList();
+    // create live parsers for all the java files, but don't replace any existing ones which
+    // have been loaded (and may be edited) before we reach here
+    for (let file of files) {
+        if (!/\.java$/i.test(file.fpn)) {
+            continue;
+        }
+        const uri = `file://${file.fpn}`;    // todo - handle case-differences on Windows
+        if (liveParsers.has(uri)) {
+            console.log(`already loaded: ${uri}`);
+            continue;
+        }
+        try {
+            const file_content = await new Promise((res, rej) => fs.readFile(file.fpn, 'UTF8', (err,data) => err ? rej(err) : res(data)));
+            liveParsers.set(uri, new JavaDocInfo(uri, file_content, 0));
+        } catch {}
+    }
+
+    reparse([...liveParsers.keys()])
 });
+
+
+async function loadWorkingFileList() {
+    const folders = await connection.workspace.getWorkspaceFolders();
+    let src_folder = '';
+    folders.find(folder => {
+        const main_folder = path.join(folder.uri.replace(/^\w+:\/\//, ''), 'app', 'src', 'main');
+        try {
+            if (fs.statSync(main_folder).isDirectory()) {
+                src_folder = main_folder;
+                return true;
+            }
+        } catch {}
+    });
+    if (!src_folder) {
+        connection.console.log(`Failed to find src root from workspace folders:\n - ${folders.map(f => f.uri).join('\n - ')}`);
+        return;
+    }
+
+    connection.console.log(`Found src root: ${src_folder}. Beginning search for source files...`);
+    console.time('source file search')
+    const files = scanSourceFiles(src_folder);
+    console.timeEnd('source file search')
+    const java_files = files.filter(f => /\.java$/i.test(f.fpn) && !f.stat.isDirectory());
+    connection.console.log(`${java_files.length} files found`);
+    return files;
+
+    /**
+     * @param {string} folder 
+     * @returns {{fpn:string, stat:fs.Stats}[]}
+     */
+    function scanSourceFiles(folder) {
+        const done = new Set(), folders = [folder], files = [];
+        while (folders.length) {
+            const folder = folders.shift();
+            if (done.has(folder)) {
+                continue;
+            }
+            done.add(folder);
+            try {
+                connection.console.log(`scan source folder ${folder}`)
+                fs.readdirSync(folder)
+                    .forEach(name => {
+                        const fpn = path.join(folder, name);
+                        const stat = fs.statSync(fpn);
+                        files.push({fpn,stat});
+                        if (stat.isDirectory()) {
+                            folders.push(fpn)
+                        }
+                    });
+            } catch (err) {
+                connection.console.log(`Failed to scan source folder ${folder}: ${err.message}`)
+            }
+        }
+        return files;
+    }
+}
 
 // The example settings
 /**
@@ -282,7 +370,6 @@ function getDocumentSettings(resource) {
 // Only keep settings for open documents
 documents.onDidClose((e) => {
     connection.console.log(`doc closed ${e.document.uri}`);
-    liveParsers.delete(e.document.uri);
     documentSettings.delete(e.document.uri);
     connection.sendDiagnostics({ uri: e.document.uri, diagnostics: [] });
 });
