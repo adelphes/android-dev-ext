@@ -1015,27 +1015,24 @@ async function onSignatureHelp(request) {
     trace(`onSignatureHelp - ${token.methodCallInfo.methods.length} methods`);
     sighelp = {
         signatures: token.methodCallInfo.methods.map(m => {
+            const documentation = formatDoc(`#### ${m.owner.simpleTypeName}${m instanceof Method ? `.${m.name}` : ''}()`, m.docs);
+            const param_docs = new Map();
+            if (documentation) {
+                for (let m, re=/@param\s+(\S+)([\d\D]+?)(?=\n\n|\n[ \t*]*@\w+|$)/g; m = re.exec(documentation.value);) {
+                    param_docs.set(m[1], m[2]);
+                }
+            }
             /** @type {import('vscode-languageserver').SignatureInformation} */
             let si = {
                 label: m.label,
-                documentation: formatDoc(`#### ${m.owner.simpleTypeName}${m instanceof Method ? `.${m.name}` : ''}()`, m.docs),
+                documentation,
                 parameters: m.parameters.map(p => {
-                    /** @type {import('vscode-languageserver').MarkupContent} */
-                    let param_documentation = null;
-                    // include a space at the end of the search string so we don't inadvertently match substring parameters, eg: method(type, typeName)
-                    const param_doc_offset = m.docs.indexOf(`@param ${p.name} `);
-                    if (param_doc_offset > 0) {
-                        const doc_match = m.docs.slice(param_doc_offset).match(/@param (\S+)([\d\D]+?)(\n\n|\n[ \t*]*@\w+|$)/);
-                        if (doc_match) {
-                            param_documentation = {
-                                kind:'markdown',
-                                value: `**${doc_match[1]}**: ${formatDoc('', doc_match[2].trim()).value}`,
-                            }
-                        }
-                    }
                     /** @type {import('vscode-languageserver').ParameterInformation} */
                     let pi = {
-                        documentation: param_documentation,
+                        documentation: {
+                            kind: 'markdown',
+                            value: param_docs.has(p.name) ? `**${p.name}**: ${param_docs.get(p.name)}` : '',
+                        },
                         label: p.label
                     }
                     return pi;
