@@ -994,6 +994,7 @@ function formatDoc(header, documentation) {
  * @param {import('vscode-languageserver').SignatureHelpParams} request the reeust
  */
 async function onSignatureHelp(request) {
+    trace('onSignatureHelp');
     /** @type {import('vscode-languageserver').SignatureHelp} */
     let sighelp = {
         signatures: [],
@@ -1004,11 +1005,14 @@ async function onSignatureHelp(request) {
     if (!docinfo || !docinfo.parsed) {
         return sighelp;
     }
+    await docinfo.reparseWaiter;
     const index = indexAt(request.position, docinfo.content);
     const token = docinfo.parsed.unit.getTokenAt(index);
     if (!token || !token.methodCallInfo) {
+        trace('onSignatureHelp - no method call info');
         return sighelp;
     }
+    trace(`onSignatureHelp - ${token.methodCallInfo.methods.length} methods`);
     sighelp = {
         signatures: token.methodCallInfo.methods.map(m => {
             /** @type {import('vscode-languageserver').SignatureInformation} */
