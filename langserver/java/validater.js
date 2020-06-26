@@ -5,22 +5,22 @@ const { parseBody } = require('./body-parser3');
 
 /**
  * @param {SourceUnit} unit 
- * @param {Map<string, CEIType>} androidLibrary
+ * @param {Map<string, CEIType>} typemap
  */
-function parseMethodBodies(unit, androidLibrary) {
+function parseMethodBodies(unit, typemap) {
     const resolved_types = [
-        ...resolveImports(androidLibrary, [], [], null).resolved,
+        ...resolveImports(typemap, [], [], unit.packageName).resolved,
         ...unit.imports.filter(i => i.resolved).map(i => i.resolved),
     ]
     unit.types.forEach(t => {
         t.initers.forEach(i => {
-            i.parsed = parseBody(i, resolved_types, androidLibrary);
+            i.parsed = parseBody(i, resolved_types, typemap);
         })
         t.constructors.forEach(c => {
-            c.parsed = parseBody(c, resolved_types, androidLibrary);
+            c.parsed = parseBody(c, resolved_types, typemap);
         })
         t.sourceMethods.forEach(m => {
-            m.parsed = parseBody(m, resolved_types, androidLibrary);
+            m.parsed = parseBody(m, resolved_types, typemap);
         })
     })
 }

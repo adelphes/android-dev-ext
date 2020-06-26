@@ -555,6 +555,8 @@ class SourceImport {
 }
 
 class SourceUnit {
+    /** @type {string} */
+    uri = '';
     /** @type {Token[]} */
     tokens = [];
     /** @type {SourcePackage} */
@@ -613,6 +615,13 @@ class SourceUnit {
             loc: token && token.loc,
             method,
         };
+    }
+
+    /**
+     * Return the name of the package this unit belongs to
+     */
+    get packageName() {
+        return (this.package_ && this.package_.name) || '';
     }
 }
 

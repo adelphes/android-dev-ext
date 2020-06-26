@@ -193,50 +193,59 @@ function extractSourceTypes(tokens, typemap) {
 }
 
 /**
- * @param {string} source
+ * @param {{uri:string, content:string, version:number}[]} docs
+ * @param {SourceUnit[]} cached_units
  * @param {Map<string,CEIType>} typemap 
+ * @returns {SourceUnit[]}
  */
-function parse(source, typemap) {
-    const unit = new SourceUnit();
-    /** @type {ParseProblem[]} */
-    let problems = [];
-    let tokens, timers = new Set();
+function parse(docs, cached_units, typemap) {
+
+    const timers = new Set();
     const time = name => (timers.add(name), console.time(name));
     const timeEnd = name => (timers.delete(name), console.timeEnd(name));
-    try {
-        time('tokenize');
-        tokens = new TokenList(unit.tokens = tokenize(source));
-        problems = tokens.problems;
-        timeEnd('tokenize');
 
-        // in order to resolve types as we parse, we must extract the set of source types first
-        const source_types = extractSourceTypes(tokens, typemap);
+    time('tokenize');
+    const sources = docs.reduce((arr, doc) => {
+        try {
+            const unit = new SourceUnit();
+            unit.uri = doc.uri;
+            const tokens = new TokenList(unit.tokens = tokenize(doc.content));
+            arr.push({ unit, tokens });
+        } catch(err) {
+        }
+        return arr;
+    }, [])
+    timeEnd('tokenize');
+
+    // add the cached types to the type map
+    cached_units.forEach(unit => {
+        unit.types.forEach(t => typemap.set(t.shortSignature, t));
+    })
+
+    // in order to resolve types as we parse, we must extract the set of source types first
+    sources.forEach(source => {
+        const source_types = extractSourceTypes(source.tokens, typemap);
         // add them to the type map
         source_types.forEach(t => typemap.set(t.shortSignature, t));
+    })
 
-        time('parse');
-        parseUnit(tokens, unit, typemap);
-        timeEnd('parse');
-
-        // once all the types have been parsed, resolve any field initialisers
-        const ri = new ResolveInfo(typemap, tokens.problems);
-        unit.types.forEach(t => {
-            t.fields.filter(f => f.init).forEach(f => checkAssignment(ri, f.type, f.init));
-        });
-
-    } catch(err) {
-        timers.forEach(timeEnd);
-        if (tokens && tokens.current) {
-            addproblem(tokens, ParseProblem.Error(tokens.current, `Parse failed: ${err.message}`));
-        } else {
-            console.log(`Parse failed: ${err.message}`);
+    // parse all the tokenized sources
+    time('parse');
+    sources.forEach(source => {
+        try {
+            parseUnit(source.tokens, source.unit, typemap);
+            // once all the types have been parsed, resolve any field initialisers
+            // const ri = new ResolveInfo(typemap, tokens.problems);
+            // unit.types.forEach(t => {
+            //     t.fields.filter(f => f.init).forEach(f => checkAssignment(ri, f.type, f.init));
+            // });
+        } catch (err) {
+            addproblem(source.tokens, ParseProblem.Error(source.tokens.current, `Parse failed: ${err.message}`));
         }
-    }
+    });
+    timeEnd('parse');
 
-    return {
-        unit,
-        problems,
-    }
+    return sources.map(s => s.unit);
 }
 
 /**

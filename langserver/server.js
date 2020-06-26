@@ -111,23 +111,34 @@ const liveParsers = new Map();
 
 /**
  * 
- * @param {string} uri 
+ * @param {string[]} uris
  */
-function reparse(uri) {
+function reparse(uris) {
     if (androidLibrary instanceof Promise) {
         return;
     }
-    const doc = liveParsers.get(uri);
-    if (!doc) {
+    const cached_units = [], parsers = [];
+    for (let docinfo of liveParsers.values()) {
+        if (uris.includes(docinfo.uri)) {
+            // make a copy of the content in case doc changes while we're parsing
+            parsers.push({uri: docinfo.uri, content: docinfo.content, version: docinfo.version});
+        } else if (docinfo.parsed) {
+            cached_units.push(docinfo.parsed.unit);
+        }
+    }
+    if (!parsers.length) {
         return;
     }
-    const { content, version } = doc;
     const typemap = new Map(androidLibrary);
-    const result = parse(content, typemap);
-    if (result) {
-        parseMethodBodies(result.unit, typemap);
-    }
-    doc.parsed = new ParsedInfo(uri, content, version, typemap, result.unit, result.problems);
+    const units = parse(parsers, cached_units, typemap);
+    units.forEach(unit => {
+        const parser = parsers.find(p => p.uri === unit.uri);
+        if (!parser) return;
+        const doc = liveParsers.get(unit.uri);
+        if (!doc) return;
+        doc.parsed = new ParsedInfo(doc.uri, parser.content, parser.version, typemap, unit, []);
+        parseMethodBodies(unit, typemap);
+    });
 }
 
 // Create a simple text document manager. The text document manager
@@ -144,7 +155,7 @@ let documents = new TextDocuments({
         // tokenize the file content and build the initial parse state
         connection.console.log(`create parse ${version}`);
         liveParsers.set(uri, new JavaDocInfo(uri, content, version));
-        reparse(uri);
+        reparse([uri]);
         return { uri };
     },
     /**
@@ -173,7 +184,7 @@ let documents = new TextDocuments({
                 docinfo.content = `${docinfo.content.slice(0, start_index)}${change.text}${docinfo.content.slice(end_index)}`;
             }
         });
-        reparse(document.uri);
+        reparse([document.uri]);
         return document;
     },
 });
@@ -650,7 +661,7 @@ connection.onCompletion(
             return [];
         }
         const parsed = docinfo.parsed;
-        const lib = lastCompletionTypeMap = (parsed && parsed.typemap) || androidLibrary;
+        lastCompletionTypeMap = (parsed && parsed.typemap) || androidLibrary;
         let locals = [], sourceTypes = [], show_instances = false;
         if (parsed.unit) {
             const index = indexAt(_textDocumentPosition.position, parsed.content);
@@ -680,17 +691,26 @@ connection.onCompletion(
                     sortText: p.name,
                 }))
             }
-            sourceTypes = parsed.unit.types.map(t => ({
-                label: t.dottedTypeName,
-                kind: typeKindMap[t.typeKind],
-                data: { type:t.shortSignature },
-                sortText: t.dottedTypeName,
-            }))
         }
 
         if (!defaultCompletionTypes) {
             initDefaultCompletionTypes(androidLibrary);
         }
+
+        liveParsers.forEach(doc => {
+            if (!doc.parsed) {
+                return;
+            }
+            doc.parsed.unit.types.forEach(
+                t => sourceTypes.push({
+                    label: t.dottedTypeName,
+                    kind: typeKindMap[t.typeKind],
+                    data: { type:t.shortSignature },
+                    sortText: t.dottedTypeName,
+                })
+            )
+        });
+    
         return [
             ...locals,
             ...(show_instances ? defaultCompletionTypes.instances : []),
