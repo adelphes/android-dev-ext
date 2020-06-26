@@ -188,7 +188,6 @@ function extractSourceTypes(tokens, typemap) {
             source_types.unshift(source_type);
         }
     }
-    console.log(source_types.map(t => t.shortSignature))
     return source_types;
 }
 
