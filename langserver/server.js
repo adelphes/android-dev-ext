@@ -92,7 +92,49 @@ class JavaDocInfo {
          this.version = version;
          /** @type {ParsedInfo} */
          this.parsed = null;
+         /** @type {Promise} */
+         this.reparseWaiter = Promise.resolve();
+         /** @type {{ resolve: () => void, timer: * }} */
+         this.waitInfo = null;
      }
+
+     /**
+      * Schedule this document for reparsing.
+      * 
+      * To prevent redundant parsing while typing, a small delay is required 
+      * before the reparse happens.
+      * When a key is pressed, `scheduleReparse()` starts a timer. If more
+      * keys are typed before the timer expires, the timer is restarted.
+      * Once typing pauses, the timer expires and the content reparsed.
+      * 
+      * A `reparseWaiter` promise is used to delay the completion items
+      * retrieval until the reparse is complete.
+      */
+     scheduleReparse() {
+        const createWaitTimer = () => {
+            return setTimeout(() => {
+                // reparse the content, resolve the reparseWaiter promise
+                // and reset the fields
+                reparse([this.uri], { includeMethods: true });
+                this.waitInfo.resolve();
+                this.waitInfo = null;
+            }, 250);
+         }
+         if (this.waitInfo) {
+             // we already have a promise pending - just restart the timer
+             trace('restart timer');
+             clearTimeout(this.waitInfo.timer);
+             this.waitInfo.timer = createWaitTimer();
+             return;
+         }
+         // create a new pending promise and start the timer
+         trace('start timer');
+         this.waitInfo = {
+            resolve: null,
+            timer: createWaitTimer(),
+        }
+        this.reparseWaiter = new Promise(resolve => this.waitInfo.resolve = resolve);
+    }
 }
 
 class ParsedInfo {
@@ -129,6 +171,7 @@ let first_parse_waiting = new Set();
  * @param {{includeMethods: boolean, first_parse?: boolean}} [opts]
  */
 function reparse(uris, opts) {
+    trace('reparse');
     if (androidLibrary instanceof Promise) {
         return;
     }
@@ -233,7 +276,10 @@ let documents = new TextDocuments({
                 docinfo.content = `${docinfo.content.slice(0, start_index)}${change.text}${docinfo.content.slice(end_index)}`;
             }
         });
-        reparse([document.uri], { includeMethods: true });
+
+        docinfo.version = version;
+        docinfo.scheduleReparse();
+
         return document;
     },
 });
@@ -789,6 +835,18 @@ connection.onCompletion(
         if (!docinfo || !docinfo.parsed) {
             return [];
         }
+        trace('reparse waiter - ' + docinfo.version);
+        const preversion = docinfo.version;
+        await docinfo.reparseWaiter;
+        trace('retrieving completion items - ' + docinfo.version);
+        if (docinfo.version !== preversion) {
+            // if the content has changed, ignore the current request
+            /** @type {import('vscode-languageserver').CompletionList} */
+            return {
+                isIncomplete: true,
+                items: [],
+            }
+        }
         const parsed = docinfo.parsed;
         lastCompletionTypeMap = (parsed && parsed.typemap) || androidLibrary;
         let locals = [], sourceTypes = [], show_instances = false;
@@ -849,7 +907,10 @@ connection.onCompletion(
             ...[
                 ...defaultCompletionTypes.types,
                 ...sourceTypes,
-            ].sort(sortBy.label),
+            ]   // exclude dotted (inner) types because they result in useless 
+                // matches in the intellisense filter when . is pressed
+                .filter(x => !x.label.includes('.'))
+                .sort(sortBy.label),
             ...defaultCompletionTypes.packageNames,
         ].map((x,idx) => {
             x.sortText = `${10000+idx}-${x.label}`;
