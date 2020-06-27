@@ -18,7 +18,8 @@ const {
 
 const { TextDocument } = require('vscode-languageserver-textdocument');
 
-const { loadAndroidLibrary, JavaType, CEIType, ArrayType, PrimitiveType, Method } = require('java-mti');
+const { loadAndroidSystemLibrary } = require('./java/java-libraries');
+const { JavaType, CEIType, ArrayType, PrimitiveType, Method } = require('java-mti');
 
 const { ParseProblem } = require('./java/parser');
 const { parse } = require('./java/body-parser3');
@@ -289,14 +290,16 @@ let hasWorkspaceFolderCapability = false;
 let hasDiagnosticRelatedInformationCapability = false;
 
 connection.onInitialize((params) => {
-    console.time('android-library-load')
-    androidLibrary = loadAndroidLibrary('android-25').then(lib => {
-            console.timeEnd('android-library-load')
-            return androidLibrary = lib;
-    }, err => {
-        trace(`android library load failed: ${err.message}`);
-        return androidLibrary = new Map();
-    });
+
+    // the storage path is passed to us by the client side of the extension
+    const library_cache_path = (params.initializationOptions || {}).globalStoragePath;
+    trace(`library_cache_path: ${library_cache_path}`);
+
+    // the android library is loaded asynchronously, with the global `androidLibrary` variable
+    // set to the promise while it is loading.
+    androidLibrary = loadAndroidSystemLibrary(library_cache_path)
+        .then(library => androidLibrary = library);
+
     let capabilities = params.capabilities;
 
     // Does the client support the `workspace/configuration` request?

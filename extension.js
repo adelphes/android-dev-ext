@@ -11,6 +11,9 @@ const { selectTargetDevice } = require('./src/utils/device');
 /** @type {LanguageClient} */
 let client;
 
+/**
+ * @param {vscode.ExtensionContext} context
+ */
 function activateLanguageClient(context) {
   // The server is implemented in node
   let serverModule = context.asAbsolutePath(path.join('langserver', 'server.js'));
@@ -38,10 +41,14 @@ function activateLanguageClient(context) {
   let clientOptions = {
     // Register the server for plain text documents
     documentSelector: [{ scheme: 'file', language: 'java' }],
+    initializationOptions: {
+        // globalStoragePath is used to cache decoded jar files
+        globalStoragePath: context.globalStoragePath,
+    },
     synchronize: {
       // Notify the server about file changes to '.java files contained in the workspace
       fileEvents: vscode.workspace.createFileSystemWatcher('**/.java')
-    }
+    },
   };
 
   // Create the language client and start the client.
