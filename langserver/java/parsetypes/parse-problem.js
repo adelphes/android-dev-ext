@@ -16,7 +16,11 @@ class ParseProblem {
      * @param {Severity} severity 
      */
     constructor(token, message, severity) {
-        if (Array.isArray(token)) {
+        if (!token || (Array.isArray(token) && !token[0])) {
+            this.startIdx = 0;
+            this.endIdx = 1;
+        }
+        else if (Array.isArray(token)) {
             this.startIdx = token[0].range.start;
             const lastToken = token[token.length - 1];
             this.endIdx = lastToken.range.start + lastToken.range.length;
