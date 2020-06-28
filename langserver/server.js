@@ -46,6 +46,11 @@ let documents = new TextDocuments({
     create(uri, languageId, version, content) {
         trace(`document create ${uri}:${version}`);
 
+        // sanity-check - we only support Java source files
+        if (!/\.java$/i.test(uri)) {
+            return { uri };
+        }
+
         // add the document to the set
         liveParsers.set(uri, new JavaDocInfo(uri, content, version));
 
