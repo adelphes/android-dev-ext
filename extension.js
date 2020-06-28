@@ -42,8 +42,8 @@ function activateLanguageClient(context) {
     // Register the server for plain text documents
     documentSelector: [{ scheme: 'file', language: 'java' }],
     initializationOptions: {
-        // globalStoragePath is used to cache decoded jar files
-        globalStoragePath: context.globalStoragePath,
+        // extensionPath points to the root of the extension (the folder where this file is)
+        extensionPath: context.extensionPath,
     },
     synchronize: {
       // Notify the server about file changes to '.java files contained in the workspace

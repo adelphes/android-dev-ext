@@ -173,9 +173,6 @@ let first_parse_waiting = new Set();
  */
 function reparse(uris, opts) {
     trace('reparse');
-    if (androidLibrary instanceof Promise) {
-        return;
-    }
     if (!uris || !uris.length) {
         return;
     }
@@ -185,6 +182,11 @@ function reparse(uris, opts) {
             trace('waiting for first parse')
             return;
         }
+    }
+    if (androidLibrary instanceof Promise) {
+        // reparse after the library has loaded
+        androidLibrary.then(() => reparse(uris, opts));
+        return;
     }
     const cached_units = [], parsers = [];
     for (let docinfo of liveParsers.values()) {
@@ -291,14 +293,16 @@ let hasDiagnosticRelatedInformationCapability = false;
 
 connection.onInitialize((params) => {
 
-    // the storage path is passed to us by the client side of the extension
-    const library_cache_path = (params.initializationOptions || {}).globalStoragePath;
-    trace(`library_cache_path: ${library_cache_path}`);
-
     // the android library is loaded asynchronously, with the global `androidLibrary` variable
     // set to the promise while it is loading.
-    androidLibrary = loadAndroidSystemLibrary(library_cache_path)
-        .then(library => androidLibrary = library);
+    androidLibrary = loadAndroidSystemLibrary((params.initializationOptions || {}).extensionPath)
+        .then(
+            library => androidLibrary = library,
+            err => {
+                console.log(`Android library load failed: ${err.message}\n Code completion may not be available.`);
+                return new Map();
+            }
+        );
 
     let capabilities = params.capabilities;
 
