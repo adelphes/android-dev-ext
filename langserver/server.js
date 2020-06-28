@@ -5,6 +5,7 @@ const {
     DidChangeConfigurationNotification,
     TextDocumentSyncKind,
 } = require('vscode-languageserver');
+const fs = require('fs');
 
 const { TextDocument } = require('vscode-languageserver-textdocument');
 
@@ -186,16 +187,43 @@ documents.onDidClose((e) => {
     connection.sendDiagnostics({ uri: e.document.uri, diagnostics: [] });
 });
 
-// The content of a text document has changed. This event is emitted
-// when the text document first opened or when its content has changed.
-documents.onDidChangeContent((change) => {
-    trace('onDidChangeContent');
-});
+connection.onDidChangeWatchedFiles(
+    /** @param {import('vscode-languageserver').DidChangeWatchedFilesParams} params */
+    (params) => {
+        // Monitored files have change in VS Code
+        trace(`watch file change: ${JSON.stringify(params)}`);
+        let files_changed = false;
+        params.changes.forEach(change => {
+            switch(change.type) {
+                case 1: // create
+                    // if the user creates the file directly in vscode, the file will automatically open (and we receive an open callback)
+                    // - but if the user creates or copies a file into the workspace, we need to manually add it to the set.
+                    if (!liveParsers.has(change.uri) && /^file:\/\//.test(change.uri)) {
+                        trace(`file added: ${change.uri}`)
+                        try {
+                            const fname = change.uri.replace(/^file:\/\//, '');
+                            liveParsers.set(change.uri, new JavaDocInfo(change.uri, fs.readFileSync(fname, 'utf8'), 0));
+                            files_changed = true;
+                        } catch {}
+                    }
+                    break;
+                case 2: // change
+                    // called when the user manually saves the file - ignore for now
+                    break;
+                case 3: // delete
+                    trace(`file deleted: ${change.uri}`)
+                    liveParsers.delete(change.uri);
+                    files_changed = true;
+                    break;
+            }
+        });
 
-connection.onDidChangeWatchedFiles((change) => {
-    // Monitored files have change in VS Code
-    trace(`file change event: ${JSON.stringify(change)}`);
-});
+        if (files_changed) {
+            // reparse the entire set
+            reparse([...liveParsers.keys()], liveParsers, androidLibrary);
+        }
+    }
+);
 
 // Retrieve the initial list of the completion items.
 connection.onCompletion(params => getCompletionItems(params, liveParsers, androidLibrary));
@@ -205,26 +233,6 @@ connection.onCompletionResolve(item => resolveCompletionItem(item));
 
 // Retrieve method signature information
 connection.onSignatureHelp(params => getSignatureHelp(params, liveParsers));
-
-/*
-    connection.onDidOpenTextDocument((params) => {
-        // A text document got opened in VS Code.
-        // params.uri uniquely identifies the document. For documents store on disk this is a file URI.
-        // params.text the initial full content of the document.
-        trace(`${params.textDocument.uri} opened.`);
-    });
-    connection.onDidChangeTextDocument((params) => {
-        // The content of a text document did change in VS Code.
-        // params.uri uniquely identifies the document.
-        // params.contentChanges describe the content changes to the document.
-        trace(`${params.textDocument.uri} changed: ${JSON.stringify(params.contentChanges)}`);
-    });
-    connection.onDidCloseTextDocument((params) => {
-        // A text document got closed in VS Code.
-        // params.uri uniquely identifies the document.
-        trace(`${params.textDocument.uri} closed.`);
-    });
-    */
 
 // Make the text document manager listen on the connection
 // for open, change and close text document events

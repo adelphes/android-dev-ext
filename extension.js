@@ -47,7 +47,7 @@ function activateLanguageClient(context) {
     },
     synchronize: {
       // Notify the server about file changes to '.java files contained in the workspace
-      fileEvents: vscode.workspace.createFileSystemWatcher('**/.java')
+      fileEvents: vscode.workspace.createFileSystemWatcher('**/*.java')
     },
   };
 
