@@ -502,6 +502,9 @@ function sourceType(docs, modifiers, tokens, scope_or_pkgname, typeKind, owner, 
         scope = scope_or_pkgname;
     }
     const type = typeDeclaration(package_name, scope, docs, modifiers, typeKind, tokens.current, tokens, imports, typemap);
+    if (!type) {
+        return;
+    }
     owner.types.push(type);
     if (!(owner instanceof MethodDeclarations)) {
         typemap.set(type.shortSignature, type);
