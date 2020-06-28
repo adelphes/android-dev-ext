@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const {
     createConnection,
     TextDocuments,
@@ -18,6 +19,7 @@ const {
 
 const { TextDocument } = require('vscode-languageserver-textdocument');
 
+const { Settings } = require('./settings');
 const { loadAndroidSystemLibrary } = require('./java/java-libraries');
 const { JavaType, CEIType, ArrayType, PrimitiveType, Method } = require('java-mti');
 
@@ -334,14 +336,43 @@ connection.onInitialized(async () => {
     if (hasConfigurationCapability) {
         // Register for all configuration changes.
         connection.client.register(DidChangeConfigurationNotification.type, undefined);
+        const initialSettings = await connection.workspace.getConfiguration({
+            section: Settings.ID,
+        });
+        Settings.set(initialSettings);
     }
+
     if (hasWorkspaceFolderCapability) {
         connection.workspace.onDidChangeWorkspaceFolders((_event) => {
             trace('Workspace folder change event received.');
         });
     }
 
-    const files = await loadWorkingFileList();
+    const src_folder = await getAppRootFolder();
+    if (src_folder) {
+        await rescanSourceFolders(src_folder);
+        reparse([...liveParsers.keys()], { includeMethods: false, first_parse: true });
+    }
+
+    trace('Initialization complete');
+});
+
+/**
+ * Called during initialization and whenver the App Root setting is changed to scan
+ * for source files
+ * @param {string} src_folder absolute path to the source root
+ */
+async function rescanSourceFolders(src_folder) {
+    if (!src_folder) {
+        return;
+    }
+
+    // when the appRoot config value changes and we rescan the folder, we need
+    // to delete any parsers that were from the old appRoot
+    const unused_keys = new Set(liveParsers.keys());
+
+    const files = await loadWorkingFileList(src_folder);
+
     // create live parsers for all the java files, but don't replace any existing ones which
     // have been loaded (and may be edited) before we reach here
     for (let file of files) {
@@ -349,27 +380,39 @@ connection.onInitialized(async () => {
             continue;
         }
         const uri = `file://${file.fpn}`;    // todo - handle case-differences on Windows
+        unused_keys.delete(uri);
+
         if (liveParsers.has(uri)) {
             trace(`already loaded: ${uri}`);
             continue;
         }
+
         try {
             const file_content = await new Promise((res, rej) => fs.readFile(file.fpn, 'UTF8', (err,data) => err ? rej(err) : res(data)));
             liveParsers.set(uri, new JavaDocInfo(uri, file_content, 0));
         } catch {}
     }
 
-    reparse([...liveParsers.keys()], { includeMethods: false, first_parse: true });
+    // remove any parsers that are no longer part of the working set
+    unused_keys.forEach(uri => liveParsers.delete(uri));
+}
 
-    trace('Initialization complete');
-});
+/**
+ * Attempts to locate the app root folder using workspace folders and the appRoot setting
+ * @returns Absolute path to app root folder or null
+ */
+async function getAppRootFolder() {
+    /** @type {string} */
+    let src_folder = null;
 
-
-async function loadWorkingFileList() {
     const folders = await connection.workspace.getWorkspaceFolders();
-    let src_folder = '';
+    if (!folders || !folders.length) {
+        trace('No workspace folders');
+        return src_folder;
+    }
+
     folders.find(folder => {
-        const main_folder = path.join(folder.uri.replace(/^\w+:\/\//, ''), 'app', 'src', 'main');
+        const main_folder = path.join(folder.uri.replace(/^\w+:\/\//, ''), Settings.appRoot);
         try {
             if (fs.statSync(main_folder).isDirectory()) {
                 src_folder = main_folder;
@@ -377,36 +420,65 @@ async function loadWorkingFileList() {
             }
         } catch {}
     });
+
     if (!src_folder) {
-        trace(`Failed to find src root from workspace folders:\n - ${folders.map(f => f.uri).join('\n - ')}`);
-        return;
+        console.log([
+            `Failed to find source root from workspace folders:`,
+            ...folders.map(f => ` - ${f.uri}`),
+            'Configure the Android App Root value in your workspace settings to point to your source folder containing AndroidManifest.xml',
+        ].join(os.EOL));
     }
 
-    trace(`Found src root: ${src_folder}. Beginning search for source files...`);
+    return src_folder;
+}
+
+async function loadWorkingFileList(src_folder) {
+    if (!src_folder) {
+        return [];
+    }
+
+    trace(`Using src root folder: ${src_folder}. Searching for Android project source files...`);
     console.time('source file search')
     const files = scanSourceFiles(src_folder);
-    console.timeEnd('source file search')
+    console.timeEnd('source file search');
+
+    if (!files.find(file => /^androidmanifest.xml$/i.test(file.relfpn))) {
+        console.log(`Warning: No AndroidManifest.xml found in app root folder. Check the Android App Root value in your workspace settings.`)
+    }
+
     return files;
 
     /**
-     * @param {string} folder 
-     * @returns {{fpn:string, stat:fs.Stats}[]}
+     * @param {string} base_folder 
+     * @returns {{fpn:string, relfpn: string, stat:fs.Stats}[]}
      */
-    function scanSourceFiles(folder) {
-        const done = new Set(), folders = [folder], files = [];
+    function scanSourceFiles(base_folder) {
+        // strip any trailing slash
+        base_folder = base_folder.replace(/[\\/]+$/, '');
+        const done = new Set(), folders = [base_folder], files = [];
+        const max_folders = 100;
         while (folders.length) {
             const folder = folders.shift();
             if (done.has(folder)) {
                 continue;
             }
             done.add(folder);
+            if (done.size > max_folders) {
+                console.log(`Max folder limit reached - cancelling file search`);
+                break;
+            }
             try {
                 trace(`scan source folder ${folder}`)
                 fs.readdirSync(folder)
                     .forEach(name => {
                         const fpn = path.join(folder, name);
                         const stat = fs.statSync(fpn);
-                        files.push({fpn,stat});
+                        files.push({
+                            fpn,
+                            // relative path (without leading slash)
+                            relfpn: fpn.slice(base_folder.length + 1),
+                            stat,
+                        });
                         if (stat.isDirectory()) {
                             folders.push(fpn)
                         }
@@ -419,53 +491,23 @@ async function loadWorkingFileList() {
     }
 }
 
-// The example settings
-/**
- * @typedef ExampleSettings
- * @property {number} maxNumberOfProblems
- */
-
-// The global settings, used when the `workspace/configuration` request is not supported by the client.
-// Please note that this is not the case when using this server with the client provided in this example
-// but could happen with other clients.
-const defaultSettings = { maxNumberOfProblems: 1000 };
-let globalSettings = defaultSettings;
-
-// Cache the settings of all open documents
-/** @type {Map<string, Thenable<ExampleSettings>>} */
-let documentSettings = new Map();
-
-connection.onDidChangeConfiguration((change) => {
-    if (hasConfigurationCapability) {
-        // Reset all cached document settings
-        documentSettings.clear();
-    } else {
-        globalSettings = change.settings.androidJavaLanguageServer || defaultSettings;
+connection.onDidChangeConfiguration(async (change) => {
+    trace(`onDidChangeConfiguration`);
+    if (change && change.settings && change.settings[Settings.ID]) {
+        const old_app_root = Settings.appRoot;
+        Settings.onChange(change.settings[Settings.ID]);
+        if (old_app_root !== Settings.appRoot) {
+            const src_folder = await getAppRootFolder();
+            if (src_folder) {
+                rescanSourceFolders(src_folder);
+                reparse([...liveParsers.keys()]);
+            }
+        }
     }
+})
 
-    // Revalidate all open text documents
-    documents.all().forEach(validateTextDocument);
-});
-
-function getDocumentSettings(resource) {
-    if (!hasConfigurationCapability) {
-        return Promise.resolve(globalSettings);
-    }
-    let result = documentSettings.get(resource);
-    if (!result) {
-        result = connection.workspace.getConfiguration({
-            scopeUri: resource,
-            section: 'androidJavaLanguageServer',
-        });
-        documentSettings.set(resource, result);
-    }
-    return result;
-}
-
-// Only keep settings for open documents
 documents.onDidClose((e) => {
     trace(`doc closed ${e.document.uri}`);
-    documentSettings.delete(e.document.uri);
     connection.sendDiagnostics({ uri: e.document.uri, diagnostics: [] });
 });
 
@@ -514,54 +556,6 @@ async function validateTextDocument(textDocument) {
             };
             return diagnostic;
         });
-    connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
-}
-
-async function validateTextDocument2(textDocument) {
-    // In this simple example we get the settings for every validate run.
-    //let settings = await getDocumentSettings(textDocument.uri);
-
-    // The validator creates diagnostics for all uppercase words length 2 and more
-    let text = textDocument.getText();
-    let pattern = /\b[A-Z]{2,}\b/g;
-    let m;
-
-    let problems = 0;
-    let diagnostics = [];
-    while ((m = pattern.exec(text)) /* && problems < settings.maxNumberOfProblems */) {
-        problems++;
-        /** @type {Diagnostic} */
-        let diagnostic = {
-            severity: DiagnosticSeverity.Warning,
-            range: {
-                start: textDocument.positionAt(m.index),
-                end: textDocument.positionAt(m.index + m[0].length),
-            },
-            message: `${m[0]} is all uppercase.`,
-            source: 'ex',
-        };
-        if (hasDiagnosticRelatedInformationCapability) {
-            diagnostic.relatedInformation = [
-                {
-                    location: {
-                        uri: textDocument.uri,
-                        range: Object.assign({}, diagnostic.range),
-                    },
-                    message: 'Spelling matters',
-                },
-                {
-                    location: {
-                        uri: textDocument.uri,
-                        range: Object.assign({}, diagnostic.range),
-                    },
-                    message: 'Particularly for names',
-                },
-            ];
-        }
-        diagnostics.push(diagnostic);
-    }
-
-    // Send the computed diagnostics to VS Code.
     connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
 }
 
