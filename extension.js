@@ -54,7 +54,7 @@ function activateLanguageClient(context) {
   // Create the language client and start the client.
   client = new LanguageClient(
     'androidJavaLanguageServer',
-    'Java (Android)',
+    'Android',
     serverOptions,
     clientOptions
   );
