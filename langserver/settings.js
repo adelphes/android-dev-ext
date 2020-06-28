@@ -1,6 +1,7 @@
 
 const defaultSettings = {
-    appRoot: 'app/src/main'
+    appSourceRoot: 'app/src/main',
+    trace: false,
 }
 
  class AndroidProjectSettings {
@@ -8,24 +9,22 @@ const defaultSettings = {
       * The root of the app source folder.
       * This folder should contain AndroidManifest.xml as well as the asets, res, etc folders
       */
-     appRoot = defaultSettings.appRoot;
+     appSourceRoot = defaultSettings.appSourceRoot;
 
      /**
-      * The identifier for the language server settings
+      * True if we log details
       */
-     ID = 'androidJavaLanguageServer';
+     trace = defaultSettings.trace;
+
+     updateCount = 0;
 
      static Instance = new AndroidProjectSettings();
 
-     /**
-      * Called when the user edits the settings
-      * @param {*} values 
-      */
-     onChange(values) {
-         this.set(values);
-     }
-
      set(values) {
+         if (!values || typeof values !== 'object') {
+             return;
+         }
+         this.updateCount += 1;
         console.log(`settings set: ${JSON.stringify(values)}`);
         for (let key in defaultSettings) {
             if (Object.prototype.hasOwnProperty.call(values, key)) {
@@ -34,21 +33,5 @@ const defaultSettings = {
         }
      }
  }
-
-
-// function getDocumentSettings(resource) {
-//     if (!hasConfigurationCapability) {
-//         return Promise.resolve(projectSettings);
-//     }
-//     let result = documentSettings.get(resource);
-//     if (!result) {
-//         result = connection.workspace.getConfiguration({
-//             scopeUri: resource,
-//             section: 'androidJavaLanguageServer',
-//         });
-//         documentSettings.set(resource, result);
-//     }
-//     return result;
-// }
 
 exports.Settings = AndroidProjectSettings.Instance;

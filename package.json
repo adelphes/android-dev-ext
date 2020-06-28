@@ -31,13 +31,24 @@
     "contributes": {
         "configuration": {
             "type": "object",
-            "title": "Java (Android)",
+            "title": "Android",
             "properties": {
-                "androidJavaLanguageServer.maxNumberOfProblems": {
+                "android-dev-ext.appSourceRoot": {
                     "scope": "resource",
-                    "type": "number",
-                    "default": 100,
-                    "description": "Controls the maximum number of problems produced by the server."
+                    "type": "string",
+                    "default": "app/src/main",
+                    "description": "Relative path to the app source files. This folder should contain AndroidManifest.xml."
+                },
+                "android-dev-ext.subscriptionKey": {
+                    "scope": "application",
+                    "type": "string",
+                    "default": ""
+                },
+                "android-dev-ext.trace": {
+                    "scope": "resource",
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enable detailed trace logging."
                 }
             }
         },

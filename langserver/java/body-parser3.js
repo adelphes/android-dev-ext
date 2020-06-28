@@ -18,6 +18,7 @@ const { Label, Local, MethodDeclarations, ResolvedIdent, ResolveInfo } = require
 const { resolveImports, resolveSingleImport } = require('../java/import-resolver');
 const { checkAssignment, getTypeInheritanceList } = require('./expression-resolver');
 const { checkStatementBlock } = require('./statement-validater');
+const { time, timeEnd } = require('../logging');
 
 const { ArrayIndexExpression } = require("./expressiontypes/ArrayIndexExpression");
 const { ArrayValueExpression } = require("./expressiontypes/ArrayValueExpression");
@@ -198,10 +199,6 @@ function extractSourceTypes(tokens, typemap) {
  * @returns {SourceUnit[]}
  */
 function parse(docs, cached_units, typemap) {
-
-    const timers = new Set();
-    const time = name => (timers.add(name), console.time(name));
-    const timeEnd = name => (timers.delete(name), console.timeEnd(name));
 
     time('tokenize');
     const sources = docs.reduce((arr, doc) => {

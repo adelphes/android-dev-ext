@@ -4,30 +4,26 @@ const os = require('os');
 const {
     createConnection,
     TextDocuments,
-    //TextDocument,
     Diagnostic,
-    DiagnosticSeverity,
     ProposedFeatures,
-    //InitializeParams,
     DidChangeConfigurationNotification,
     CompletionItem,
     CompletionItemKind,
     TextDocumentSyncKind,
-    Position,
-    //TextDocumentPositionParams
 } = require('vscode-languageserver');
 
 const { TextDocument } = require('vscode-languageserver-textdocument');
 
-const { Settings } = require('./settings');
 const { loadAndroidSystemLibrary } = require('./java/java-libraries');
 const { JavaType, CEIType, ArrayType, PrimitiveType, Method } = require('java-mti');
 
 const { ParseProblem } = require('./java/parser');
 const { parse } = require('./java/body-parser3');
 const { SourceUnit } = require('./java/source-types');
-const { validate, parseMethodBodies } = require('./java/validater');
+const { parseMethodBodies } = require('./java/validater');
 const { getTypeInheritanceList } = require('./java/expression-resolver');
+const { Settings } = require('./settings');
+const { trace, info, time, timeEnd } = require('./logging');
 
 /**
  * @typedef {Map<string, CEIType>} AndroidLibrary
@@ -74,13 +70,6 @@ function positionAt(index, content) {
         last_nl_idx = idx;
         line++;
     }
-}
-
-/**
- * @param {string} s 
- */
-function trace(s) {
-    console.log(`${Date.now()}: ${s}`);
 }
 
 class JavaDocInfo {
@@ -226,7 +215,7 @@ function reparse(uris, opts) {
     }
 
     if (method_body_uris.length) {
-        console.time('parse-methods');
+        time('parse-methods');
         method_body_uris.forEach(uri => {
             const doc = liveParsers.get(uri);
             if (!doc || !doc.parsed) {
@@ -234,7 +223,7 @@ function reparse(uris, opts) {
             }
             parseMethodBodies(doc.parsed.unit, typemap);
         })
-        console.timeEnd('parse-methods');
+        timeEnd('parse-methods');
     }
 }
 
@@ -335,9 +324,12 @@ connection.onInitialize((params) => {
 connection.onInitialized(async () => {
     if (hasConfigurationCapability) {
         // Register for all configuration changes.
-        connection.client.register(DidChangeConfigurationNotification.type, undefined);
+        connection.client.register(
+            DidChangeConfigurationNotification.type, {
+                section: 'android-dev-ext',
+        });
         const initialSettings = await connection.workspace.getConfiguration({
-            section: Settings.ID,
+            section: "android-dev-ext"
         });
         Settings.set(initialSettings);
     }
@@ -348,7 +340,7 @@ connection.onInitialized(async () => {
         });
     }
 
-    const src_folder = await getAppRootFolder();
+    const src_folder = await getAppSourceRootFolder();
     if (src_folder) {
         await rescanSourceFolders(src_folder);
         reparse([...liveParsers.keys()], { includeMethods: false, first_parse: true });
@@ -367,8 +359,8 @@ async function rescanSourceFolders(src_folder) {
         return;
     }
 
-    // when the appRoot config value changes and we rescan the folder, we need
-    // to delete any parsers that were from the old appRoot
+    // when the appSourceRoot config value changes and we rescan the folder, we need
+    // to delete any parsers that were from the old appSourceRoot
     const unused_keys = new Set(liveParsers.keys());
 
     const files = await loadWorkingFileList(src_folder);
@@ -398,10 +390,10 @@ async function rescanSourceFolders(src_folder) {
 }
 
 /**
- * Attempts to locate the app root folder using workspace folders and the appRoot setting
+ * Attempts to locate the app root folder using workspace folders and the appSourceRoot setting
  * @returns Absolute path to app root folder or null
  */
-async function getAppRootFolder() {
+async function getAppSourceRootFolder() {
     /** @type {string} */
     let src_folder = null;
 
@@ -412,7 +404,7 @@ async function getAppRootFolder() {
     }
 
     folders.find(folder => {
-        const main_folder = path.join(folder.uri.replace(/^\w+:\/\//, ''), Settings.appRoot);
+        const main_folder = path.join(folder.uri.replace(/^\w+:\/\//, ''), Settings.appSourceRoot);
         try {
             if (fs.statSync(main_folder).isDirectory()) {
                 src_folder = main_folder;
@@ -425,7 +417,7 @@ async function getAppRootFolder() {
         console.log([
             `Failed to find source root from workspace folders:`,
             ...folders.map(f => ` - ${f.uri}`),
-            'Configure the Android App Root value in your workspace settings to point to your source folder containing AndroidManifest.xml',
+            'Configure the Android App Source Root value in your workspace settings to point to your source folder containing AndroidManifest.xml',
         ].join(os.EOL));
     }
 
@@ -438,9 +430,9 @@ async function loadWorkingFileList(src_folder) {
     }
 
     trace(`Using src root folder: ${src_folder}. Searching for Android project source files...`);
-    console.time('source file search')
+    time('source file search')
     const files = scanSourceFiles(src_folder);
-    console.timeEnd('source file search');
+    timeEnd('source file search');
 
     if (!files.find(file => /^androidmanifest.xml$/i.test(file.relfpn))) {
         console.log(`Warning: No AndroidManifest.xml found in app root folder. Check the Android App Root value in your workspace settings.`)
@@ -492,16 +484,19 @@ async function loadWorkingFileList(src_folder) {
 }
 
 connection.onDidChangeConfiguration(async (change) => {
-    trace(`onDidChangeConfiguration`);
-    if (change && change.settings && change.settings[Settings.ID]) {
-        const old_app_root = Settings.appRoot;
-        Settings.onChange(change.settings[Settings.ID]);
-        if (old_app_root !== Settings.appRoot) {
-            const src_folder = await getAppRootFolder();
-            if (src_folder) {
-                rescanSourceFolders(src_folder);
-                reparse([...liveParsers.keys()]);
-            }
+    trace(`onDidChangeConfiguration: ${JSON.stringify(change)}`);
+    const old_app_root = Settings.appSourceRoot;
+    const newSettings = await connection.workspace.getConfiguration({
+        section: "android-dev-ext"
+    });
+
+    Settings.set(newSettings);
+
+    if (old_app_root !== Settings.appSourceRoot) {
+        const src_folder = await getAppSourceRootFolder();
+        if (src_folder) {
+            rescanSourceFolders(src_folder);
+            reparse([...liveParsers.keys()]);
         }
     }
 })
@@ -523,7 +518,7 @@ documents.onDidChangeContent((change) => {
  */
 async function validateTextDocument(textDocument) {
     if (androidLibrary instanceof Promise) {
-        trace('Waiting for Android Library load');
+        trace('waiting for Android Library load to complete');
         androidLibrary = await androidLibrary;
     }
     /** @type {ParseProblem[]} */

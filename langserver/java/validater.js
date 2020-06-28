@@ -31,8 +31,6 @@ function parseMethodBodies(unit, typemap) {
  * @returns {import('./parsetypes/parse-problem')[]}
  */
 function validate(unit, androidLibrary) {
-    console.time('validation');
-
     let probs = [];
 
     const module_validaters = [
@@ -54,7 +52,6 @@ function validate(unit, androidLibrary) {
         module_validaters.map(v => v(unit.types, unit)),
         ...probs,
     ];
-    console.timeEnd('validation');
 
     function flatten(arr) {
         let res = arr;
