@@ -37,7 +37,7 @@
                     "scope": "resource",
                     "type": "string",
                     "default": "app/src/main",
-                    "description": "Relative path to the app source files. This folder should contain AndroidManifest.xml."
+                    "description": "Workspace-relative path to the app source files. The specified folder should contain AndroidManifest.xml."
                 },
                 "android-dev-ext.subscriptionKey": {
                     "scope": "application",
@@ -48,7 +48,7 @@
                     "scope": "resource",
                     "type": "boolean",
                     "default": false,
-                    "description": "Enable detailed trace logging."
+                    "description": "Enable diagnostic trace logging in the extension output."
                 }
             }
         },

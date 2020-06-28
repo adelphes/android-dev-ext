@@ -350,7 +350,7 @@ connection.onInitialized(async () => {
 });
 
 /**
- * Called during initialization and whenver the App Root setting is changed to scan
+ * Called during initialization and whenver the App Source Root setting is changed to scan
  * for source files
  * @param {string} src_folder absolute path to the source root
  */
@@ -435,7 +435,7 @@ async function loadWorkingFileList(src_folder) {
     timeEnd('source file search');
 
     if (!files.find(file => /^androidmanifest.xml$/i.test(file.relfpn))) {
-        console.log(`Warning: No AndroidManifest.xml found in app root folder. Check the Android App Root value in your workspace settings.`)
+        console.log(`Warning: No AndroidManifest.xml found in app root folder. Check the Android App Source Root value in your workspace settings.`)
     }
 
     return files;
