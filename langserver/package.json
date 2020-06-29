@@ -1,7 +1,7 @@
 {
   "name": "langserver",
   "version": "1.0.1",
-  "description": "Java language server for Android development",
+  "description": "Language server for Android development",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,7 +9,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "java-mti": "file:../../../nodejs/java-mti",
+    "java-mti": "file:./node_deps/java-mti",
     "vscode-languageserver": "^6.1.1",
     "vscode-languageserver-textdocument": "^1.0.1"
   },
