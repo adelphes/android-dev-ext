@@ -5,6 +5,7 @@
  */
 const { KeywordStatement } = require("./KeywordStatement");
 const { ResolvedIdent } = require('../body-types');
+const { Block } = require('./Block');
 
 class TryStatement extends KeywordStatement {
     /** @type {(ResolvedIdent|Local[])[]} */
@@ -28,6 +29,16 @@ class TryStatement extends KeywordStatement {
             this.block.validate(vi);
             vi.statementStack.shift();
         }
+
+        this.catches.forEach(c => {
+            if (c instanceof Block) {
+                // finally
+                c.validate(vi);
+            } else if (c.block) {
+                // catch block
+                c.block.validate(vi);
+            }
+        })
     }
 }
 

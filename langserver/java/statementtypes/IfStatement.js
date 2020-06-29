@@ -19,9 +19,10 @@ class IfStatement extends KeywordStatement {
      * @param {ValidateInfo} vi 
      */
     validate(vi) {
-        const value = this.test.resolveExpression(vi);
-        checkBooleanBranchCondition(value, () => this.test.tokens, vi.problems);
-
+        if (this.test) {
+            const value = this.test.resolveExpression(vi);
+            checkBooleanBranchCondition(value, () => this.test.tokens, vi.problems);
+        }
         if (this.statement) {
             vi.statementStack.unshift('if');
             checkNonVarDeclStatement(this.statement, vi);
@@ -29,7 +30,7 @@ class IfStatement extends KeywordStatement {
         }
         if (this.elseStatement) {
             vi.statementStack.unshift('else');
-            checkNonVarDeclStatement(this.statement, vi);
+            checkNonVarDeclStatement(this.elseStatement, vi);
             vi.statementStack.shift();
         }
     }

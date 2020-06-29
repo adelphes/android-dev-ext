@@ -16,9 +16,10 @@ class WhileStatement extends KeywordStatement {
      * @param {ValidateInfo} vi 
      */
     validate(vi) {
-        const value = this.test.resolveExpression(vi);
-        checkBooleanBranchCondition(value, () => this.test.tokens, vi.problems);
-
+        if (this.test) {
+            const value = this.test.resolveExpression(vi);
+            checkBooleanBranchCondition(value, () => this.test.tokens, vi.problems);
+        }
         if (this.statement) {
             vi.statementStack.unshift('while');
             this.statement.validate(vi);

@@ -59,7 +59,8 @@ class SwitchStatement extends KeywordStatement {
                 } else {
                     vi.problems.push(ParseProblem.Error(c.tokens, `Expression expected`));
                 }
-            })
+            });
+            caseblock.statements.forEach(statement => statement.validate(vi));
         })
 
         vi.statementStack.shift();
