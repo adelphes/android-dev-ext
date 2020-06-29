@@ -1,7 +1,6 @@
 /**
  * @typedef {import('java-mti').CEIType} CEIType
  */
-const { ImportBlock } = require('../parser9');
 
  /**
   * Class representing a resolved import.
@@ -12,19 +11,12 @@ const { ImportBlock } = require('../parser9');
   */
  class ResolvedImport {
     /**
-     * @param {ImportBlock} import_decl 
      * @param {RegExpMatchArray} matches 
      * @param {string} static_ident
      * @param {Map<string,CEIType>} typemap
      * @param {'owner-package'|'import'|'implicit-import'} import_kind
      */
-    constructor(import_decl, matches, static_ident, typemap, import_kind) {
-        /**
-         * The associated import declaration.
-         * - this value is null for owner-package and implicit-imports
-         */
-        this.import = import_decl;
-
+    constructor(matches, static_ident, typemap, import_kind) {
         /**
          * Array of fully qualified type names in JRE format resolved in this import
          */

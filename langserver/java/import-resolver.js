@@ -39,14 +39,14 @@ function resolveSingleImport(typemap, dotted_name, is_static, on_demand, import_
             // import all static members - the dotted name must be an exact type
             const matches = fetchImportedTypes(typenames, dotted_name, false);
             if (matches) {
-                return new ResolvedImport(null, matches, '*', typemap, import_kind);
+                return new ResolvedImport(matches, '*', typemap, import_kind);
             }
         } else if (dotted_name.includes('.')) {
             // the final ident is the static member - the rest is the exact type
             const split_name = dotted_name.match(/(.+)\.([^.]+)$/);
             const matches = fetchImportedTypes(typenames, split_name[1], false);
             if (matches) {
-                const i = new ResolvedImport(null, matches, split_name[2], typemap, import_kind);
+                const i = new ResolvedImport(matches, split_name[2], typemap, import_kind);
                 // if there's no matching member, treat it as an invalid import
                 if (i.members.length > 0) {
                     return i;
@@ -56,7 +56,7 @@ function resolveSingleImport(typemap, dotted_name, is_static, on_demand, import_
     } else {
         const matches = fetchImportedTypes(typenames, dotted_name, on_demand);
         if (matches) {
-            return new ResolvedImport(null, matches, null, typemap, import_kind);
+            return new ResolvedImport(matches, null, typemap, import_kind);
         }
     }
     return null;
@@ -86,14 +86,14 @@ function resolveImports(typemap, package_name, implicitPackages = ['java.lang'])
     if (package_name) {
         const matches = fetchImportedTypes(typenames, package_name, true);
         if (matches)
-            resolved.push(new ResolvedImport(null, matches, null, typemap, 'owner-package'));
+            resolved.push(new ResolvedImport(matches, null, typemap, 'owner-package'));
     }
 
     // import types from the implicit packages
     implicitPackages.forEach(package_name => {
         const matches = fetchImportedTypes(typenames, package_name, true);
         if (matches)
-            resolved.push(new ResolvedImport(null, matches, null, typemap, 'implicit-import'));
+            resolved.push(new ResolvedImport(matches, null, typemap, 'implicit-import'));
     })
 
     /**
