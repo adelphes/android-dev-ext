@@ -250,6 +250,7 @@
         ]
     },
     "scripts": {
+        "postinstall": "cd langserver && npm install && cd ..",
         "test": "node ./node_modules/vscode/bin/test"
     },
     "dependencies": {
