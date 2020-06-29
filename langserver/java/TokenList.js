@@ -3,6 +3,15 @@
  */
 const ParseProblem = require('./parsetypes/parse-problem');
 
+/**
+ * 
+ * @param {TokenList} tokens 
+ * @param {ParseProblem} problem 
+ */
+function addproblem(tokens, problem) {
+    tokens.problems.push(problem);
+}
+
 class TokenList {
     /**
      * @param {Token[]} tokens
@@ -136,7 +145,6 @@ class TokenList {
             return true;
         }
         const token = this.current || this.tokens[this.tokens.length - 1];
-        const addproblem = require("./body-parser").addproblem;
         addproblem(this, ParseProblem.Error(token, `${value} expected`));
         return false;
     }
@@ -164,3 +172,4 @@ class TokenList {
 }
 
 exports.TokenList = TokenList;
+exports.addproblem = addproblem;

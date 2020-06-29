@@ -12,7 +12,7 @@ const ParseProblem = require('./parsetypes/parse-problem');
 const { tokenize, Token } = require('./tokenizer');
 const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resolver');
 const { genericTypeArgs, typeIdent, typeIdentList } = require('./typeident');
-const { TokenList } = require("./TokenList");
+const { TokenList, addproblem } = require("./TokenList");
 const { AnyMethod, AnyType, AnyValue } = require("./anys");
 const { Label, Local, MethodDeclarations, ResolvedIdent } = require("./body-types");
 const { resolveImports, resolveSingleImport } = require('./import-resolver');
@@ -104,21 +104,11 @@ function parseBody(method, imports, typemap) {
         checkStatementBlock(block, method, typemap, tokenlist.problems);
     } catch (err) {
         addproblem(tokenlist, ParseProblem.Information(tokenlist.current, `Parse failed: ${err.message}`));
-
     }
     return {
         block,
         problems: tokenlist.problems,
     }
-}
-
-/**
- * 
- * @param {TokenList} tokens 
- * @param {ParseProblem} problem 
- */
-function addproblem(tokens, problem) {
-    tokens.problems.push(problem);
 }
 
 /**
