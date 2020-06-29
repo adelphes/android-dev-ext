@@ -8,13 +8,10 @@ const { openLogcatWindow } = require('./src/logcat');
 const { selectAndroidProcessID } = require('./src/process-attach');
 const { selectTargetDevice } = require('./src/utils/device');
 
-/** @type {LanguageClient} */
-let client;
-
 /**
  * @param {vscode.ExtensionContext} context
  */
-function activateLanguageClient(context) {
+function createLanguageClient(context) {
   // The server is implemented in node
   let serverModule = context.asAbsolutePath(path.join('langserver', 'server.js'));
   // The debug options for the server
@@ -39,8 +36,10 @@ function activateLanguageClient(context) {
   // Options to control the language client
   /** @type {import('vscode-languageclient').LanguageClientOptions} */
   let clientOptions = {
-    // Register the server for plain text documents
-    documentSelector: [{ scheme: 'file', language: 'java' }],
+    // Register the server for Java source documents
+    documentSelector: [{
+        scheme: 'file', language: 'java'
+    }],
     initializationOptions: {
         // extensionPath points to the root of the extension (the folder where this file is)
         extensionPath: context.extensionPath,
@@ -51,16 +50,36 @@ function activateLanguageClient(context) {
     },
   };
 
-  // Create the language client and start the client.
-  client = new LanguageClient(
+  // Create the language client - this won't do anything until start() is called
+  return new LanguageClient(
     'androidJavaLanguageServer',
     'Android',
     serverOptions,
     clientOptions
   );
+}
 
-  // Start the client. This will also launch the server
-  return client.start();
+/** @type {LanguageClient} */
+let languageClient;
+let languageSupportEnabled = false;
+function refreshLanguageServerEnabledState() {
+    let langSupport = vscode.workspace.getConfiguration('android-dev-ext').get('languageSupport', false);
+    if (langSupport === languageSupportEnabled) {
+        return;
+    }
+    if (langSupport) {
+        if (languageClient.needsStart()) {
+            languageClient.start();
+        }
+        languageSupportEnabled = true;
+    } else {
+        if (languageClient.needsStop()) {
+            languageClient.stop().then(() => {
+                languageSupportEnabled = false;
+                refreshLanguageServerEnabledState();
+            });
+        }
+    }
 }
 
 
@@ -70,6 +89,9 @@ function activate(context) {
 
     /* Only the logcat stuff is configured here. The debugger is launched from src/debugMain.js  */
     AndroidContentProvider.register(context, vscode.workspace);
+
+    languageClient = createLanguageClient(context);
+    refreshLanguageServerEnabledState();
 
     // The commandId parameter must match the command field in package.json
     const disposables = [
@@ -109,7 +131,13 @@ function activate(context) {
             return JSON.stringify(o);
         }),
 
-        activateLanguageClient(context),
+        vscode.workspace.onDidChangeConfiguration(e => {
+            // perform the refresh on the next tick to prevent spurious errors when
+            // trying to shut down the language server in the middle of a change-configuration request
+            process.nextTick(() => refreshLanguageServerEnabledState());
+        }),
+
+        languageClient,
     ];
 
     context.subscriptions.splice(context.subscriptions.length, 0, ...disposables);

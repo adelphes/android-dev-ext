@@ -33,6 +33,12 @@
             "type": "object",
             "title": "Android",
             "properties": {
+                "android-dev-ext.languageSupport": {
+                    "scope": "resource",
+                    "type": "boolean",
+                    "default": "true",
+                    "description": "Enable Java language support for Android"
+                },
                 "android-dev-ext.appSourceRoot": {
                     "scope": "resource",
                     "type": "string",
