@@ -25,14 +25,12 @@ const { ArrayValueExpression } = require("./expressiontypes/ArrayValueExpression
 const { BinaryOpExpression } = require("./expressiontypes/BinaryOpExpression");
 const { BracketedExpression } = require("./expressiontypes/BracketedExpression");
 const { CastExpression } = require("./expressiontypes/CastExpression");
-const { ClassMemberExpression } = require("./expressiontypes/ClassMemberExpression");
 const { IncDecExpression } = require("./expressiontypes/IncDecExpression");
 const { LambdaExpression } = require("./expressiontypes/LambdaExpression");
 const { MemberExpression } = require("./expressiontypes/MemberExpression");
 const { MethodCallExpression } = require("./expressiontypes/MethodCallExpression");
 const { NewArray, NewObject } = require("./expressiontypes/NewExpression");
 const { TernaryOpExpression } = require("./expressiontypes/TernaryOpExpression");
-const { ThisMemberExpression } = require("./expressiontypes/ThisMemberExpression");
 const { UnaryOpExpression } = require("./expressiontypes/UnaryOpExpression");
 const { Variable } = require("./expressiontypes/Variable");
 
@@ -1718,11 +1716,8 @@ function memberQualifier(matches, tokens, mdecls, scope, imports, typemap) {
     let types = [], package_name = '';
     switch (tokens.current.value) {
         case 'class':
-            expr = new ClassMemberExpression(matches, tokens.consume());
-            break;
         case 'this':
-        case 'super':
-            expr = new ThisMemberExpression(matches, tokens.consume());
+            expr = new MemberExpression(matches, dot, tokens.consume());
             break;
         default:
             let member = tokens.getIfKind('ident');

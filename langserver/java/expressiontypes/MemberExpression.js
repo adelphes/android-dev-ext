@@ -4,7 +4,7 @@
  * @typedef {import('../tokenizer').Token} Token
  */
 const { Expression } = require("./Expression");
-const { JavaType, CEIType } = require('java-mti');
+const { JavaType, CEIType, PrimitiveType } = require('java-mti');
 const { AnyType, MethodType, PackageNameType, TypeIdentType } = require('../anys');
 const { getTypeInheritanceList } = require('../expression-resolver');
 const { resolveNextPackage } = require('../type-resolver');
@@ -68,6 +68,32 @@ class MemberExpression extends Expression {
         
         this.member.loc = this.dot.loc;
         const ident = this.member.value;
+
+        if (ident === 'this') {
+            // if this has a type qualifier (Type.this), return the type, otherwise it's
+            // and error and return AnyType
+            return ((loc_key === 'fqs') && (instance instanceof CEIType)) ? instance : AnyType.Instance;
+        }
+
+        if (ident === 'class') {
+            // if this has a type qualifier (Type.class), return the Class instance, otherwise it's
+            // and error and return AnyType
+            if (loc_key !== 'fqs') {
+                return AnyType.Instance;
+            }
+            let class_type = instance;
+            if (instance instanceof PrimitiveType) {
+                class_type = ri.typemap.get(`java/lang/${{
+                    B:'Byte',S:'Short',I:'Integer',J:'Long',F:'Float',D:'Double',C:'Character',Z:'Boolean',V:'Void'
+                }[instance.typeSignature]}`)
+            }
+            const clz = ri.typemap.get('java/lang/Class').specialise([class_type]);
+            if (!ri.typemap.has(clz.shortSignature)) {
+                ri.typemap.set(clz.shortSignature, clz);
+            }
+            return clz;
+        }
+
         const field = instance.fields.find(f => f.name === ident);
         if (field) {
             return field.type;
