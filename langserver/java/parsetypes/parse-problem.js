@@ -2,9 +2,6 @@ const ProblemSeverity = require('./problem-severity');
 const { TextBlock } = require('./textblock');
 
 /**
- * @typedef {import('./import')} ImportDeclaration
- * @typedef {import('./modifier')} Modifier
- * @typedef {import('./package')} PackageDeclaration
  * @typedef {import('./problem-severity').Severity} Severity
  */
 

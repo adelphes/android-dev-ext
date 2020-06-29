@@ -1,6 +1,4 @@
 /**
- * @typedef {import('./token')} Token
- * @typedef {import('./type')} TypeDeclaration
  * @typedef {import('java-mti').JavaType} JavaType
  */
 

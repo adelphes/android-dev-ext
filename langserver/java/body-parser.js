@@ -4,7 +4,7 @@
  * 
  * Each token also contains detailed state information used for completion suggestions.
  */
-const { JavaType, CEIType, PrimitiveType, ArrayType, UnresolvedType, TypeVariable, Field, Method } = require('java-mti');
+const { CEIType, PrimitiveType, ArrayType, UnresolvedType, TypeVariable, Field, Method } = require('java-mti');
 const { SourceType, SourceTypeIdent, SourceField, SourceMethod, SourceConstructor, SourceInitialiser, SourceParameter, SourceAnnotation,
     SourceUnit, SourcePackage, SourceImport, SourceArrayType, FixedLengthArrayType } = require('./source-types');
 const ResolvedImport = require('./parsetypes/resolved-import');
@@ -14,9 +14,9 @@ const { resolveTypeOrPackage, resolveNextTypeOrPackage } = require('./type-resol
 const { genericTypeArgs, typeIdent, typeIdentList } = require('./typeident');
 const { TokenList } = require("./TokenList");
 const { AnyMethod, AnyType, AnyValue } = require("./anys");
-const { Label, Local, MethodDeclarations, ResolvedIdent, ResolveInfo } = require("./body-types");
+const { Label, Local, MethodDeclarations, ResolvedIdent } = require("./body-types");
 const { resolveImports, resolveSingleImport } = require('./import-resolver');
-const { checkAssignment, getTypeInheritanceList } = require('./expression-resolver');
+const { getTypeInheritanceList } = require('./expression-resolver');
 const { checkStatementBlock } = require('./statement-validater');
 const { time, timeEnd } = require('../logging');
 
