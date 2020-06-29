@@ -250,7 +250,7 @@ function parse(docs, cached_units, typemap) {
 function parseUnit(tokens, unit, typemap) {
     let package_name = '';
     // init resolved imports with java.lang.*
-    let resolved_imports = resolveImports(typemap, [], [], null).resolved.slice();
+    let resolved_imports = resolveImports(typemap, null).slice();
     // retrieve the implicit imports
     while (tokens.current) {
         let modifiers = [], annotations = [];
@@ -284,9 +284,9 @@ function parseUnit(tokens, unit, typemap) {
                 if (!package_name) {
                     unit.package_ = pkg;
                     package_name = pkg.name;
-                    const imprt = resolveImports(typemap, [], [], pkg.name, []);
-                    if (imprt.resolved.length) {
-                        resolved_imports.unshift(...imprt.resolved);
+                    const imprts = resolveImports(typemap, pkg.name, []);
+                    if (imprts.length) {
+                        resolved_imports.unshift(...imprts);
                     }
                 }
                 continue;

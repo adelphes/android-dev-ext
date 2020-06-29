@@ -9,7 +9,7 @@ const { parseBody } = require('./body-parser');
  */
 function parseMethodBodies(unit, typemap) {
     const resolved_types = [
-        ...resolveImports(typemap, [], [], unit.packageName).resolved,
+        ...resolveImports(typemap, unit.packageName),
         ...unit.imports.filter(i => i.resolved).map(i => i.resolved),
     ]
     unit.types.forEach(t => {
