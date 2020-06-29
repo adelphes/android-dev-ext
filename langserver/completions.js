@@ -58,7 +58,6 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
      */
     function shouldInclude(modifiers, t) {
         if (opts.statics !== modifiers.includes('static')) return;
-        if (modifiers.includes('abstract')) return;
         if (modifiers.includes('public')) return true;
         if (modifiers.includes('protected')) return true;
         if (modifiers.includes('private') && t === type) return true;
@@ -387,7 +386,7 @@ function resolveCompletionItem(item) {
         documentation = field.docs;
         header = `${field.type.simpleTypeName} **${field.name}**`;
     } else if (method) {
-        detail = `${method.modifiers.join(' ')} ${t.simpleTypeName}.${method.name}`;
+        detail = `${method.modifiers.filter(m => !/abstract|transient|native/.test(m)).join(' ')} ${t.simpleTypeName}.${method.name}`;
         documentation = method.docs;
         header = method.shortlabel.replace(/^\w+/, x => `**${x}**`).replace(/^(.+?)\s*:\s*(.+)/, (_,a,b) => `${b} ${a}`);
     } else {
