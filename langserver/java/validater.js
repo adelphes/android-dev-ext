@@ -1,7 +1,7 @@
 const { CEIType } = require('java-mti');
 const { resolveImports } = require('../java/import-resolver');
 const { SourceUnit } = require('./source-types');
-const { parseBody } = require('./body-parser3');
+const { parseBody } = require('./body-parser');
 
 /**
  * @param {SourceUnit} unit 

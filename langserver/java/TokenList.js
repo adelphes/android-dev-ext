@@ -136,7 +136,7 @@ class TokenList {
             return true;
         }
         const token = this.current || this.tokens[this.tokens.length - 1];
-        const addproblem = require("./body-parser3").addproblem;
+        const addproblem = require("./body-parser").addproblem;
         addproblem(this, ParseProblem.Error(token, `${value} expected`));
         return false;
     }
