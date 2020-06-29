@@ -1,4 +1,5 @@
 const { CEIType, JavaType, PrimitiveType, ArrayType, TypeVariableType, Field, Method, MethodBase, Constructor, Parameter, TypeVariable, TypeArgument } = require('java-mti');
+const { AnyType } = require('./anys');
 const { Token } = require('./tokenizer');
 
 /**
@@ -59,24 +60,14 @@ function createImplicitEnumMethods(enum_type, typemap) {
 
 class SourceType extends CEIType {
     /**
-     * @param {string} packageName
-     * @param {SourceType|SourceMethod|SourceConstructor|SourceInitialiser} outer_scope
+     * @param {string} rawShortSignature
+     * @param {'class'|'interface'|'enum'|'@interface'} typeKind 
+     * @param {string[]|number} modifiers 
      * @param {string} docs 
-     * @param {Token[]} modifiers 
-     * @param {string} typeKind 
-     * @param {Token} kind_token 
-     * @param {Token} name_token 
      * @param {Map<string,CEIType>} typemap
      */
-    constructor(packageName, outer_scope, docs, modifiers, typeKind, kind_token, name_token, typemap) {
-        // @ts-ignore
-        super(generateShortSignature(outer_scope || packageName, name_token.value), typeKind, modifiers.map(m => m.source), docs);
-        super.packageName = packageName;
-        this.modifierTokens = modifiers;
-        this.kind_token = kind_token;
-        this.nameToken = name_token;
-        this.scope = outer_scope;
-        this.typemap = typemap;
+    constructor(rawShortSignature, typeKind, modifiers, docs, typemap) {
+        super(rawShortSignature, typeKind, modifiers, docs);
         /**
          * Number of local/anonymous types declared in the scope of this type
          * The number is used when naming them.
@@ -98,14 +89,7 @@ class SourceType extends CEIType {
         this.initers = [];
         /** @type {SourceEnumValue[]} */
         this.enumValues = [];
-    }
-
-    /**
-     * @returns {SourceMethod[]}
-     */
-    get sourceMethods() {
-        // @ts-ignore
-        return this.methods.filter(m => m instanceof SourceMethod);// [...this.implicitMethods, ...this.sourceMethods];
+        this.typemap = typemap;
     }
 
     /**
@@ -116,6 +100,95 @@ class SourceType extends CEIType {
      */
     addEnumValue(docs, ident, ctr_args, anonymousType) {
         this.enumValues.push(new SourceEnumValue(this, docs, ident, ctr_args, anonymousType));
+    }
+
+    /**
+     * @returns {SourceMethod[]}
+     */
+    get sourceMethods() {
+        // @ts-ignore
+        return this.methods.filter(m => m instanceof SourceMethod);// [...this.implicitMethods, ...this.sourceMethods];
+    }
+
+}
+
+class AnonymousSourceType extends SourceType {
+
+    /**
+     * @param {SourceType|SourceMethod|SourceConstructor|SourceInitialiser} scope
+     */
+    static genSignature(scope) {
+        const type = scope instanceof SourceType ? scope : scope.owner;
+        return `${type._rawShortSignature}$${type.localTypeCount += 1}`;
+    }
+
+    /**
+     * @param {SourceTypeIdent} typeident
+     * @param {SourceType|SourceMethod|SourceConstructor|SourceInitialiser} outer_scope
+     * @param {Map<string,CEIType>} typemap
+     */
+    constructor(typeident, outer_scope, typemap) {
+        super(AnonymousSourceType.genSignature(outer_scope), 'class', [], '', typemap);
+        this.simpleTypeName = typeident.resolved.simpleTypeName;
+        this.typeIdent = typeident;
+    }
+
+    get dottedTypeName() {
+        return this.typeIdent.resolved.dottedTypeName;
+    }
+
+    get fullyDottedRawName() {
+        return this.dottedTypeName;
+    }
+
+    get fullyDottedTypeName() {
+        return this.dottedTypeName;
+    }
+
+    get label() {
+        return `new ${this.dottedTypeName}`;
+    }
+
+    /** @type {JavaType[]} */
+    get supers() {
+        if (this.typeIdent.resolved instanceof AnyType || this.typeIdent.resolved.typeKind !== 'class') {
+            return [this.typemap.get('java/lang/Object')]
+        }
+        return [this.typeIdent.resolved];
+    }
+
+    get shortSignature() {
+        return this._rawShortSignature;
+    }
+
+    get rawTypeSignature() {
+        return `L${this._rawShortSignature};`;
+    }
+
+    get typeSignature() {
+        return this.rawTypeSignature;
+    }
+}
+
+class NamedSourceType extends SourceType {
+    /**
+     * @param {string} packageName
+     * @param {SourceType|SourceMethod|SourceConstructor|SourceInitialiser} outer_scope
+     * @param {string} docs 
+     * @param {Token[]} modifiers 
+     * @param {string} typeKind 
+     * @param {Token} kind_token 
+     * @param {Token} name_token 
+     * @param {Map<string,CEIType>} typemap
+     */
+    constructor(packageName, outer_scope, docs, modifiers, typeKind, kind_token, name_token, typemap) {
+        // @ts-ignore
+        super(generateShortSignature(outer_scope || packageName, name_token.value), typeKind, modifiers.map(m => m.source), docs, typemap);
+        super.packageName = packageName;
+        this.modifierTokens = modifiers;
+        this.kind_token = kind_token;
+        this.nameToken = name_token;
+        this.scope = outer_scope;
     }
 
     /**
@@ -372,6 +445,8 @@ class SourceConstructor extends Constructor {
             tokens: body_tokens,
             /** @type {import('./body-types').Local[]} */
             locals: [],
+            /** @type {import('./statementtypes/Block').Block} */
+            block: null,
         }
         this.parsed = null;
     }
@@ -423,6 +498,8 @@ class SourceMethod extends Method {
             tokens: body_tokens,
             /** @type {import('./body-types').Local[]} */
             locals: [],
+            /** @type {import('./statementtypes/Block').Block} */
+            block: null,
         }
         this.parsed = null;
     }
@@ -467,6 +544,8 @@ class SourceInitialiser extends MethodBase {
             tokens: body_tokens,
             /** @type {import('./body-types').Local[]} */
             locals: [],
+            /** @type {import('./statementtypes/Block').Block} */
+            block: null,
         }
         this.parsed = null;
     }
@@ -673,3 +752,5 @@ exports.SourceImport = SourceImport;
 exports.SourceEnumValue = SourceEnumValue;
 exports.SourceArrayType = SourceArrayType;
 exports.FixedLengthArrayType = FixedLengthArrayType;
+exports.NamedSourceType = NamedSourceType;
+exports.AnonymousSourceType = AnonymousSourceType;

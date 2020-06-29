@@ -2,6 +2,7 @@
  * @typedef {import('../tokenizer').Token} Token
  * @typedef {import('../body-types').ResolvedIdent} ResolvedIdent
  * @typedef {import('../body-types').ResolveInfo} ResolveInfo
+ * @typedef {import('../source-types').AnonymousSourceType} AnonymousSourceType
  * @typedef {import('../source-types').SourceTypeIdent} SourceTypeIdent
  * @typedef {import('java-mti').JavaType} JavaType
  */
@@ -64,7 +65,7 @@ class NewObject extends Expression {
      * @param {Token} open_bracket
      * @param {ResolvedIdent[]} ctr_args
      * @param {Token[]} commas
-     * @param {Token[]} type_body
+     * @param {AnonymousSourceType} type_body
      */
     constructor(new_token, object_type, open_bracket, ctr_args, commas, type_body) {
         super();

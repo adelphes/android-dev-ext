@@ -1,7 +1,7 @@
 const { CEIType } = require('java-mti');
 const { resolveImports } = require('../java/import-resolver');
 const { SourceUnit } = require('./source-types');
-const { parseBody } = require('./body-parser');
+const { parseTypeMethods } = require('./body-parser');
 
 /**
  * @param {SourceUnit} unit 
@@ -12,17 +12,7 @@ function parseMethodBodies(unit, typemap) {
         ...resolveImports(typemap, unit.packageName),
         ...unit.imports.filter(i => i.resolved).map(i => i.resolved),
     ]
-    unit.types.forEach(t => {
-        t.initers.forEach(i => {
-            i.parsed = parseBody(i, resolved_types, typemap);
-        })
-        t.constructors.forEach(c => {
-            c.parsed = parseBody(c, resolved_types, typemap);
-        })
-        t.sourceMethods.forEach(m => {
-            m.parsed = parseBody(m, resolved_types, typemap);
-        })
-    })
+    unit.types.forEach(t => parseTypeMethods(t, resolved_types, typemap));
 }
 
 /**

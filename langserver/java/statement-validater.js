@@ -16,6 +16,9 @@ const { ValidateInfo } = require('./body-types');
  * @param {ParseProblem[]} problems 
  */
 function checkStatementBlock(block, method, typemap, problems) {
+    if (!block) {
+        return;
+    }
     block.validate(new ValidateInfo(typemap, problems, method));
 }
 

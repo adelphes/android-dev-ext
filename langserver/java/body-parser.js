@@ -6,7 +6,7 @@
  */
 const { CEIType, PrimitiveType, ArrayType, UnresolvedType, TypeVariable, Field, Method } = require('java-mti');
 const { SourceType, SourceTypeIdent, SourceField, SourceMethod, SourceConstructor, SourceInitialiser, SourceParameter, SourceAnnotation,
-    SourceUnit, SourcePackage, SourceImport, SourceArrayType, FixedLengthArrayType } = require('./source-types');
+    SourceUnit, SourcePackage, SourceImport, SourceArrayType, FixedLengthArrayType, NamedSourceType, AnonymousSourceType } = require('./source-types');
 const ResolvedImport = require('./parsetypes/resolved-import');
 const ParseProblem = require('./parsetypes/parse-problem');
 const { tokenize, Token } = require('./tokenizer');
@@ -87,6 +87,23 @@ function flattenBlocks(blocks, isMethod) {
 }
 
 /**
+ * @param {SourceType} type 
+ * @param {ResolvedImport[]} imports
+ * @param {Map<string,CEIType>} typemap
+ */
+function parseTypeMethods(type, imports, typemap) {
+    type.initers.forEach(i => {
+        i.parsed = parseBody(i, imports, typemap);
+    })
+    type.constructors.forEach(c => {
+        c.parsed = parseBody(c, imports, typemap);
+    })
+    type.sourceMethods.forEach(m => {
+        m.parsed = parseBody(m, imports, typemap);
+    })
+}
+
+/**
  * @param {SourceMethod | SourceConstructor | SourceInitialiser} method 
  * @param {ResolvedImport[]} imports
  * @param {Map<string,CEIType>} typemap 
@@ -97,16 +114,15 @@ function parseBody(method, imports, typemap) {
         return null;
     }
     const tokenlist = new TokenList(flattenBlocks(body_tokens, true));
-    let block = null;
     let mdecls = new MethodDeclarations();
     try {
-        block = statementBlock(tokenlist, mdecls, method, imports, typemap);
-        checkStatementBlock(block, method, typemap, tokenlist.problems);
+        method.body.block = statementBlock(tokenlist, mdecls, method, imports, typemap);
+        checkStatementBlock(method.body.block, method, typemap, tokenlist.problems);
     } catch (err) {
         addproblem(tokenlist, ParseProblem.Information(tokenlist.current, `Parse failed: ${err.message}`));
     }
     return {
-        block,
+        block: method.body.block,
         problems: tokenlist.problems,
     }
 }
@@ -168,7 +184,7 @@ function extractSourceTypes(tokens, typemap) {
               kind_token = findTokenAt(m.index),
               name_token = findTokenAt(m.index + m[0].match(/\w+$/).index),
               outer_type = type_stack[0] && type_stack[0].source_type,
-              source_type = new SourceType(package_name, outer_type, '', [], typeKind, kind_token, name_token, typemap);
+              source_type = new NamedSourceType(package_name, outer_type, '', [], typeKind, kind_token, name_token, typemap);
               
             type_stack.unshift({
                 source_type,
@@ -690,17 +706,17 @@ function typeDeclaration(package_name, scope, docs, modifiers, typeKind, kind_to
         addproblem(tokens, ParseProblem.Error(tokens.current, `Type identifier expected`));
         return;
     }
-    const type_short_sig = SourceType.getShortSignature(package_name, scope, name.value);
+    const type_short_sig = NamedSourceType.getShortSignature(package_name, scope, name.value);
     // the source type object should already exist in the type map
-    /** @type {SourceType} */
+    /** @type {NamedSourceType} */
     // @ts-ignore
     let type = typemap.get(type_short_sig);
-    if (type instanceof SourceType) {
+    if (type instanceof NamedSourceType) {
         // update the missing parts
         type.setModifierTokens(modifiers);
         type.docs = docs;
     } else {
-        type = new SourceType(package_name, scope, docs, modifiers, typeKind, kind_token, name, typemap);
+        type = new NamedSourceType(package_name, scope, docs, modifiers, typeKind, kind_token, name, typemap);
     }
     type.typeVariables = tokens.current.value === '<'
         ? typeVariableList(type, tokens, scope, imports, typemap)
@@ -1608,8 +1624,14 @@ function newTerm(tokens, mdecls, scope, imports, typemap) {
             newtokens = tokens.markEnd();
             // @ts-ignore
             if (tokens.current.value === '{') {
-                // anonymous type - just skip for now
-                type_body = skipBody(tokens);
+                // anonymous type
+                tokens.consume();
+                type_body = new AnonymousSourceType(ctr_type, scope, typemap);
+                typemap.set(type_body.shortSignature, type_body);
+                typeBody(type_body, tokens, mdecls, imports, typemap);
+                tokens.expectValue('}');
+                // perform an immediate parse of all the methods in the anonymous class
+                parseTypeMethods(type_body, imports, typemap);
             }
             return new ResolvedIdent(match.source, [new NewObject(new_token, ctr_type, open_bracket, ctr_args, commas, type_body)], [], [], '', newtokens);
     }
@@ -1907,6 +1929,6 @@ function findIdentifier(token, mdecls, scope, imports, typemap) {
 
 
 exports.addproblem = addproblem;
-exports.parseBody = parseBody;
+exports.parseTypeMethods = parseTypeMethods;
 exports.parse = parse;
 exports.flattenBlocks = flattenBlocks;
