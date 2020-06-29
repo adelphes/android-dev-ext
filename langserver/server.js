@@ -158,8 +158,6 @@ connection.onInitialized(async () => {
     const src_folder = await getAppSourceRootFolder(connection.workspace);
     if (src_folder) {
         await rescanSourceFolders(src_folder, liveParsers);
-        await new Promise(r=> setTimeout(r, 10000));
-        console.log('first-parse');
         reparse([...liveParsers.keys()], liveParsers, androidLibrary, { includeMethods: false, first_parse: true });
     }
 
