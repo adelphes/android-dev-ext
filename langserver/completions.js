@@ -6,19 +6,31 @@ const { formatDoc } = require('./doc-formatter');
 const { trace } = require('./logging');
 
 /**
- * @param {{name:string}} a 
- * @param {{name:string}} b 
+ * Case-insensitive sort routines
  */
 const sortBy = {
     label: (a,b) => a.label.localeCompare(b.label, undefined, {sensitivity: 'base'}),
     name: (a,b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base'}),
 }
 
+/** Map Java typeKind values to vscode CompletionItemKinds */
+const TypeKindMap = {
+    class: CompletionItemKind.Class,
+    interface: CompletionItemKind.Interface,
+    '@interface': CompletionItemKind.Interface,
+    enum: CompletionItemKind.Enum,
+};
+
 /**
- * @param {Map<string,CEIType>} typemap
- * @param {string} type_signature 
- * @param {{ statics: boolean }} opts 
- * @param {string[]} [typelist]
+ * Return a list of vscode-compatible completion items for a given type.
+ * 
+ * The type is located in typemap and the members (fields, methods) are retrieved
+ * and converted to completions items.
+ * 
+ * @param {Map<string,CEIType>} typemap Set of known types
+ * @param {string} type_signature Type to provide completion items for
+ * @param {{ statics: boolean }} opts used to control if static or instance members should be included
+ * @param {string[]} [typelist] optional pre-prepared type list (to save recomputing it)
  */
 function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
     let type, types, subtype_search;
@@ -39,50 +51,57 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
         if (!(type instanceof CEIType)) {
             return [];
         }
+        // retrieve the complete list of inherited types
         types = getTypeInheritanceList(type);
         subtype_search = type.shortSignature + '$';
     }
 
 
-    // add inner types, fields and methods
-    class FirstSetMap extends Map {
+    class SetOnceMap extends Map {
         set(key, value) {
             return this.has(key) ? this : super.set(key, value);
         }
     }
-    const fields = new FirstSetMap(), methods = new FirstSetMap();
+    const fields = new SetOnceMap(), methods = new SetOnceMap(), inner_types = new SetOnceMap();
 
     /**
      * @param {string[]} modifiers 
      * @param {JavaType} t 
      */
     function shouldInclude(modifiers, t) {
+        // filter statics/instances
         if (opts.statics !== modifiers.includes('static')) return;
         if (modifiers.includes('public')) return true;
         if (modifiers.includes('protected')) return true;
+        // only include private items for the current type
         if (modifiers.includes('private') && t === type) return true;
         // @ts-ignore
         return t.packageName === type.packageName;
     }
 
+    // retrieve fields and methods
     types.forEach((t,idx) => {
         t.fields.sort(sortBy.name)
             .filter(f => shouldInclude(f.modifiers, t))
-            .forEach(f => fields.set(f.name, {f, t, sortText: `${idx+100}${f.name}`}));
+            .forEach(f => fields.set(f.name, {f, t, sortText: `${idx+1000}${f.name}`}));
         t.methods.sort(sortBy.name)
             .filter(f => shouldInclude(f.modifiers, t))
-            .forEach(m => methods.set(`${m.name}${m.methodSignature}`, {m, t, sortText: `${idx+100}${m.name}`}));
+            .forEach(m => methods.set(`${m.name}${m.methodSignature}`, {m, t, sortText: `${idx+2000}${m.name}`}));
     });
 
+    if (opts.statics && subtype_search) {
+        // retrieve inner types
+        (typelist || [...typemap.keys()])
+            .filter(type_signature =>
+                type_signature.startsWith(subtype_search)
+                        // ignore inner-inner types
+                    && !type_signature.slice(subtype_search.length).includes('$')
+            )
+            .map(type_signature => typemap.get(type_signature))
+            .forEach((t,idx) => inner_types.set(type.simpleTypeName, { t, sortText: `${idx+3000}${t.simpleTypeName}` }));
+    }
+
     return [
-        ...(typelist || [...typemap.keys()]).map(t => {
-            if (!opts.statics) return;
-            if (!subtype_search || !t.startsWith(subtype_search)) return;
-            return {
-                label: t.slice(subtype_search.length).replace(/\$/g,'.'),
-                kind: CompletionItemKind.Class,
-            }
-        }).filter(x => x),
         // fields
         ...[...fields.values()].map(f => ({
             label: `${f.f.name}: ${f.f.type.simpleTypeName}`,
@@ -98,18 +117,28 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
             insertText: m.m.name,
             sortText: m.sortText,
             data: { type: m.t.shortSignature, midx: m.t.methods.indexOf(m.m) },
-        }))
+        })),
+        // types
+        ...[...inner_types.values()].map(it => ({
+            label: it.t.simpleTypeName,
+            kind: TypeKindMap[it.t.typeKind],
+            sortText: it.sortText,
+            data: { type: it.shortSignature },
+        })),
     ]
 }
     
 /**
- * @param {Map<string,CEIType>} typemap
+ * Return a list of vscode-compatible completion items for a dotted identifier (package or type).
+ * 
+ * @param {Map<string,CEIType>} typemap Set of known types
  * @param {string} dotted_name 
- * @param {{ statics: boolean }} opts 
+ * @param {{ statics: boolean }} opts used to control if static or instance members should be included
  */
 function getFullyQualifiedDottedIdentCompletion(typemap, dotted_name, opts) {
     if (dotted_name === '') {
-        return getPackageCompletion(typemap, '');
+        // return the list of top-level package names
+        return getTopLevelPackageCompletions(typemap);
     }
     // name is a fully dotted name, possibly including members and their fields
     let typelist = [...typemap.keys()];
@@ -150,7 +179,7 @@ function getFullyQualifiedDottedIdentCompletion(typemap, dotted_name, opts) {
                         arr.push({
                             label: m[1],
                             kind: CompletionItemKind.Unit,
-                            data: -1,
+                            data: null,
                         })
                     }
                 } else {
@@ -158,7 +187,7 @@ function getFullyQualifiedDottedIdentCompletion(typemap, dotted_name, opts) {
                     arr.push({
                         label: m[1].replace(/\$/g,'.'),
                         kind: CompletionItemKind.Class,
-                        data: -1,
+                        data: { type: typename },
                     })
                 }
             }
@@ -168,19 +197,27 @@ function getFullyQualifiedDottedIdentCompletion(typemap, dotted_name, opts) {
 }
 
 /**
+ * Return a list of completion items for top-level package names (e.g java, javax, android)
+ * 
  * @param {Map<string,CEIType>} typemap
  */
-function getRootPackageCompletions(typemap) {
-    const pkgs = [...typemap.keys()].reduce((set,typename) => {
-        const m = typename.match(/(.+?)\//);
+function getTopLevelPackageCompletions(typemap) {
+    const pkgs = [...typemap.keys()].reduce((set, short_type_signature) => {
+        // the root package is the first part of the short type signature (up to the first /)
+        const m = short_type_signature.match(/(.+?)\//);
         m && set.add(m[1]);
         return set;
     }, new Set());
-    return [...pkgs].filter(x => x).sort().map(pkg => ({
-        label: pkg,
-        kind: CompletionItemKind.Unit,
-        sortText: pkg,
-    }));
+
+    const items = [...pkgs].filter(x => x)
+        .sort()
+        .map(package_ident => ({
+            label: package_ident,
+            kind: CompletionItemKind.Unit,
+            sortText: package_ident,
+        }));
+
+    return items;
 }
 
 /**
@@ -189,7 +226,7 @@ function getRootPackageCompletions(typemap) {
  */
 function getPackageCompletion(typemap, pkg) {
     if (pkg === '') {
-        return getRootPackageCompletions(typemap);
+        return getTopLevelPackageCompletions(typemap);
     }
     // sub-package
     const search_pkg = pkg + '/';
@@ -204,19 +241,16 @@ function getPackageCompletion(typemap, pkg) {
     return [...pkgs].filter(x => x).sort().map(pkg => ({
         label: pkg,
         kind: CompletionItemKind.Unit,
-        data: -1,
+        data: null,
     }));
 }
 
+/** Cache of completion items for fixed values, keywords and Android library types */
 let defaultCompletionTypes = null;
+
 /** @type {Map<string,CEIType>} */
 let lastCompletionTypeMap = null;
-const typeKindMap = {
-    class: CompletionItemKind.Class,
-    interface: CompletionItemKind.Interface,
-    '@interface': CompletionItemKind.Interface,
-    enum: CompletionItemKind.Enum,
-};
+
 function initDefaultCompletionTypes(lib) {
     defaultCompletionTypes = {
         instances: 'this super'.split(' ').map(t => ({
@@ -248,42 +282,50 @@ function initDefaultCompletionTypes(lib) {
                 /** @type {CompletionItem} */
                 ({
                     label: t.dottedTypeName,
-                    kind: typeKindMap[t.typeKind],
-                    data: { type:t.shortSignature },
+                    kind: TypeKindMap[t.typeKind],
+                    data: { type: t.shortSignature },
                     sortText: t.dottedTypeName,
                 })
-            ).sort((a,b) => a.label.localeCompare(b.label, undefined, {sensitivity:'base'})),
-
+            ).sort(sortBy.label),
         // package names
-        packageNames: getRootPackageCompletions(lib),
+        packageNames: getTopLevelPackageCompletions(lib),
     }
 }
 
 /**
+ * Called from the VSCode completion item request.
  * 
  * @param {import('vscode-languageserver').CompletionParams} params
- * @param {*} liveParsers 
- * @param {*} androidLibrary 
+ * @param {Map<string,import('./document').JavaDocInfo>} liveParsers 
+ * @param {Map<string,CEIType>} androidLibrary 
  */
 async function getCompletionItems(params, liveParsers, androidLibrary) {
-    // The pass parameter contains the position of the text document in
-    // which code complete got requested. For the example we ignore this
-    // info and always provide the same completion items.
     trace('getCompletionItems');
+
+    if (!params || !params.textDocument || !params.textDocument.uri) {
+        return [];
+    }
+
+    if (!defaultCompletionTypes) {
+        initDefaultCompletionTypes(androidLibrary);
+    }
+
+    // wait for the Android library to load (in case we receive an early request)
     if (androidLibrary instanceof Promise) {
         androidLibrary = await androidLibrary;
     }
-    if (!params || !params.textDocument) {
-        return [];
-    }
+
+    // retrieve the parsed source corresponding to the request URI
     const docinfo = liveParsers.get(params.textDocument.uri);
     if (!docinfo || !docinfo.parsed) {
         return [];
     }
+
+    // wait for the user to stop typing
     const preversion = docinfo.version;
     await docinfo.reparseWaiter;
     if (docinfo.version !== preversion) {
-        // if the content has changed, ignore the current request
+        // if the file content has changed since this request wss made, ignore it
         trace('content changed - ignoring completion items')
         /** @type {import('vscode-languageserver').CompletionList} */
         return {
@@ -291,13 +333,21 @@ async function getCompletionItems(params, liveParsers, androidLibrary) {
             items: [],
         }
     }
+
     let parsed = docinfo.parsed;
 
+    // save the typemap associated with this parsed state - we use this when resolving
+    // the documentation later
     lastCompletionTypeMap = (parsed && parsed.typemap) || androidLibrary;
-    let locals = [], sourceTypes = [], show_instances = false;
+
+    let locals = [],
+        modifiers = defaultCompletionTypes.modifiers,
+        sourceTypes = [];
+
     if (parsed.unit) {
-        const index = indexAt(params.position, parsed.content);
-        const options = parsed.unit.getCompletionOptionsAt(index);
+        const char_index = indexAt(params.position, parsed.content);
+        const options = parsed.unit.getCompletionOptionsAt(char_index);
+        
         if (options.loc) {
             if (/^pkgname:/.test(options.loc.key)) {
                 return getPackageCompletion(parsed.typemap, options.loc.key.split(':').pop());
@@ -315,20 +365,28 @@ async function getCompletionItems(params, liveParsers, androidLibrary) {
                 return getTypedNameCompletion(parsed.typemap, options.loc.key.split(':').pop(),  { statics: false });
             }
         }
+
+        // if this token is inside a method, include the parameters and this/super
         if (options.method) {
-            show_instances = !options.method.modifiers.includes('static');
-            locals = options.method.parameters.sort(sortBy.name).map(p => ({
-                label: p.name,
-                kind: CompletionItemKind.Variable,
-                sortText: p.name,
-            }))
+            locals = options.method.parameters
+                .sort(sortBy.name)
+                .map(p => ({
+                    label: p.name,
+                    kind: CompletionItemKind.Variable,
+                    sortText: p.name,
+                }));
+            
+            // if this is not a static method, include this/super
+            if (!options.method.modifiers.includes('static')) {
+                locals.push(...defaultCompletionTypes.instances);
+            }
+
+            // if we're inside a method, don't show the modifiers
+            modifiers = [];
         }
     }
 
-    if (!defaultCompletionTypes) {
-        initDefaultCompletionTypes(androidLibrary);
-    }
-
+    // add types currently parsed from the source files
     liveParsers.forEach(doc => {
         if (!doc.parsed) {
             return;
@@ -336,34 +394,38 @@ async function getCompletionItems(params, liveParsers, androidLibrary) {
         doc.parsed.unit.types.forEach(
             t => sourceTypes.push({
                 label: t.dottedTypeName,
-                kind: typeKindMap[t.typeKind],
+                kind: TypeKindMap[t.typeKind],
                 data: { type:t.shortSignature },
                 sortText: t.dottedTypeName,
             })
         )
     });
 
+    // exclude dotted (inner) types because they result in useless 
+    // matches in the intellisense filter when . is pressed
+    const types = [
+        ...defaultCompletionTypes.types,
+        ...sourceTypes,
+        ].filter(x => !x.label.includes('.'))
+        .sort(sortBy.label)
+
     return [
         ...locals,
-        ...(show_instances ? defaultCompletionTypes.instances : []),
         ...defaultCompletionTypes.primitiveTypes,
         ...defaultCompletionTypes.literals,
-        ...defaultCompletionTypes.modifiers,
-        ...[
-            ...defaultCompletionTypes.types,
-            ...sourceTypes,
-        ]   // exclude dotted (inner) types because they result in useless 
-            // matches in the intellisense filter when . is pressed
-            .filter(x => !x.label.includes('.'))
-            .sort(sortBy.label),
+        ...modifiers,
+        ...types,
         ...defaultCompletionTypes.packageNames,
     ].map((x,idx) => {
-        x.sortText = `${10000+idx}-${x.label}`;
+        // to force the order above, reset sortText for each item based upon a fixed-length number
+        x.sortText = `${1000+idx}`;
         return x;
     })
 }
 
 /**
+ * Set the detail and documentation for the specified item
+ * 
  * @param {CompletionItem} item
  */
 function resolveCompletionItem(item) {
@@ -371,13 +433,13 @@ function resolveCompletionItem(item) {
     if (!lastCompletionTypeMap) {
         return item;
     }
-    if (typeof item.data !== 'object') {
+    if (!item.data || typeof item.data !== 'object') {
         return item;
     }
-    const t = lastCompletionTypeMap.get(item.data.type);
-    const field = t && t.fields[item.data.fidx];
-    const method = t && t.methods[item.data.midx];
-    if (!t) {
+    const type = lastCompletionTypeMap.get(item.data.type);
+    const field = type && type.fields[item.data.fidx];
+    const method = type && type.methods[item.data.midx];
+    if (!type) {
         return item;
     }
     let detail, documentation, header;
@@ -386,13 +448,13 @@ function resolveCompletionItem(item) {
         documentation = field.docs;
         header = `${field.type.simpleTypeName} **${field.name}**`;
     } else if (method) {
-        detail = `${method.modifiers.filter(m => !/abstract|transient|native/.test(m)).join(' ')} ${t.simpleTypeName}.${method.name}`;
+        detail = `${method.modifiers.filter(m => !/abstract|transient|native/.test(m)).join(' ')} ${type.simpleTypeName}.${method.name}`;
         documentation = method.docs;
         header = method.shortlabel.replace(/^\w+/, x => `**${x}**`).replace(/^(.+?)\s*:\s*(.+)/, (_,a,b) => `${b} ${a}`);
     } else {
-        detail = t.fullyDottedRawName,
-        documentation = t.docs,
-        header = `${t.typeKind} **${t.dottedTypeName}**`;
+        detail = type.fullyDottedRawName,
+        documentation = type.docs,
+        header = `${type.typeKind} **${type.dottedTypeName}**`;
     }
     item.detail = detail || '';
     item.documentation = formatDoc(header, documentation);

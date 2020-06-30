@@ -653,7 +653,7 @@ class SourceUnit {
             return null;
         }
         for (let type of this.types) {
-            for (let method of type.sourceMethods) {
+            for (let method of [...type.sourceMethods, ...type.constructors, ...type.initers]) {
                 if (method.body && method.body.tokens && method.body.tokens.includes(token)) {
                     return method;
                 }

@@ -11,12 +11,19 @@ const { time, timeEnd, trace } = require('./logging');
 
 /**
  * Marker to prevent early parsing of source files before we've completed our
- * initial source file load
+ * initial source file load (we cannot accurately parse individual files until we
+ * know what all the types are - hence the need to perform a first parse of all the source files).
+ * 
+ * While we are waiting for the first parse to complete, individual files-to-parse are added
+ * to this set. Once the first scan and parse is done, these are reparsed and
+ * first_parse_waiting is set to `null`.
  * @type {Set<string>}
  */
 let first_parse_waiting = new Set();
 
 /**
+ * Convert a line,character position to an absolute character offset
+ * 
  * @param {{line:number,character:number}} pos 
  * @param {string} content 
  */
@@ -32,6 +39,8 @@ function indexAt(pos, content) {
 }
 
 /**
+ * Convert an absolute character offset to a line,character position
+ * 
  * @param {number} index 
  * @param {string} content 
  */
@@ -52,20 +61,32 @@ function positionAt(index, content) {
     }
 }
 
+/**
+ * Class for storing data about Java source files
+ */
 class JavaDocInfo {
      /**
-      * @param {string} uri 
-      * @param {string} content 
-      * @param {number} version 
+      * @param {string} uri the file URI
+      * @param {string} content the full file content
+      * @param {number} version revision number for edited files (each edit increments the version)
       */
      constructor(uri, content, version) {
          this.uri = uri;
          this.content = content;
          this.version = version;
-         /** @type {ParsedInfo} */
+         /** 
+          * The result of the Java parse
+          * @type {ParsedInfo}
+          */
          this.parsed = null;
-         /** @type {Promise} */
+         
+         /**
+          * Promise linked to a timer which resolves a short time after the user stops typing
+          * - This is used to prevent constant reparsing while the user is typing in the document
+          * @type {Promise}
+          */
          this.reparseWaiter = Promise.resolve();
+
          /** @type {{ resolve: () => void, timer: * }} */
          this.waitInfo = null;
      }
@@ -79,11 +100,11 @@ class JavaDocInfo {
       * keys are typed before the timer expires, the timer is restarted.
       * Once typing pauses, the timer expires and the content reparsed.
       * 
-      * A `reparseWaiter` promise is used to delay the completion items
-      * retrieval until the reparse is complete.
+      * A `reparseWaiter` promise is used to delay actions like completion items
+      * retrieval and method signature resolving until the reparse is complete.
       * 
-      * @param {*} liveParsers 
-      * @param {*} androidLibrary 
+      * @param {Map<string,JavaDocInfo>} liveParsers 
+      * @param {Map<string,CEIType>} androidLibrary 
       */
      scheduleReparse(liveParsers, androidLibrary) {
         const createWaitTimer = () => {
@@ -112,13 +133,16 @@ class JavaDocInfo {
     }
 }
 
+/**
+ * Result from parsing a Java file
+ */
 class ParsedInfo {
     /**
-     * @param {string} uri 
-     * @param {string} content 
-     * @param {number} version 
-     * @param {Map<string,CEIType>} typemap 
-     * @param {SourceUnit} unit 
+     * @param {string} uri the file URI
+     * @param {string} content the full file content
+     * @param {number} version the version this parse applies to
+     * @param {Map<string,CEIType>} typemap the set of known types
+     * @param {SourceUnit} unit the parsed unit
      * @param {ParseProblem[]} problems 
      */
     constructor(uri, content, version, typemap, unit, problems) {
@@ -133,31 +157,35 @@ class ParsedInfo {
 
 /**
  * @param {string[]} uris
- * @param {*} liveParsers
- * @param {*} androidLibrary
+ * @param {Map<string, JavaDocInfo>} liveParsers
+ * @param {Map<string,CEIType>} androidLibrary
  * @param {{includeMethods: boolean, first_parse?: boolean}} [opts]
  */
 function reparse(uris, liveParsers, androidLibrary, opts) {
     trace(`reparse`);
+    // we must have at least one URI
     if (!uris || !uris.length) {
         return;
     }
     if (first_parse_waiting) {
         if (!opts || !opts.first_parse) {
+            // we are waiting for the first parse to complete - add this file to the list
             uris.forEach(uri => first_parse_waiting.add(uri));
             trace('waiting for first parse')
             return;
         }
     }
+
     if (androidLibrary instanceof Promise) {
-        // reparse after the library has loaded
+        // reparse after the library has finished loading
         androidLibrary.then(lib => reparse(uris, liveParsers, lib, opts));
         return;
     }
+
     const cached_units = [], parsers = [];
     for (let docinfo of liveParsers.values()) {
         if (uris.includes(docinfo.uri)) {
-            // make a copy of the content in case doc changes while we're parsing
+            // make a copy of the content + version in case the source file is edited while we're parsing
             parsers.push({uri: docinfo.uri, content: docinfo.content, version: docinfo.version});
         } else if (docinfo.parsed) {
             cached_units.push(docinfo.parsed.unit);
@@ -167,9 +195,13 @@ function reparse(uris, liveParsers, androidLibrary, opts) {
         return;
     }
 
+    // Each parse uses a unique typemap, initialised from the android library
     const typemap = new Map(androidLibrary);
+
+    // perform the parse
     const units = parse(parsers, cached_units, typemap);
 
+    // create new ParsedInfo instances for each of the parsed units
     units.forEach(unit => {
         const parser = parsers.find(p => p.uri === unit.uri);
         if (!parser) return;
@@ -180,7 +212,8 @@ function reparse(uris, liveParsers, androidLibrary, opts) {
 
     let method_body_uris = [];
     if (first_parse_waiting) {
-        // this is the first parse - parse the bodies of any waiting
+        // this is the first parse - parse the bodies of any waiting URIs and
+        // set first_parse_waiting to null
         method_body_uris = [...first_parse_waiting];
         first_parse_waiting = null;
     }
@@ -203,10 +236,11 @@ function reparse(uris, liveParsers, androidLibrary, opts) {
 }
 
 /**
- * Called during initialization and whenver the App Source Root setting is changed to scan
+ * Called during initialization and whenever the App Source Root setting is changed to scan
  * for source files
+ * 
  * @param {string} src_folder absolute path to the source root
- * @param {*} liveParsers
+ * @param {Map<string,JavaDocInfo>} liveParsers
  */
 async function rescanSourceFolders(src_folder, liveParsers) {
     if (!src_folder) {
@@ -234,7 +268,9 @@ async function rescanSourceFolders(src_folder, liveParsers) {
         }
 
         try {
+            // read the full file content
             const file_content = await new Promise((res, rej) => fs.readFile(file.fpn, 'UTF8', (err,data) => err ? rej(err) : res(data)));
+            // construct a new JavaDoc instance for the source file
             liveParsers.set(uri, new JavaDocInfo(uri, file_content, 0));
         } catch {}
     }

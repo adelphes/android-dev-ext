@@ -4,8 +4,21 @@ const { formatDoc } = require('./doc-formatter');
 const { trace } = require('./logging');
 
 /**
+ * Retrieve method signature information
+ * 
+ * Each parsed token that is relevant to a method call is 
+ * tagged with the list of possible methods and the best matched
+ * method. The tagged tokens include:
+ * - the opening bracket
+ * - each token in every argument
+ * - each comma between the arguments
+ * 
+ * The function locates the nearest non-ws token and checks
+ * for any tagged method-call info. It then converts it
+ * to the relevant vscode method signature structure for display.
+ * 
  * @param {import('vscode-languageserver').SignatureHelpParams} request
- * @param {*} liveParsers
+ * @param {Map<string,import('./document').JavaDocInfo>} liveParsers
  */
 async function getSignatureHelp(request, liveParsers) {
     trace('getSignatureHelp');
@@ -19,19 +32,27 @@ async function getSignatureHelp(request, liveParsers) {
     if (!docinfo || !docinfo.parsed) {
         return sighelp;
     }
+
+    // wait for any active edits to complete
     await docinfo.reparseWaiter;
+
+    // locate the token at the requested position
     const index = indexAt(request.position, docinfo.content);
     const token = docinfo.parsed.unit.getTokenAt(index);
     if (!token || !token.methodCallInfo) {
         trace('onSignatureHelp - no method call info');
         return sighelp;
     }
+
+    // the token has method information attached to it
+    // - convert it to the required vscode format
     trace(`onSignatureHelp - ${token.methodCallInfo.methods.length} methods`);
     sighelp = {
         signatures: token.methodCallInfo.methods.map(m => {
             const documentation = formatDoc(`#### ${m.owner.simpleTypeName}${m instanceof Method ? `.${m.name}` : ''}()`, m.docs);
             const param_docs = new Map();
             if (documentation) {
+                // extract each of the @param sections (if any)
                 for (let m, re=/@param\s+(\S+)([\d\D]+?)(?=\n\n|\n[ \t*]*@\w+|$)/g; m = re.exec(documentation.value);) {
                     param_docs.set(m[1], m[2]);
                 }

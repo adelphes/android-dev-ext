@@ -3,6 +3,7 @@ const { Settings } = require('./settings');
 const earlyTraceBuffer = [];
 
 /**
+ * Log a trace message with a timestamp - only logs if "Trace enabled" in settings
  * @param {string} s 
  */
 function trace(s) {
@@ -25,14 +26,30 @@ function info(msg) {
     console.log(msg);
 }
 
+/**
+ * Set of active timers
+ * @type {Set<string>}
+ */
+const timersRunning = new Set();
+
+/**
+ * Starts a named timer using `console.time()` - only if "Trace Enabled" in Settings
+ * @param {string} label 
+ */
 function time(label) {
     if (Settings.trace) {
+        timersRunning.add(label);
         console.time(label);
     }
 }
 
+/**
+ * Stops a named timer (and prints the elapsed time) using `console.timeEnd()`
+ * @param {string} label 
+ */
 function timeEnd(label) {
-    if (Settings.trace) {
+    if (timersRunning.has(label)) {
+        timersRunning.delete(label);
         console.timeEnd(label);
     }
 }
