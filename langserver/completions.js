@@ -1,6 +1,7 @@
 const { JavaType, CEIType, ArrayType, PrimitiveType } = require('java-mti');
 const { getTypeInheritanceList } = require('./java/expression-resolver');
 const { CompletionItem, CompletionItemKind } = require('vscode-languageserver');
+const { SourceType } = require('./java/source-types');
 const { indexAt } = require('./document');
 const { formatDoc } = require('./doc-formatter');
 const { trace } = require('./logging');
@@ -62,7 +63,10 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
             return this.has(key) ? this : super.set(key, value);
         }
     }
-    const fields = new SetOnceMap(), methods = new SetOnceMap(), inner_types = new SetOnceMap();
+    const fields = new SetOnceMap(),
+      methods = new SetOnceMap(),
+      inner_types = new SetOnceMap(),
+      enumValues = new SetOnceMap();
 
     /**
      * @param {string[]} modifiers 
@@ -80,13 +84,23 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
     }
 
     // retrieve fields and methods
-    types.forEach((t,idx) => {
+    types.forEach(t => {
+        if (t instanceof SourceType) {
+            t.enumValues.sort(sortBy.name)
+                .forEach(e => enumValues.set(e.name, {e, t}))
+        }
         t.fields.sort(sortBy.name)
             .filter(f => shouldInclude(f.modifiers, t))
-            .forEach(f => fields.set(f.name, {f, t, sortText: `${idx+1000}${f.name}`}));
+            .forEach(f => {
+                if (f.isEnumValue) {
+                    enumValues.set(f.name, {e:f, t});
+                } else {
+                    fields.set(f.name, {f, t});
+                }
+            });
         t.methods.sort(sortBy.name)
             .filter(f => shouldInclude(f.modifiers, t))
-            .forEach(m => methods.set(`${m.name}${m.methodSignature}`, {m, t, sortText: `${idx+2000}${m.name}`}));
+            .forEach(m => methods.set(`${m.name}${m.methodSignature}`, {m, t}));
     });
 
     if (opts.statics && subtype_search) {
@@ -98,31 +112,39 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
                     && !type_signature.slice(subtype_search.length).includes('$')
             )
             .map(type_signature => typemap.get(type_signature))
-            .forEach((t,idx) => inner_types.set(type.simpleTypeName, { t, sortText: `${idx+3000}${t.simpleTypeName}` }));
+            .forEach((t,idx) => inner_types.set(t.simpleTypeName, { t }));
     }
 
     return [
+        // enum values
+        ...[...enumValues.values()].map((e,idx) => ({
+            label: `${e.e.name}: ${e.t.simpleTypeName}`,
+            insertText: e.e.name,
+            kind: CompletionItemKind.EnumMember,
+            sortText: `${idx+1000}${e.e.name}`,
+            data: { type: e.t.shortSignature, fidx: e.t.fields.indexOf(e.e) },
+        })),
         // fields
-        ...[...fields.values()].map(f => ({
+        ...[...fields.values()].map((f,idx) => ({
             label: `${f.f.name}: ${f.f.type.simpleTypeName}`,
             insertText: f.f.name,
             kind: CompletionItemKind.Field,
-            sortText: f.sortText,
+            sortText: `${idx+2000}${f.f.name}`,
             data: { type: f.t.shortSignature, fidx: f.t.fields.indexOf(f.f) },
         })),
         // methods
-        ...[...methods.values()].map(m => ({
+        ...[...methods.values()].map((m,idx) => ({
             label: m.m.shortlabel,
             kind: CompletionItemKind.Method,
             insertText: m.m.name,
-            sortText: m.sortText,
+            sortText: `${idx+3000}${m.m.name}`,
             data: { type: m.t.shortSignature, midx: m.t.methods.indexOf(m.m) },
         })),
         // types
-        ...[...inner_types.values()].map(it => ({
+        ...[...inner_types.values()].map((it,idx) => ({
             label: it.t.simpleTypeName,
             kind: TypeKindMap[it.t.typeKind],
-            sortText: it.sortText,
+            sortText: `${idx+4000}${it.t.simpleTypeName}`,
             data: { type: it.shortSignature },
         })),
     ]
