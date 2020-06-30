@@ -16,7 +16,7 @@ const { Settings } = require('./settings');
 const { trace } = require('./logging');
 const { getCompletionItems, resolveCompletionItem } = require('./completions');
 const { getSignatureHelp } = require('./method-signatures');
-const { getAppSourceRootFolder, JavaDocInfo, indexAt, reparse, rescanSourceFolders } = require('./document');
+const { getAppSourceRootFolder, FileURIMap, JavaDocInfo, indexAt, reparse, rescanSourceFolders } = require('./document');
 
 /**
  * The global map of Android system types
@@ -29,7 +29,7 @@ let androidLibrary = null;
  * The list of loaded Java documents
  * @type {Map<string,JavaDocInfo>}
  */
-const liveParsers = new Map();
+const liveParsers = new FileURIMap();
 
 let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;

@@ -62,6 +62,54 @@ function positionAt(index, content) {
 }
 
 /**
+ * A specialised Map to allow for case-insensitive fileURIs on Windows.
+ * 
+ * For cs-filesystems, this should work as a normal map.
+ * For ci-filesystems, if a file URI case changes, it should be picked up
+ * by the lowercase map
+ */
+class FileURIMap extends Map {
+    lowerMap = new Map();
+
+    /**
+     * @param {string} key 
+     */
+    get(key) {
+        return super.get(key) || this.lowerMap.get(key.toLowerCase());
+    }
+
+    /**
+     * @param {string} key 
+     */
+    has(key) {
+        return super.has(key) || this.lowerMap.has(key.toLowerCase());
+    }
+
+    /**
+     * @param {string} key 
+     * @param {*} value 
+     */
+    set(key, value) {
+        super.set(key, value);
+        this.lowerMap.set(key.toLowerCase(), value);
+        return this;
+    }
+
+    /**
+     * @param {string} key 
+     */
+    delete(key) {
+        this.lowerMap.delete(key.toLowerCase());
+        return super.delete(key);
+    }
+
+    clear() {
+        super.clear();
+        this.lowerMap.clear();
+    }
+}
+
+/**
  * Class for storing data about Java source files
  */
 class JavaDocInfo {
@@ -376,6 +424,7 @@ async function loadWorkingFileList(src_folder) {
 
 exports.indexAt = indexAt;
 exports.positionAt = positionAt;
+exports.FileURIMap = FileURIMap;
 exports.JavaDocInfo = JavaDocInfo;
 exports.ParsedInfo = ParsedInfo;
 exports.reparse = reparse;
