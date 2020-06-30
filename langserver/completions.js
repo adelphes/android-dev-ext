@@ -71,10 +71,13 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
     /**
      * @param {string[]} modifiers 
      * @param {JavaType} t 
+     * @param {boolean} [synthetic]
      */
-    function shouldInclude(modifiers, t) {
+    function shouldInclude(modifiers, t, synthetic) {
         // filter statics/instances
         if (opts.statics !== modifiers.includes('static')) return;
+        // exclude synthetic entries
+        if (synthetic) return;
         if (modifiers.includes('public')) return true;
         if (modifiers.includes('protected')) return true;
         // only include private items for the current type
@@ -90,7 +93,7 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
                 .forEach(e => enumValues.set(e.name, {e, t}))
         }
         t.fields.sort(sortBy.name)
-            .filter(f => shouldInclude(f.modifiers, t))
+            .filter(f => shouldInclude(f.modifiers, t, f.isSynthetic))
             .forEach(f => {
                 if (f.isEnumValue) {
                     enumValues.set(f.name, {e:f, t});
@@ -99,7 +102,7 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
                 }
             });
         t.methods.sort(sortBy.name)
-            .filter(f => shouldInclude(f.modifiers, t))
+            .filter(m => shouldInclude(m.modifiers, t, m.isSynthetic))
             .forEach(m => methods.set(`${m.name}${m.methodSignature}`, {m, t}));
     });
 
