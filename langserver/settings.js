@@ -25,12 +25,11 @@ const defaultSettings = {
              return;
          }
          this.updateCount += 1;
-        console.log(`settings set: ${JSON.stringify(values)}`);
-        for (let key in defaultSettings) {
+         for (let key in defaultSettings) {
             if (Object.prototype.hasOwnProperty.call(values, key)) {
                 this[key] = values[key];
             }
-        }
+         }
      }
  }
 

@@ -1,8 +1,4 @@
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
 const { CEIType } = require('java-mti');
-const { Settings } = require('./settings');
 const ParseProblem = require('./java/parsetypes/parse-problem');
 const { parse } = require('./java/body-parser');
 const { SourceUnit } = require('./java/source-types');
@@ -211,8 +207,7 @@ class ParsedInfo {
  */
 function reparse(uris, liveParsers, androidLibrary, opts) {
     trace(`reparse`);
-    // we must have at least one URI
-    if (!uris || !uris.length) {
+    if (!Array.isArray(uris)) {
         return;
     }
     if (first_parse_waiting) {
@@ -238,9 +233,6 @@ function reparse(uris, liveParsers, androidLibrary, opts) {
         } else if (docinfo.parsed) {
             cached_units.push(docinfo.parsed.unit);
         }
-    }
-    if (!parsers.length) {
-        return;
     }
 
     // Each parse uses a unique typemap, initialised from the android library
@@ -283,150 +275,9 @@ function reparse(uris, liveParsers, androidLibrary, opts) {
     }
 }
 
-/**
- * Called during initialization and whenever the App Source Root setting is changed to scan
- * for source files
- * 
- * @param {string} src_folder absolute path to the source root
- * @param {Map<string,JavaDocInfo>} liveParsers
- */
-async function rescanSourceFolders(src_folder, liveParsers) {
-    if (!src_folder) {
-        return;
-    }
-
-    // when the appSourceRoot config value changes and we rescan the folder, we need
-    // to delete any parsers that were from the old appSourceRoot
-    const unused_keys = new Set(liveParsers.keys());
-
-    const files = await loadWorkingFileList(src_folder);
-
-    // create live parsers for all the java files, but don't replace any existing ones which
-    // have been loaded (and may be edited) before we reach here
-    for (let file of files) {
-        if (!/\.java$/i.test(file.fpn)) {
-            continue;
-        }
-        const uri = `file://${file.fpn}`;    // todo - handle case-differences on Windows
-        unused_keys.delete(uri);
-
-        if (liveParsers.has(uri)) {
-            trace(`already loaded: ${uri}`);
-            continue;
-        }
-
-        try {
-            // read the full file content
-            const file_content = await new Promise((res, rej) => fs.readFile(file.fpn, 'UTF8', (err,data) => err ? rej(err) : res(data)));
-            // construct a new JavaDoc instance for the source file
-            liveParsers.set(uri, new JavaDocInfo(uri, file_content, 0));
-        } catch {}
-    }
-
-    // remove any parsers that are no longer part of the working set
-    unused_keys.forEach(uri => liveParsers.delete(uri));
-}
-
-/**
- * Attempts to locate the app root folder using workspace folders and the appSourceRoot setting
- * @param {*} workspace
- * @returns Absolute path to app root folder or null
- */
-async function getAppSourceRootFolder(workspace) {
-    /** @type {string} */
-    let src_folder = null;
-
-    const folders = await workspace.getWorkspaceFolders();
-    if (!folders || !folders.length) {
-        trace('No workspace folders');
-        return src_folder;
-    }
-
-    folders.find(folder => {
-        const main_folder = path.join(folder.uri.replace(/^\w+:\/\//, ''), Settings.appSourceRoot);
-        try {
-            if (fs.statSync(main_folder).isDirectory()) {
-                src_folder = main_folder;
-                return true;
-            }
-        } catch {}
-    });
-
-    if (!src_folder) {
-        console.log([
-            `Failed to find source root from workspace folders:`,
-            ...folders.map(f => ` - ${f.uri}`),
-            'Configure the Android App Source Root value in your workspace settings to point to your source folder containing AndroidManifest.xml',
-        ].join(os.EOL));
-    }
-
-    return src_folder;
-}
-
-async function loadWorkingFileList(src_folder) {
-    if (!src_folder) {
-        return [];
-    }
-
-    trace(`Using src root folder: ${src_folder}. Searching for Android project source files...`);
-    time('source file search')
-    const files = scanSourceFiles(src_folder);
-    timeEnd('source file search');
-
-    if (!files.find(file => /^androidmanifest.xml$/i.test(file.relfpn))) {
-        console.log(`Warning: No AndroidManifest.xml found in app root folder. Check the Android App Source Root value in your workspace settings.`)
-    }
-
-    return files;
-
-    /**
-     * @param {string} base_folder 
-     * @returns {{fpn:string, relfpn: string, stat:fs.Stats}[]}
-     */
-    function scanSourceFiles(base_folder) {
-        // strip any trailing slash
-        base_folder = base_folder.replace(/[\\/]+$/, '');
-        const done = new Set(), folders = [base_folder], files = [];
-        const max_folders = 100;
-        while (folders.length) {
-            const folder = folders.shift();
-            if (done.has(folder)) {
-                continue;
-            }
-            done.add(folder);
-            if (done.size > max_folders) {
-                console.log(`Max folder limit reached - cancelling file search`);
-                break;
-            }
-            try {
-                trace(`scan source folder ${folder}`)
-                fs.readdirSync(folder)
-                    .forEach(name => {
-                        const fpn = path.join(folder, name);
-                        const stat = fs.statSync(fpn);
-                        files.push({
-                            fpn,
-                            // relative path (without leading slash)
-                            relfpn: fpn.slice(base_folder.length + 1),
-                            stat,
-                        });
-                        if (stat.isDirectory()) {
-                            folders.push(fpn)
-                        }
-                    });
-            } catch (err) {
-                trace(`Failed to scan source folder ${folder}: ${err.message}`)
-            }
-        }
-        return files;
-    }
-}
-
 exports.indexAt = indexAt;
 exports.positionAt = positionAt;
 exports.FileURIMap = FileURIMap;
 exports.JavaDocInfo = JavaDocInfo;
 exports.ParsedInfo = ParsedInfo;
 exports.reparse = reparse;
-exports.getAppSourceRootFolder = getAppSourceRootFolder;
-exports.rescanSourceFolders = rescanSourceFolders;

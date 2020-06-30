@@ -8,6 +8,7 @@ const {
 const fs = require('fs');
 
 const { TextDocument } = require('vscode-languageserver-textdocument');
+const { URI } = require('vscode-uri');
 
 const { loadAndroidSystemLibrary } = require('./java/java-libraries');
 const { CEIType } = require('java-mti');
@@ -16,7 +17,7 @@ const { Settings } = require('./settings');
 const { trace } = require('./logging');
 const { getCompletionItems, resolveCompletionItem } = require('./completions');
 const { getSignatureHelp } = require('./method-signatures');
-const { getAppSourceRootFolder, FileURIMap, JavaDocInfo, indexAt, reparse, rescanSourceFolders } = require('./document');
+const { FileURIMap, JavaDocInfo, indexAt, reparse } = require('./document');
 
 /**
  * The global map of Android system types
@@ -118,6 +119,33 @@ connection.onInitialize((params) => {
 
     hasWorkspaceFolderCapability = capabilities.workspace && !!capabilities.workspace.workspaceFolders;
 
+    if (params.initializationOptions) {
+        /** @type {string[]} */
+        const file_uris = params.initializationOptions.sourceFiles || [];
+        for (let file_uri of file_uris) {
+            const file = URI.parse(file_uri, true);
+            const filePath = file.fsPath;
+            if (!/.java/i.test(filePath)) {
+                trace(`ignoring non-java file: ${filePath}`);
+                continue;
+            }
+            if (liveParsers.has(file_uri)) {
+                trace(`File already loaded: ${file_uri}`);
+                continue;
+            }
+            try {
+                // it's fine to load the initial file set synchronously - the language server runs in a
+                // separate process and nothing (useful) can happen until the first parse is complete.
+                const content = fs.readFileSync(file.fsPath, 'utf8');
+                liveParsers.set(file_uri, new JavaDocInfo(file_uri, content, 0));
+                trace(`Added initial file: ${file_uri}`);
+            } catch (err) {
+                trace(`Failed to load initial source file: ${filePath}. ${err.message}`);
+            }
+        }
+        reparse([...liveParsers.keys()], liveParsers, androidLibrary, { includeMethods: false, first_parse: true });
+    }
+
     return {
         capabilities: {
             // we support incremental updates
@@ -155,18 +183,11 @@ connection.onInitialized(async () => {
         });
     }
 
-    const src_folder = await getAppSourceRootFolder(connection.workspace);
-    if (src_folder) {
-        await rescanSourceFolders(src_folder, liveParsers);
-        reparse([...liveParsers.keys()], liveParsers, androidLibrary, { includeMethods: false, first_parse: true });
-    }
-
     trace('Initialization complete');
 });
 
 connection.onDidChangeConfiguration(async (change) => {
     trace(`onDidChangeConfiguration: ${JSON.stringify(change)}`);
-    const old_app_root = Settings.appSourceRoot;
 
     // fetch and update the settings
     const newSettings = await connection.workspace.getConfiguration({
@@ -174,15 +195,6 @@ connection.onDidChangeConfiguration(async (change) => {
     });
 
     Settings.set(newSettings);
-
-    if (old_app_root !== Settings.appSourceRoot) {
-        // if the app root has changed, rescan the source folder
-        const src_folder = await getAppSourceRootFolder(connection.workspace);
-        if (src_folder) {
-            rescanSourceFolders(src_folder, liveParsers);
-            reparse([...liveParsers.keys()], liveParsers, androidLibrary);
-        }
-    }
 })
 
 documents.onDidClose((e) => {
@@ -201,13 +213,15 @@ connection.onDidChangeWatchedFiles(
                 case 1: // create
                     // if the user creates the file directly in vscode, the file will automatically open (and we receive an open callback)
                     // - but if the user creates or copies a file into the workspace, we need to manually add it to the set.
-                    if (!liveParsers.has(change.uri) && /^file:\/\//.test(change.uri)) {
+                    if (!liveParsers.has(change.uri)) {
                         trace(`file added: ${change.uri}`)
                         try {
-                            const fname = change.uri.replace(/^file:\/\//, '');
+                            const fname = URI.parse(change.uri, true).fsPath;
                             liveParsers.set(change.uri, new JavaDocInfo(change.uri, fs.readFileSync(fname, 'utf8'), 0));
                             files_changed = true;
-                        } catch {}
+                        } catch (err) {
+                            console.log(`Failed to add new file '${change.uri}' to working set. ${err.message}`);
+                        }
                     }
                     break;
                 case 2: // change

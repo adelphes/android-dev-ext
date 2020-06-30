@@ -11,7 +11,7 @@ const { selectTargetDevice } = require('./src/utils/device');
 /**
  * @param {vscode.ExtensionContext} context
  */
-function createLanguageClient(context) {
+async function createLanguageClient(context) {
   // The server is implemented in node
   let serverModule = context.asAbsolutePath(path.join('langserver', 'server.js'));
   // The debug options for the server
@@ -33,6 +33,15 @@ function createLanguageClient(context) {
     }
   };
 
+  const appSourceRoot = vscode.workspace.getConfiguration('android-dev-ext').get('appSourceRoot', '');
+  let globSearchRoot = appSourceRoot;
+  if (globSearchRoot) {
+      // for findFiles to work properly, the path cannot begin with slash or have any relative components
+      globSearchRoot = path.normalize(appSourceRoot.replace(/(^[\\/]+)|([\\/]+$)/,''));
+      if (globSearchRoot) globSearchRoot += '/';
+  }
+  const sourceFiles = (await vscode.workspace.findFiles(`${globSearchRoot}**/*.java`, null, 1000, null)).map(uri => uri.toString());
+
   // Options to control the language client
   /** @type {import('vscode-languageclient').LanguageClientOptions} */
   let clientOptions = {
@@ -43,6 +52,9 @@ function createLanguageClient(context) {
     initializationOptions: {
         // extensionPath points to the root of the extension (the folder where this file is)
         extensionPath: context.extensionPath,
+        appSourceRoot,
+        sourceFiles,
+        workspaceFolders: (vscode.workspace.workspaceFolders || []).map(z => z.uri.toString()),
     },
     synchronize: {
       // Notify the server about file changes to '.java files contained in the workspace
@@ -63,6 +75,9 @@ function createLanguageClient(context) {
 let languageClient;
 let languageSupportEnabled = false;
 function refreshLanguageServerEnabledState() {
+    if (!languageClient) {
+        return;
+    }
     let langSupport = vscode.workspace.getConfiguration('android-dev-ext').get('languageSupport', false);
     if (langSupport === languageSupportEnabled) {
         return;
@@ -83,15 +98,18 @@ function refreshLanguageServerEnabledState() {
 }
 
 
-// this method is called when your extension is activated
-// your extension is activated the very first time the command is executed
+/**
+ * @param {vscode.ExtensionContext} context
+ */
 function activate(context) {
 
     /* Only the logcat stuff is configured here. The debugger is launched from src/debugMain.js  */
     AndroidContentProvider.register(context, vscode.workspace);
 
-    languageClient = createLanguageClient(context);
-    refreshLanguageServerEnabledState();
+    createLanguageClient(context).then(client => {
+        languageClient = client;
+        refreshLanguageServerEnabledState();
+    });
 
     // The commandId parameter must match the command field in package.json
     const disposables = [
@@ -136,8 +154,6 @@ function activate(context) {
             // trying to shut down the language server in the middle of a change-configuration request
             process.nextTick(() => refreshLanguageServerEnabledState());
         }),
-
-        languageClient,
     ];
 
     context.subscriptions.splice(context.subscriptions.length, 0, ...disposables);
