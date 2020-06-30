@@ -393,7 +393,8 @@ async function getCompletionItems(params, liveParsers, androidLibrary) {
             locals = options.method.parameters
                 .sort(sortBy.name)
                 .map(p => ({
-                    label: p.name,
+                    label: `${p.name}: ${p.type.simpleTypeName}`,
+                    insertText: p.name,
                     kind: CompletionItemKind.Variable,
                     sortText: p.name,
                 }));
