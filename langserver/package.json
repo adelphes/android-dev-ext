@@ -4,15 +4,14 @@
   "description": "Language server for Android development",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "postinstall": "cd node_modules && cd java-mti && npm i && cd .. && cd .."
+    "start": "node server.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "java-mti": "file:.node_deps/java-mti",
-    "vscode-languageserver": "^6.1.1",
-    "vscode-languageserver-textdocument": "^1.0.1"
+    "java-mti": "adelphes/java-mti#c8e1d3c",
+    "vscode-languageserver": "6.1.1",
+    "vscode-languageserver-textdocument": "1.0.1"
   },
   "devDependencies": {
     "@types/node": "^13.13.4"
