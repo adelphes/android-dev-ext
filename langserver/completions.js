@@ -297,7 +297,7 @@ function initDefaultCompletionTypes(lib) {
  * 
  * @param {import('vscode-languageserver').CompletionParams} params
  * @param {Map<string,import('./document').JavaDocInfo>} liveParsers 
- * @param {Map<string,CEIType>} androidLibrary 
+ * @param {Map<string,CEIType>|Promise<Map<string,CEIType>>} androidLibrary 
  */
 async function getCompletionItems(params, liveParsers, androidLibrary) {
     trace('getCompletionItems');

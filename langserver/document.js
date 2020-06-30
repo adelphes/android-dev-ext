@@ -104,7 +104,7 @@ class JavaDocInfo {
       * retrieval and method signature resolving until the reparse is complete.
       * 
       * @param {Map<string,JavaDocInfo>} liveParsers 
-      * @param {Map<string,CEIType>} androidLibrary 
+      * @param {Map<string,CEIType>|Promise<Map<string,CEIType>>} androidLibrary 
       */
      scheduleReparse(liveParsers, androidLibrary) {
         const createWaitTimer = () => {
@@ -158,7 +158,7 @@ class ParsedInfo {
 /**
  * @param {string[]} uris
  * @param {Map<string, JavaDocInfo>} liveParsers
- * @param {Map<string,CEIType>} androidLibrary
+ * @param {Map<string,CEIType>|Promise<Map<string,CEIType>>} androidLibrary
  * @param {{includeMethods: boolean, first_parse?: boolean}} [opts]
  */
 function reparse(uris, liveParsers, androidLibrary, opts) {
