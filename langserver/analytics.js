@@ -31,6 +31,7 @@ function init(t = '0cca95950055c6553804a46ce7e3df18', u, s, package_json, props)
         return;
     }
     const os = require('os');
+    const now = new Date();
     event(`${package_json.name}-start`, {
         extension: package_json.name,
         ext_version: package_json.version,
@@ -40,6 +41,8 @@ function init(t = '0cca95950055c6553804a46ce7e3df18', u, s, package_json, props)
         platform: process.platform,
         node_version: process.version,
         release: os.release(),
+        localtime: now.toTimeString(),
+        tz: now.getTimezoneOffset(),
         ...props
     });
 }
