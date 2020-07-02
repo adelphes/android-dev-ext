@@ -381,6 +381,7 @@ async function getCompletionItems(params, liveParsers, androidLibrary) {
 
     let locals = [],
         modifiers = dct.modifiers,
+        type_members = [],
         sourceTypes = [];
 
     if (parsed.unit) {
@@ -421,6 +422,12 @@ async function getCompletionItems(params, liveParsers, androidLibrary) {
                 locals.push(...dct.instances);
             }
 
+            type_members = getTypedNameCompletion(
+                parsed.typemap,
+                options.method.owner.typeSignature,
+                { statics: !!options.method.modifierTokens.find(m => m.value === 'static') }
+            );
+
             // if we're inside a method, don't show the modifiers
             modifiers = [];
         }
@@ -451,6 +458,7 @@ async function getCompletionItems(params, liveParsers, androidLibrary) {
 
     return [
         ...locals,
+        ...type_members,
         ...dct.primitiveTypes,
         ...dct.literals,
         ...modifiers,
