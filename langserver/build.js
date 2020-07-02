@@ -9,6 +9,7 @@
 
 /** These are the sources (files and folders) we want to pack */
 const sources = [
+    'analytics.js',
     'completions.js',
     'doc-formatter.js',
     'document.js',
