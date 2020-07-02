@@ -1,6 +1,6 @@
 {
   "name": "langserver",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Language server for Android development",
   "main": "server.js",
   "scripts": {
@@ -10,8 +10,8 @@
   "license": "ISC",
   "dependencies": {
     "java-mti": "adelphes/java-mti#d0e1e45",
-    "mixpanel": "^0.11.0",
-    "uuid": "^8.2.0",
+    "mixpanel": "0.11.0",
+    "uuid": "8.2.0",
     "vscode-languageserver": "6.1.1",
     "vscode-languageserver-textdocument": "1.0.1",
     "vscode-uri": "2.1.2"
