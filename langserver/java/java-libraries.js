@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { CEIType, loadJavaLibraryCacheFile } = require('java-mti');
+const analytics = require('../analytics');
 const { trace, time, timeEnd } = require('../logging');
 
 /**
@@ -9,6 +10,7 @@ const { trace, time, timeEnd } = require('../logging');
  * @returns {Promise<Map<string,CEIType>>}
  */
 async function loadAndroidSystemLibrary(extensionPath, additional_libs) {
+    analytics.time('android-library-load');
     time('android-library-load');
     let library;
     try {
@@ -25,6 +27,7 @@ async function loadAndroidSystemLibrary(extensionPath, additional_libs) {
         library = typemap;
     } finally {
         timeEnd('android-library-load');
+        analytics.timeEnd('android-library-load', 'ms', { libs: additional_libs, typecount: library ? library.size : 0 });
     }
     return library;
 }

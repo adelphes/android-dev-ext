@@ -19,6 +19,10 @@ const { clearDefaultCompletionEntries, getCompletionItems, resolveCompletionItem
 const { getSignatureHelp } = require('./method-signatures');
 const { FileURIMap, JavaDocInfo, indexAt, reparse } = require('./document');
 
+const { v4: uuidv4 } = require('uuid');
+const analytics = require('./analytics');
+const package_json = require('./package.json');
+
 /**
  * The global map of Android system types
  * @typedef {Map<string, CEIType>} AndroidLibrary
@@ -131,6 +135,7 @@ connection.onInitialize((params) => {
     }
 
     Settings.set(startupOpts.initialSettings);
+    analytics.init(undefined, startupOpts.mpuid, uuidv4(), package_json, { vscode_version: startupOpts.vscodeVersion });
 
     loadCodeCompletionLibrary(startupOpts.extensionPath, Settings.codeCompletionLibraries);
 
@@ -214,6 +219,14 @@ connection.onDidChangeConfiguration(async (change) => {
     });
 
     Settings.set(newSettings);
+
+    if (Settings.updateCount > 2) {
+        analytics.event('ls-settings-changed', {
+            appSourceRoot: Settings.appSourceRoot,
+            libs: Settings.codeCompletionLibraries,
+            trace: Settings.trace,
+        })
+    }
 
     const new_ccl = [...new Set(Settings.codeCompletionLibraries)].sort();
     if (new_ccl.length !== prev_ccl.length || new_ccl.find((lib,idx) => lib !== prev_ccl[idx])) {

@@ -2,6 +2,8 @@
 // Import the module and reference it with the alias vscode in your code below
 const path = require('path');
 const vscode = require('vscode');
+const analytics = require('./langserver/analytics');
+const package_json = require('./package.json');
 const { LanguageClient, TransportKind, } = require('vscode-languageclient');
 const { AndroidContentProvider } = require('./src/contentprovider');
 const { openLogcatWindow } = require('./src/logcat');
@@ -43,6 +45,8 @@ async function createLanguageClient(context) {
   }
   const sourceFiles = (await vscode.workspace.findFiles(`${globSearchRoot}**/*.java`, null, 1000, null)).map(uri => uri.toString());
 
+  const mpids = analytics.getIDs(context);
+
   // Options to control the language client
   /** @type {import('vscode-languageclient').LanguageClientOptions} */
   let clientOptions = {
@@ -53,8 +57,11 @@ async function createLanguageClient(context) {
     initializationOptions: {
         // extensionPath points to the root of the extension (the folder where this file is)
         extensionPath: context.extensionPath,
+        mpuid: mpids.uid,
+        mpsid: mpids.sid,
         initialSettings: config,
         sourceFiles,
+        vscodeVersion: vscode.version,
         workspaceFolders: (vscode.workspace.workspaceFolders || []).map(z => z.uri.toString()),
     },
     synchronize: {
@@ -106,6 +113,9 @@ function activate(context) {
 
     /* Only the logcat stuff is configured here. The debugger is launched from src/debugMain.js  */
     AndroidContentProvider.register(context, vscode.workspace);
+
+    const mpids = analytics.getIDs(context);
+    analytics.init(undefined, mpids.uid, mpids.sid, package_json, { vscode_version: vscode.version });
 
     createLanguageClient(context).then(client => {
         languageClient = client;

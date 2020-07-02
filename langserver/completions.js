@@ -5,6 +5,7 @@ const { SourceType } = require('./java/source-types');
 const { indexAt } = require('./document');
 const { formatDoc } = require('./doc-formatter');
 const { trace } = require('./logging');
+const { event } = require('./analytics');
 
 /**
  * Case-insensitive sort routines
@@ -276,6 +277,8 @@ let defaultCompletionTypes = null;
 /** @type {Map<string,CEIType>} */
 let lastCompletionTypeMap = null;
 
+let completionRequestCount = 0;
+
 function initDefaultCompletionTypes(lib) {
     defaultCompletionTypes = {
         instances: 'this super'.split(' ').map(t => ({
@@ -363,6 +366,11 @@ async function getCompletionItems(params, liveParsers, androidLibrary) {
             isIncomplete: true,
             items: [],
         }
+    }
+
+    completionRequestCount += 1;
+    if ((completionRequestCount === 1) || (completionRequestCount === 5) || ((completionRequestCount % 25) === 0)) {
+        event('completion-requests', { comp_req_count: completionRequestCount });
     }
 
     let parsed = docinfo.parsed;

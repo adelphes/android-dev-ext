@@ -2,6 +2,9 @@ const { Method } = require('java-mti');
 const { indexAt } = require('./document');
 const { formatDoc } = require('./doc-formatter');
 const { trace } = require('./logging');
+const { event } = require('./analytics');
+
+let methodsigRequestCount = 0;
 
 /**
  * Retrieve method signature information
@@ -35,6 +38,11 @@ async function getSignatureHelp(request, liveParsers) {
 
     // wait for any active edits to complete
     await docinfo.reparseWaiter;
+
+    methodsigRequestCount += 1;
+    if ((methodsigRequestCount === 1) || (methodsigRequestCount === 5) || ((methodsigRequestCount % 25) === 0)) {
+        event('method-sig-requests', { methsig_req_count: methodsigRequestCount });
+    }
 
     // locate the token at the requested position
     const index = indexAt(request.position, docinfo.content);
