@@ -89,7 +89,7 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
 
     // retrieve fields and methods
     types.forEach(t => {
-        if (t instanceof SourceType) {
+        if (t instanceof SourceType && opts.statics) {
             t.enumValues.sort(sortBy.name)
                 .forEach(e => enumValues.set(e.name, {e, t}))
         }
