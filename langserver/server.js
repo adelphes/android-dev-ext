@@ -15,7 +15,7 @@ const { CEIType } = require('java-mti');
 
 const { Settings } = require('./settings');
 const { trace } = require('./logging');
-const { getCompletionItems, resolveCompletionItem } = require('./completions');
+const { clearDefaultCompletionEntries, getCompletionItems, resolveCompletionItem } = require('./completions');
 const { getSignatureHelp } = require('./method-signatures');
 const { FileURIMap, JavaDocInfo, indexAt, reparse } = require('./document');
 
@@ -32,8 +32,26 @@ let androidLibrary = null;
  */
 const liveParsers = new FileURIMap();
 
+let startupOpts = null;
 let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;
+
+function loadCodeCompletionLibrary(extensionPath, codeCompletionLibraries) {
+    // the android library is loaded asynchronously, with the global `androidLibrary` variable
+    // set to the promise while it is loading.
+    androidLibrary = (androidLibrary instanceof Promise
+            ? androidLibrary    // if we're currently loading, wait for it to complete
+            : Promise.resolve(new Map())
+        )
+        .then(() => loadAndroidSystemLibrary(extensionPath, codeCompletionLibraries))
+        .then(
+            library => androidLibrary = library,
+            err => {
+                console.log(`Android library load failed: ${err.message}\n Code completion may not be available.`);
+                return new Map();
+            }
+        );
+}
 
 // Text document manager monitoring file opens and edits
 let documents = new TextDocuments({
@@ -100,16 +118,21 @@ const connection = createConnection(ProposedFeatures.all);
 
 connection.onInitialize((params) => {
 
-    // the android library is loaded asynchronously, with the global `androidLibrary` variable
-    // set to the promise while it is loading.
-    androidLibrary = loadAndroidSystemLibrary((params.initializationOptions || {}).extensionPath)
-        .then(
-            library => androidLibrary = library,
-            err => {
-                console.log(`Android library load failed: ${err.message}\n Code completion may not be available.`);
-                return new Map();
-            }
-        );
+    startupOpts = {
+        extensionPath: '',
+        initialSettings: {
+            appSourceRoot: '',
+            /** @type {string[]} */
+            codeCompletionLibraries: [],
+            trace: false,
+        },
+        sourceFiles: [],
+        ...params.initializationOptions,
+    }
+
+    Settings.set(startupOpts.initialSettings);
+
+    loadCodeCompletionLibrary(startupOpts.extensionPath, Settings.codeCompletionLibraries);
 
     let capabilities = params.capabilities;
 
@@ -119,32 +142,30 @@ connection.onInitialize((params) => {
 
     hasWorkspaceFolderCapability = capabilities.workspace && !!capabilities.workspace.workspaceFolders;
 
-    if (params.initializationOptions) {
-        /** @type {string[]} */
-        const file_uris = params.initializationOptions.sourceFiles || [];
-        for (let file_uri of file_uris) {
-            const file = URI.parse(file_uri, true);
-            const filePath = file.fsPath;
-            if (!/.java/i.test(filePath)) {
-                trace(`ignoring non-java file: ${filePath}`);
-                continue;
-            }
-            if (liveParsers.has(file_uri)) {
-                trace(`File already loaded: ${file_uri}`);
-                continue;
-            }
-            try {
-                // it's fine to load the initial file set synchronously - the language server runs in a
-                // separate process and nothing (useful) can happen until the first parse is complete.
-                const content = fs.readFileSync(file.fsPath, 'utf8');
-                liveParsers.set(file_uri, new JavaDocInfo(file_uri, content, 0));
-                trace(`Added initial file: ${file_uri}`);
-            } catch (err) {
-                trace(`Failed to load initial source file: ${filePath}. ${err.message}`);
-            }
+    /** @type {string[]} */
+    const file_uris = Array.isArray(startupOpts.sourceFiles) ? startupOpts.sourceFiles : [];
+    for (let file_uri of file_uris) {
+        const file = URI.parse(file_uri, true);
+        const filePath = file.fsPath;
+        if (!/.java/i.test(filePath)) {
+            trace(`ignoring non-java file: ${filePath}`);
+            continue;
         }
-        reparse([...liveParsers.keys()], liveParsers, androidLibrary, { includeMethods: false, first_parse: true });
+        if (liveParsers.has(file_uri)) {
+            trace(`File already loaded: ${file_uri}`);
+            continue;
+        }
+        try {
+            // it's fine to load the initial file set synchronously - the language server runs in a
+            // separate process and nothing (useful) can happen until the first parse is complete.
+            const content = fs.readFileSync(file.fsPath, 'utf8');
+            liveParsers.set(file_uri, new JavaDocInfo(file_uri, content, 0));
+            trace(`Added initial file: ${file_uri}`);
+        } catch (err) {
+            trace(`Failed to load initial source file: ${filePath}. ${err.message}`);
+        }
     }
+    reparse([...liveParsers.keys()], liveParsers, androidLibrary, { includeMethods: false, first_parse: true });
 
     return {
         capabilities: {
@@ -171,10 +192,6 @@ connection.onInitialized(async () => {
             DidChangeConfigurationNotification.type, {
                 section: 'android-dev-ext',
         });
-        const initialSettings = await connection.workspace.getConfiguration({
-            section: "android-dev-ext"
-        });
-        Settings.set(initialSettings);
     }
 
     if (hasWorkspaceFolderCapability) {
@@ -189,12 +206,23 @@ connection.onInitialized(async () => {
 connection.onDidChangeConfiguration(async (change) => {
     trace(`onDidChangeConfiguration: ${JSON.stringify(change)}`);
 
+    const prev_ccl = [...new Set(Settings.codeCompletionLibraries)].sort();
+
     // fetch and update the settings
     const newSettings = await connection.workspace.getConfiguration({
         section: "android-dev-ext"
     });
 
     Settings.set(newSettings);
+
+    const new_ccl = [...new Set(Settings.codeCompletionLibraries)].sort();
+    if (new_ccl.length !== prev_ccl.length || new_ccl.find((lib,idx) => lib !== prev_ccl[idx])) {
+        // code-completion libraries have changed - reload the android library
+        trace("code completion libraries changed - reloading android library and reparsing")
+        loadCodeCompletionLibrary(startupOpts.extensionPath, Settings.codeCompletionLibraries);
+        reparse([...liveParsers.keys()], liveParsers, androidLibrary, { includeMethods: false });
+        clearDefaultCompletionEntries();
+    }
 })
 
 documents.onDidClose((e) => {

@@ -1,22 +1,30 @@
 const fs = require('fs');
 const path = require('path');
-const { CEIType, loadAndroidLibrary } = require('java-mti');
+const { CEIType, loadJavaLibraryCacheFile } = require('java-mti');
+const { trace, time, timeEnd } = require('../logging');
 
 /**
  * @param {string} extensionPath install path of extension
+ * @param {string[]} additional_libs set of androidx library names to include eg: ["androidx.activity:activity"]
  * @returns {Promise<Map<string,CEIType>>}
  */
-async function loadAndroidSystemLibrary(extensionPath) {
-    console.time('android-library-load');
+async function loadAndroidSystemLibrary(extensionPath, additional_libs) {
+    time('android-library-load');
     let library;
     try {
         if (!extensionPath) {
             throw new Error('Missing extension path')
         }
         const cache_folder = path.join(extensionPath, 'langserver', '.library-cache');
-        library = await loadHighestAPIPlatform(cache_folder);
+        trace(`loading android library from ${cache_folder} with androidx libs: ${JSON.stringify(additional_libs)}`)
+        const typemap = await loadJavaLibraryCacheFile(path.join(cache_folder, 'android-29.zip'));
+        if (Array.isArray(additional_libs) && additional_libs.length) {
+            await loadJavaLibraryCacheFile(path.join(cache_folder, 'androidx-20200701.zip'), additional_libs, typemap);
+        }
+        trace(`loaded ${typemap.size} types into android library`);
+        library = typemap;
     } finally {
-        console.timeEnd('android-library-load');
+        timeEnd('android-library-load');
     }
     return library;
 }
@@ -53,7 +61,7 @@ async function loadHighestAPIPlatform(cache_folder) {
     console.log(`loading android platform cache: ${best_match.file.name}`);
 
     const cache_file = path.join(cache_folder, best_match.file.name);
-    const typemap = loadAndroidLibrary(cache_file);
+    const typemap = loadJavaLibraryCacheFile(cache_file);
 
     return typemap;
 }

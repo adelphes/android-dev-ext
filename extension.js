@@ -33,7 +33,8 @@ async function createLanguageClient(context) {
     }
   };
 
-  const appSourceRoot = vscode.workspace.getConfiguration('android-dev-ext').get('appSourceRoot', '');
+  const config = vscode.workspace.getConfiguration('android-dev-ext');
+  const appSourceRoot = config.get('appSourceRoot', '');
   let globSearchRoot = appSourceRoot;
   if (globSearchRoot) {
       // for findFiles to work properly, the path cannot begin with slash or have any relative components
@@ -52,7 +53,7 @@ async function createLanguageClient(context) {
     initializationOptions: {
         // extensionPath points to the root of the extension (the folder where this file is)
         extensionPath: context.extensionPath,
-        appSourceRoot,
+        initialSettings: config,
         sourceFiles,
         workspaceFolders: (vscode.workspace.workspaceFolders || []).map(z => z.uri.toString()),
     },

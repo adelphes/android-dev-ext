@@ -317,6 +317,10 @@ function initDefaultCompletionTypes(lib) {
     }
 }
 
+function clearDefaultCompletionEntries() {
+    defaultCompletionTypes = null;
+}
+
 /**
  * Called from the VSCode completion item request.
  * 
@@ -331,8 +335,10 @@ async function getCompletionItems(params, liveParsers, androidLibrary) {
         return [];
     }
 
+    let dct = defaultCompletionTypes;
     if (!defaultCompletionTypes) {
         initDefaultCompletionTypes(androidLibrary);
+        dct = defaultCompletionTypes || {};
     }
 
     // wait for the Android library to load (in case we receive an early request)
@@ -366,7 +372,7 @@ async function getCompletionItems(params, liveParsers, androidLibrary) {
     lastCompletionTypeMap = (parsed && parsed.typemap) || androidLibrary;
 
     let locals = [],
-        modifiers = defaultCompletionTypes.modifiers,
+        modifiers = dct.modifiers,
         sourceTypes = [];
 
     if (parsed.unit) {
@@ -404,7 +410,7 @@ async function getCompletionItems(params, liveParsers, androidLibrary) {
             
             // if this is not a static method, include this/super
             if (!options.method.modifiers.includes('static')) {
-                locals.push(...defaultCompletionTypes.instances);
+                locals.push(...dct.instances);
             }
 
             // if we're inside a method, don't show the modifiers
@@ -430,18 +436,18 @@ async function getCompletionItems(params, liveParsers, androidLibrary) {
     // exclude dotted (inner) types because they result in useless 
     // matches in the intellisense filter when . is pressed
     const types = [
-        ...defaultCompletionTypes.types,
+        ...dct.types,
         ...sourceTypes,
         ].filter(x => !x.label.includes('.'))
         .sort(sortBy.label)
 
     return [
         ...locals,
-        ...defaultCompletionTypes.primitiveTypes,
-        ...defaultCompletionTypes.literals,
+        ...dct.primitiveTypes,
+        ...dct.literals,
         ...modifiers,
         ...types,
-        ...defaultCompletionTypes.packageNames,
+        ...dct.packageNames,
     ].map((x,idx) => {
         // to force the order above, reset sortText for each item based upon a fixed-length number
         x.sortText = `${1000+idx}`;
@@ -489,3 +495,4 @@ function resolveCompletionItem(item) {
 
 exports.getCompletionItems = getCompletionItems;
 exports.resolveCompletionItem = resolveCompletionItem;
+exports.clearDefaultCompletionEntries = clearDefaultCompletionEntries;

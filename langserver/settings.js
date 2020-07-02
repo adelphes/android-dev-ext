@@ -1,6 +1,7 @@
 
 const defaultSettings = {
     appSourceRoot: 'app/src/main',
+    codeCompletionLibraries: [],
     trace: false,
 }
 
@@ -10,6 +11,11 @@ const defaultSettings = {
       * This folder should contain AndroidManifest.xml as well as the asets, res, etc folders
       */
      appSourceRoot = defaultSettings.appSourceRoot;
+
+     /**
+      * The set of androidx libraries to include in code completion
+      */
+     codeCompletionLibraries = defaultSettings.codeCompletionLibraries;
 
      /**
       * True if we log details
