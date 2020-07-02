@@ -6,6 +6,7 @@ const {
 // node and external modules
 const os = require('os');
 const path = require('path');
+const uuidv4 = require('uuid').v4;
 
 // our stuff
 const { ADBClient } = require('./adbclient');
@@ -20,6 +21,7 @@ const { checkADBStarted, getAndroidSourcesFolder } = require('./utils/android');
 const { D, initLogToClient, onMessagePrint } = require('./utils/print');
 const { hasValidSourceFileExtension } = require('./utils/source-file');
 const { VariableManager } = require('./variable-manager');
+const analytics = require('../langserver/analytics');
 
 class AndroidDebugSession extends DebugSession {
 
@@ -107,7 +109,11 @@ class AndroidDebugSession extends DebugSession {
          */
         this.debug_mode = null;
 
-		// this debugger uses one-based lines and columns
+        this.session_id = uuidv4();
+        this.session_start = new Date();
+        analytics.init();
+
+        // this debugger uses one-based lines and columns
 		this.setDebuggerLinesStartAt1(true);
         this.setDebuggerColumnsStartAt1(true);
 
@@ -417,6 +423,14 @@ class AndroidDebugSession extends DebugSession {
             this.LOG(`Debugger attached`);
             await this.dbgr.resume();
             
+            analytics.event('debug-started', {
+                dbg_session_id: this.session_id,
+                dbg_start: this.session_start.toLocaleTimeString(),
+                dbg_tz: this.session_start.getTimezoneOffset(),
+                dbg_kind: 'attach',
+                dbg_device_api: this.device_api_level,
+                dbg_emulator: /^emulator/.test(this._device.serial),
+            })
         } catch(e) {
             //this.performDisconnect();
             // exceptions use message, adbclient uses msg
@@ -558,6 +572,17 @@ class AndroidDebugSession extends DebugSession {
             this.sendResponse(response);
             await this.dbgr.resume();
             
+            analytics.event('debug-started', {
+                dbg_session_id: this.session_id,
+                dbg_start: this.session_start.toLocaleTimeString(),
+                dbg_tz: this.session_start.getTimezoneOffset(),
+                dbg_kind: 'debug',
+                dbg_device_api: this.device_api_level,
+                dbg_emulator: /^emulator/.test(this._device.serial),
+                dbg_apk_size: this.apk_file_info.file_size,
+                dbg_pkg_name: this.apk_file_info.manifest.package || '',
+            })
+
             this.LOG('Application started');
         } catch(e) {
             // exceptions use message, adbclient uses msg
@@ -748,6 +773,10 @@ class AndroidDebugSession extends DebugSession {
     async disconnectRequest(response) {
         D('disconnectRequest');
         this._isDisconnecting = true;
+        analytics.event('debug-end', {
+            dbg_session_id: this.session_id,
+            dbg_elapsed: Math.trunc((Date.now() - this.session_start.getTime())/1e3),
+        });
         if (this.debuggerAttached) {
             try {
                 if (this.debug_mode === 'launch') {

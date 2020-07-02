@@ -8,10 +8,11 @@ const timeLabels = new Map();
 let session_start = Date.now();
 
 /**
- * @param {string} t 
- * @param {string} u
- * @param {string} s
- * @param {{name:string,version:string}} package_json
+ * @param {string} [t] 
+ * @param {string} [u]
+ * @param {string} [s]
+ * @param {{name:string,version:string}} [package_json]
+ * @param {*} [props]
  */
 function init(t = '0cca95950055c6553804a46ce7e3df18', u, s, package_json, props) {
     if (mp) {
@@ -20,10 +21,15 @@ function init(t = '0cca95950055c6553804a46ce7e3df18', u, s, package_json, props)
     try {
         mp = require('mixpanel').init(t);
     }
-    catch {}
+    catch {
+        return;
+    }
     uid = u;
     sid = s;
 
+    if (!props) {
+        return;
+    }
     const os = require('os');
     event(`${package_json.name}-start`, {
         extension: package_json.name,
@@ -56,7 +62,7 @@ function event(eventName, properties) {
                 ...properties,
             });
         } else {
-            mp.track(eventName);
+            mp.track(eventName, properties);
         }
     } catch {}
 }
