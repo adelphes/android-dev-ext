@@ -18,6 +18,11 @@ class APKFileInfo {
     file_data = null;
 
     /**
+     * The size of the APK file (in bytes)
+     */
+    file_size = 0;
+
+    /**
      * last modified time of the APK file (in ms)
      */
     app_modified = 0;
@@ -67,6 +72,7 @@ class APKFileInfo {
         // read the APK file contents
         try {
             result.file_data = await readFile(args.apkFile);
+            result.file_size = result.file_data.length;
         } catch(err) {
             throw new Error(`APK read error. ${err.message}`);
         }

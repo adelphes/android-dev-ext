@@ -6,6 +6,7 @@ const {
 // node and external modules
 const os = require('os');
 const path = require('path');
+const uuidv4 = require('uuid').v4;
 
 // our stuff
 const { ADBClient } = require('./adbclient');
@@ -20,6 +21,7 @@ const { checkADBStarted, getAndroidSourcesFolder } = require('./utils/android');
 const { D, initLogToClient, onMessagePrint } = require('./utils/print');
 const { hasValidSourceFileExtension } = require('./utils/source-file');
 const { VariableManager } = require('./variable-manager');
+const analytics = require('../langserver/analytics');
 
 class AndroidDebugSession extends DebugSession {
 
@@ -107,7 +109,13 @@ class AndroidDebugSession extends DebugSession {
          */
         this.debug_mode = null;
 
-		// this debugger uses one-based lines and columns
+        this.terminate_reason = '';
+
+        this.session_id = uuidv4();
+        this.session_start = new Date();
+        analytics.init();
+
+        // this debugger uses one-based lines and columns
 		this.setDebuggerLinesStartAt1(true);
         this.setDebuggerColumnsStartAt1(true);
 
@@ -338,12 +346,14 @@ class AndroidDebugSession extends DebugSession {
             // "null" is returned from the device picker if there's an error or if the
             // user cancels.
             D('targetDevice === "null"');
+            this.terminate_reason = "null-targetdevice";
             this.sendEvent(new TerminatedEvent(false));
             return;
         }
 
         if (!args.processId) {
             this.LOG(`Attach failed: Missing "processId" property in launch.json`);
+            this.terminate_reason = "no-processid";
             this.sendEvent(new TerminatedEvent(false));
             return;
         }
@@ -353,6 +363,7 @@ class AndroidDebugSession extends DebugSession {
         // - a JSON object returned from the process picker (contains the target device and process ID),
         let attach_info = this.extractPidAndTargetDevice(args.processId);
         if (!attach_info) {
+            this.terminate_reason = "null-attachinfo";
             this.sendEvent(new TerminatedEvent(false));
             return;
         }
@@ -370,6 +381,7 @@ class AndroidDebugSession extends DebugSession {
             // wow, we really didn't make it very far...
             this.LOG(err.message);
             this.LOG('Check the "appSrcRoot" entries in launch.json');
+            this.terminate_reason = `init-exception: ${err.message}`;
             this.sendEvent(new TerminatedEvent(false));
             return;
         }
@@ -417,6 +429,14 @@ class AndroidDebugSession extends DebugSession {
             this.LOG(`Debugger attached`);
             await this.dbgr.resume();
             
+            analytics.event('debug-started', {
+                dbg_session_id: this.session_id,
+                dbg_start: this.session_start.toLocaleTimeString(),
+                dbg_tz: this.session_start.getTimezoneOffset(),
+                dbg_kind: 'attach',
+                dbg_device_api: this.device_api_level,
+                dbg_emulator: /^emulator/.test(this._device.serial),
+            })
         } catch(e) {
             //this.performDisconnect();
             // exceptions use message, adbclient uses msg
@@ -428,6 +448,7 @@ class AndroidDebugSession extends DebugSession {
                 this.LOG('If you are running ADB on a non-default port, also make sure the adbPort value in your launch.json is correct.');
             }
             // tell the client we're done
+            this.terminate_reason = `start-exception: ${e.message||e.msg}`;
             this.sendEvent(new TerminatedEvent(false));
         }
     }
@@ -465,6 +486,7 @@ class AndroidDebugSession extends DebugSession {
             // "null" is returned from the device picker if there's an error or if the
             // user cancels.
             D('targetDevice === "null"');
+            this.terminate_reason = "null-targetdevice";
             this.sendEvent(new TerminatedEvent(false));
             return;
         }
@@ -481,6 +503,7 @@ class AndroidDebugSession extends DebugSession {
         // we don't allow both amStartArgs and launchActivity to be specified (the launch activity must be included in amStartArgs)
         if (args.amStartArgs && args.launchActivity) {
             this.LOG('amStartArgs and launchActivity options cannot both be specified in the launch configuration.');
+            this.terminate_reason = "amStartArgs+launchActivity";
             this.sendEvent(new TerminatedEvent(false));
             return;
         }
@@ -501,6 +524,7 @@ class AndroidDebugSession extends DebugSession {
             // wow, we really didn't make it very far...
             this.LOG(err.message);
             this.LOG('Check the "appSrcRoot" and "apkFile" entries in launch.json');
+            this.terminate_reason = `init-exception: ${err.message}`;
             this.sendEvent(new TerminatedEvent(false));
             return;
         }
@@ -558,6 +582,17 @@ class AndroidDebugSession extends DebugSession {
             this.sendResponse(response);
             await this.dbgr.resume();
             
+            analytics.event('debug-started', {
+                dbg_session_id: this.session_id,
+                dbg_start: this.session_start.toLocaleTimeString(),
+                dbg_tz: this.session_start.getTimezoneOffset(),
+                dbg_kind: 'debug',
+                dbg_device_api: this.device_api_level,
+                dbg_emulator: /^emulator/.test(this._device.serial),
+                dbg_apk_size: this.apk_file_info.file_size,
+                dbg_pkg_name: this.apk_file_info.manifest.package || '',
+            })
+
             this.LOG('Application started');
         } catch(e) {
             // exceptions use message, adbclient uses msg
@@ -569,6 +604,7 @@ class AndroidDebugSession extends DebugSession {
                 this.LOG('If you are running ADB on a non-default port, also make sure the adbPort value in your launch.json is correct.');
             }
             // tell the client we're done
+            this.terminate_reason = `start-exception: ${e.message||e.msg}`;
             this.sendEvent(new TerminatedEvent(false));
         }
     }
@@ -748,6 +784,11 @@ class AndroidDebugSession extends DebugSession {
     async disconnectRequest(response) {
         D('disconnectRequest');
         this._isDisconnecting = true;
+        analytics.event('debug-end', {
+            dbg_session_id: this.session_id,
+            dbg_elapsed: Math.trunc((Date.now() - this.session_start.getTime())/1e3),
+            dbg_term_reason: this.terminate_reason,
+        });
         if (this.debuggerAttached) {
             try {
                 if (this.debug_mode === 'launch') {

@@ -13,7 +13,17 @@
                 "<node_internals>/**"
             ]
         },
-		{
+        {
+			"type": "node",
+			"request": "attach",
+			"name": "Attach to Language Server",
+			"port": 6009,
+            "cwd": "${workspaceFolder}/langserver",
+            "skipFiles": [
+                "<node_internals>/**"
+            ]
+        },
+        {
 			"name": "Debugger Server",
 			"type": "node",
 			"request": "launch",
@@ -37,6 +47,10 @@
 		{
 			"name": "Extension + Debugger",
 			"configurations": [ "Launch Extension", "Debugger Server" ]
+		},
+		{
+			"name": "Debug Language Server",
+			"configurations": [ "Launch Extension", "Attach to Language Server" ]
 		}
 	]
 }
