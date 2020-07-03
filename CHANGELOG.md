@@ -1,5 +1,8 @@
 # Change Log
 
+### version 1.2.0
+* Java Intellisense beta.
+
 ### version 1.1.0
 * App launch arguments overriden in a new `amStartArgs` launch configuration property.
 * A new "attach" launch configuration allows the debugger to attach to running processes.

@@ -2,6 +2,9 @@
 
 This is a preview version of the Android for VS Code Extension. The extension allows developers to install, launch and debug Android Apps from within the VS Code environment.
 
+## What's New
+- Java Intellisense for Android is now in beta.
+
 ## Features
 * Line by line code stepping
 * Breakpoints
@@ -18,12 +21,11 @@ You must have [Android SDK Platform Tools](https://developer.android.com/studio/
 ## Limitations
 
 * This is a preview version so expect the unexpected. Please log any issues you find on [GitHub](https://github.com/adelphes/android-dev-ext/issues).  
-* This extension **will not build your app**.  
-If you use gradle (or Android Studio), you can build your app from the command-line using `./gradlew assembleDebug`.
-> You must use gradle or some other build procedure to create your APK. Once built, the extension can deploy and launch your app, allowing you to debug it in the normal way. See the section below on how to configure a VSCode task to automatically build your app before launching a debug session.
+* This extension will not build your app.  
+If you use gradle (or Android Studio), you can build your app from the command-line using `./gradlew assembleDebug` or configure a VSCode Build Task to run the command (see below).
+> You must use gradle or some other build procedure to create your APK. Once built, the extension can deploy and launch your app, allowing you to debug it in the normal way. See the section below on how to configure a VSCode Task to automatically build your app before launching a debug session.
 * Some debugger options are yet to be implemented. You cannot set conditional breakpoints and watch expressions must be simple variables.
 * If you require a must-have feature that isn't there yet, let us know on [GitHub](https://github.com/adelphes/android-dev-ext/issues).  
-* This extension does not provide any additional code completion or other editing enhancements.
 
 ## Extension Settings
 
@@ -148,6 +150,16 @@ Add a new task to run the build command:
     ]
 }
 ```
+
+## Java Intellisense
+Support for Java Intellisense is currently in beta, so any **feedback is appreciated**.  
+
+To use Java intellisense, make sure the option is enabled in Settings (Extensions > Android > Enable Java language support for Android)
+and press `ctrl/cmd-space` when editing a Java source file.
+
+You can read more about using code-completion on the [VSCode website](https://code.visualstudio.com/docs/editor/intellisense) and how to configure code-completion to suit your Android project in the [wiki](https://github.com/adelphes/android-dev-ext/wiki).  
+
+![Java Intellisense](https://raw.githubusercontent.com/adelphes/android-dev-ext/master/images/java-intellisense.png)
 
 ## Expression evaluation
 
