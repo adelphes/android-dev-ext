@@ -795,6 +795,7 @@ class AndroidDebugSession extends DebugSession {
         analytics.event('debug-end', {
             dbg_session_id: this.session_id,
             dbg_elapsed: Math.trunc((Date.now() - this.session_start.getTime())/1e3),
+            dbg_kind: this.debug_mode,
             dbg_term_reason: this.terminate_reason,
         });
         if (this.debuggerAttached) {
