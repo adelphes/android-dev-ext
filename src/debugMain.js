@@ -438,17 +438,21 @@ class AndroidDebugSession extends DebugSession {
                 dbg_emulator: /^emulator/.test(this._device.serial),
             })
         } catch(e) {
+            const msg = e.message||e.msg;
             //this.performDisconnect();
             // exceptions use message, adbclient uses msg
-            this.LOG('Attach failed: '+(e.message||e.msg||'No additional information is available'));
+            this.LOG('Attach failed: '+(msg||'No additional information is available'));
             // more info for adb connect errors
             if (/^ADB server is not running/.test(e.msg)) {
                 this.LOG('Make sure the Android SDK Platform Tools are installed and run:');
                 this.LOG('      adb start-server');
                 this.LOG('If you are running ADB on a non-default port, also make sure the adbPort value in your launch.json is correct.');
             }
+            if (/ADB|JDWP/.test(msg)) {
+                this.LOG('Ensure any instances of Android Studio are closed.');
+            }
             // tell the client we're done
-            this.terminate_reason = `start-exception: ${e.message||e.msg}`;
+            this.terminate_reason = `start-exception: ${msg}`;
             this.sendEvent(new TerminatedEvent(false));
         }
     }
@@ -595,16 +599,20 @@ class AndroidDebugSession extends DebugSession {
 
             this.LOG('Application started');
         } catch(e) {
+            const msg = e.message || e.msg;
             // exceptions use message, adbclient uses msg
-            this.LOG('Launch failed: '+(e.message||e.msg||'No additional information is available'));
+            this.LOG('Launch failed: '+(msg || 'No additional information is available'));
             // more info for adb connect errors
             if (/^ADB server is not running/.test(e.msg)) {
                 this.LOG('Make sure the Android SDK Platform Tools are installed and run:');
                 this.LOG('      adb start-server');
                 this.LOG('If you are running ADB on a non-default port, also make sure the adbPort value in your launch.json is correct.');
             }
+            if (/ADB|JDWP/.test(msg)) {
+                this.LOG('Ensure any instances of Android Studio are closed.');
+            }
             // tell the client we're done
-            this.terminate_reason = `start-exception: ${e.message||e.msg}`;
+            this.terminate_reason = `start-exception: ${msg}`;
             this.sendEvent(new TerminatedEvent(false));
         }
     }
