@@ -1,5 +1,9 @@
 # Change Log
 
+### version 1.2.1
+* Java Intellisense: automatically import dependencies of AndroidX libraries.
+* Debugger: Warn about open instances of Android Studio
+
 ### version 1.2.0
 * Java Intellisense beta.
 
