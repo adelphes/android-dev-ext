@@ -49,9 +49,9 @@ The following settings are used to configure the debugger:
                 // Fully qualified path to the built APK (Android Application Package).
                 "apkFile": "${workspaceRoot}/app/build/outputs/apk/app-debug.apk",
 
-                // Port number to connect to the local ADB (Android Debug Bridge) instance.
-                // Default: 5037
-                "adbPort": 5037,
+                // `host:port` configuration for connecting to the ADB (Android Debug Bridge) server instance.
+                // Default: localhost:5037
+                "adbSocket": "localhost:5037",
 
                 // Automatically launch 'adb start-server' if not already started.
                 // Default: true

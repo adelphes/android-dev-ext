@@ -238,8 +238,7 @@
                     "launch": {
                         "required": [
                             "appSrcRoot",
-                            "apkFile",
-                            "adbPort"
+                            "apkFile"
                         ],
                         "properties": {
                             "amStartArgs": {
@@ -265,12 +264,17 @@
                             },
                             "adbPort": {
                                 "type": "integer",
-                                "description": "Port number to connect to the local ADB (Android Debug Bridge) instance. Default: 5037",
+                                "description": "Port number to connect to the local ADB (Android Debug Bridge) instance. Default: 5037\nDeprecated: Configure the 'adbSocket' property instead.",
                                 "default": 5037
+                            },
+                            "adbSocket": {
+                                "type": "string",
+                                "description": "`host : port` configuration for connecting to the ADB (Android Debug Bridge) server instance. Default: \"localhost:5037\"",
+                                "default": "localhost:5037"
                             },
                             "autoStartADB": {
                                 "type": "boolean",
-                                "description": "Automatically launch 'adb start-server' if not already started. Default: true",
+                                "description": "Automatically attempt to launch 'adb start-server' if not already started. Default: true",
                                 "default": true
                             },
                             "callStackDisplaySize": {
@@ -325,7 +329,6 @@
                     "attach": {
                         "required": [
                             "appSrcRoot",
-                            "adbPort",
                             "processId"
                         ],
                         "properties": {
@@ -336,8 +339,13 @@
                             },
                             "adbPort": {
                                 "type": "integer",
-                                "description": "Port number to connect to the local ADB (Android Debug Bridge) instance. Default: 5037",
+                                "description": "Port number to connect to the local ADB (Android Debug Bridge) instance. Default: 5037\nDeprecated: Configure the 'adbSocket' property instead.",
                                 "default": 5037
+                            },
+                            "adbSocket": {
+                                "type": "string",
+                                "description": "`host : port` configuration for connecting to the ADB (Android Debug Bridge) server instance. Default: \"localhost:5037\"",
+                                "default": "localhost:5037"
                             },
                             "processId": {
                                 "type": "string",

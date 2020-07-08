@@ -49,12 +49,17 @@ function getADBSocketParams() {
     return adbSocketParams = getIntialADBSocketParams();
 }
 
+/**
+ * Retrieve the socket parameters for connecting to an ADB server instance.
+
+ * In priority order (highest first):  
+ * 1. adbSocket debug configuration value
+ * 2. non-default adbPort debug configuration value (using localhost)
+ * 3. ADB_SERVER_SOCKET environment variable
+ * 4. ANDROID_ADB_SERVER_ADDRESS / ANDROID_ADB_SERVER_PORT environment variables
+ * 5. [localhost]:5037
+ */
 function getIntialADBSocketParams() {
-    // the default host is left blank as this is the simplest way to
-    // specify "connect to the local machine" without explicitly specifying 
-    // 'localhost' or '127.0.0.1' (which may be mapped to something else)
-    let default_host = '',
-        default_port = 5037;
 
     function decode_port_string(s) {
         if (!/^\d+$/.test(s)) {
@@ -67,6 +72,21 @@ function getIntialADBSocketParams() {
         return portnum;
     }
 
+    const default_host = '', default_port = 5037;
+
+    // the ADBSocket.HostPort value is automatically set with adbSocket/adbPort values from
+    // the debug configuration when the debugger session starts.
+    let socket_str = ADBSocket.HostPort.trim();
+
+    if (socket_str !== ADBSocket.DefaultHostPort) {
+        // non-default debug configuration values are configured (1. or 2.)
+        const [host, port] = socket_str.split(':');
+        return {
+            host,
+            port: decode_port_string(port) || default_port
+        }
+    }
+    
     // ADB_SERVER_SOCKET=tcp:<host>:<port>
     const adb_server_socket_match = (process.env['ADB_SERVER_SOCKET'] || '').match(/^tcp(?::(.*))?(?::(\d+))$/);
     if (adb_server_socket_match) {
@@ -76,14 +96,9 @@ function getIntialADBSocketParams() {
         }
     }
 
-    // ignore the value in the debug config if it's left at the default value
-    let debug_config_adbPort = ADBSocket.ADBPort === default_port
-        ? 0
-        : ADBSocket.ADBPort;
-
     return {
         host: process.env['ANDROID_ADB_SERVER_ADDRESS'] || default_host,
-        port: debug_config_adbPort || decode_port_string(process.env['ANDROID_ADB_SERVER_PORT']) || default_port,
+        port: decode_port_string(process.env['ANDROID_ADB_SERVER_PORT']) || default_port,
     }
 }
 

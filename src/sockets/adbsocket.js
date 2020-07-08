@@ -7,10 +7,17 @@ const AndroidSocket = require('./androidsocket');
 class ADBSocket extends AndroidSocket {
 
     /**
-     * The port number to run ADB on.
-     * The value can be overriden by the adbPort value in each configuration.
+     * The host and port number to run ADB commands on, in 'host:port' format (host part is optional).
+     * The value can be overriden by the adbSocket (or the deprecated adbPort) value in each debug configuration.
+     * 
+     * The default host value is left blank as this is the simplest way to
+     * specify "connect to the local machine" without explicitly specifying 
+     * 'localhost' or '127.0.0.1' (which may be mapped to something else)
      */
-    static ADBPort = 5037;
+    static HostPort = `:5037`;
+    static get DefaultHostPort() {
+        return `:5037`
+    }
 
     constructor() {
         super('ADBSocket');

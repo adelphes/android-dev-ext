@@ -446,10 +446,10 @@ class AndroidDebugSession extends DebugSession {
             if (/^ADB server is not running/.test(e.msg)) {
                 this.LOG('Make sure the Android SDK Platform Tools are installed and run:');
                 this.LOG('      adb start-server');
-                this.LOG('If you are running ADB on a non-default port, also make sure the adbPort value in your launch.json is correct.');
+                this.LOG('If you are running ADB using a non-default configuration, also make sure the adbSocket value in your launch.json is correct.');
             }
             if (/ADB|JDWP/.test(msg)) {
-                this.LOG('Ensure any instances of Android Studio are closed.');
+                this.LOG('Ensure any instances of Android Studio are closed and ADB is running.');
             }
             // tell the client we're done
             this.terminate_reason = `start-exception: ${msg}`;
@@ -460,6 +460,7 @@ class AndroidDebugSession extends DebugSession {
     /**
      * @typedef AndroidLaunchArguments
      * @property {number} adbPort
+     * @property {string} adbSocket
      * @property {string[]} amStartArgs 
      * @property {string} apkFile
      * @property {string} appSrcRoot
@@ -512,9 +513,11 @@ class AndroidDebugSession extends DebugSession {
             return;
         }
 
-        // set the custom ADB port - this should be changed to pass it to each ADBClient instance
-        if (typeof args.adbPort === 'number' && args.adbPort >= 0 && args.adbPort <= 65535) {
-            ADBSocket.ADBPort = args.adbPort;
+        // set the custom ADB host and port - this should be changed to pass it to each ADBClient instance
+        if (typeof args.adbSocket === 'string' && args.adbSocket) {
+            ADBSocket.HostPort = args.adbSocket;
+        } else if (typeof args.adbPort === 'number' && args.adbPort >= 0 && args.adbPort <= 65535) {
+            ADBSocket.HostPort = `:${args.adbPort}`;
         }
 
         try {
