@@ -340,7 +340,7 @@ class AndroidDebugSession extends DebugSession {
             this.trace = args.trace;
             onMessagePrint(this.LOG.bind(this));
         }
-        D(`Attach: ${JSON.stringify(args)}`);
+        D(JSON.stringify({type: 'attach', args, env:process.env}, null, ' '));
 
         if (args.targetDevice === 'null') {
             // "null" is returned from the device picker if there's an error or if the
@@ -485,7 +485,7 @@ class AndroidDebugSession extends DebugSession {
             this.trace = args.trace;
             onMessagePrint(this.LOG.bind(this));
         }
-        D(`Launch: ${JSON.stringify(args)}`);
+        D(JSON.stringify({type: 'launch', args, env:process.env}, null, ' '));
 
         if (args.targetDevice === 'null') {
             // "null" is returned from the device picker if there's an error or if the
