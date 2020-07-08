@@ -36,17 +36,71 @@ function parse_device_list(data, extended = false) {
     return devicelist;
 }
 
+let adbSocketParams;
+/**
+ * Return the host and port for connecting to the ADB server
+ */
+function getADBSocketParams() {
+    // this is memoized to prevent alterations once the debug session is up and running
+    if (adbSocketParams) {
+        return adbSocketParams;
+    }
+
+    return adbSocketParams = getIntialADBSocketParams();
+}
+
+function getIntialADBSocketParams() {
+    // the default host is left blank as this is the simplest way to
+    // specify "connect to the local machine" without explicitly specifying 
+    // 'localhost' or '127.0.0.1' (which may be mapped to something else)
+    let default_host = '',
+        default_port = 5037;
+
+    function decode_port_string(s) {
+        if (!/^\d+$/.test(s)) {
+            return;
+        }
+        const portnum = parseInt(s, 10);
+        if (portnum < 1 || portnum > 65535) {
+            return;
+        }
+        return portnum;
+    }
+
+    // ADB_SERVER_SOCKET=tcp:<host>:<port>
+    const adb_server_socket_match = (process.env['ADB_SERVER_SOCKET'] || '').match(/^tcp(?::(.*))?(?::(\d+))$/);
+    if (adb_server_socket_match) {
+        return {
+            host: adb_server_socket_match[1] || default_host,
+            port: decode_port_string(adb_server_socket_match[2]) || default_port,
+        }
+    }
+
+    // ignore the value in the debug config if it's left at the default value
+    let debug_config_adbPort = ADBSocket.ADBPort === default_port
+        ? 0
+        : ADBSocket.ADBPort;
+
+    return {
+        host: process.env['ANDROID_ADB_SERVER_ADDRESS'] || default_host,
+        port: debug_config_adbPort || decode_port_string(process.env['ANDROID_ADB_SERVER_PORT']) || default_port,
+    }
+}
+
 class ADBClient {
 
     /**
      * @param {string} [deviceid]
      * @param {number} [adbPort] the port number to connect to ADB
+     * @param {number} [adbHost] the hostname/ip address to connect to ADB
      */
-    constructor(deviceid, adbPort = ADBSocket.ADBPort) {
+    constructor(deviceid, adbPort, adbHost) {
         this.deviceid = deviceid;
         this.adbsocket = null;
         this.jdwp_socket = null;
-        this.adbPort = adbPort;
+        const default_adb_socket = getADBSocketParams();
+        this.adbHost = adbHost || default_adb_socket.host;
+        this.adbPort = adbPort || default_adb_socket.port;
     }
 
     async test_adb_connection() {
@@ -276,12 +330,9 @@ class ADBClient {
         return true;
     }
 
-    /**
-     * @param {string} [hostname] 
-     */
-    connect_to_adb(hostname = '127.0.0.1') {
+    connect_to_adb() {
         this.adbsocket = new ADBSocket();
-        return this.adbsocket.connect(this.adbPort, hostname);
+        return this.adbsocket.connect(this.adbPort, this.adbHost);
     }
 
     disconnect_from_adb () {
@@ -290,3 +341,4 @@ class ADBClient {
 };
 
 exports.ADBClient = ADBClient;
+exports.getADBSocketParams = getADBSocketParams;
