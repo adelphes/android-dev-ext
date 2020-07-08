@@ -1,5 +1,10 @@
 # Change Log
 
+### version 1.3.0
+* Support `ADB_SERVER_SOCKET`, `ANDROID_ADB_SERVER_ADDRESS` & `ANDROID_ADB_SERVER_PORT` env vars when connecting to ADB.
+* Replace `adbPort` configuration option with a new `adbSocket` value to allow ADB server host to be overidden. (`adbPort` is now deprecated).
+* Allow the JDWP local port to be fixed using a new `jdwpPort` configuration option.
+
 ### version 1.2.1
 * Java Intellisense: automatically import dependencies of AndroidX libraries.
 * Debugger: Warn about open instances of Android Studio
