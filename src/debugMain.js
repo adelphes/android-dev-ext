@@ -325,8 +325,11 @@ class AndroidDebugSession extends DebugSession {
 
     /**
      * @typedef AndroidAttachArguments
+     * @property {number} adbPort
+     * @property {string} adbSocket
      * @property {string} appSrcRoot
      * @property {boolean} autoStartADB
+     * @property {number} jdwpPort
      * @property {number} processId
      * @property {string} targetDevice
      * @property {boolean} trace
@@ -366,6 +369,18 @@ class AndroidDebugSession extends DebugSession {
             this.terminate_reason = "null-attachinfo";
             this.sendEvent(new TerminatedEvent(false));
             return;
+        }
+
+        // set the custom ADB host and port
+        if (typeof args.adbSocket === 'string' && args.adbSocket) {
+            ADBSocket.HostPort = args.adbSocket;
+        } else if (typeof args.adbPort === 'number' && args.adbPort >= 0 && args.adbPort <= 65535) {
+            ADBSocket.HostPort = `:${args.adbPort}`;
+        }
+
+        // set the fixed JDWP port number (if any)
+        if (typeof args.jdwpPort === 'number' && args.jdwpPort >= 0 && args.jdwpPort <= 65535) {
+            Debugger.portManager.fixedport = args.jdwpPort;
         }
 
         try {
@@ -514,7 +529,7 @@ class AndroidDebugSession extends DebugSession {
             return;
         }
 
-        // set the custom ADB host and port - this should be changed to pass it to each ADBClient instance
+        // set the custom ADB host and port
         if (typeof args.adbSocket === 'string' && args.adbSocket) {
             ADBSocket.HostPort = args.adbSocket;
         } else if (typeof args.adbPort === 'number' && args.adbPort >= 0 && args.adbPort <= 65535) {

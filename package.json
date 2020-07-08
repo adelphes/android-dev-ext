@@ -352,6 +352,11 @@
                                 "description": "`host : port` configuration for connecting to the ADB (Android Debug Bridge) server instance. Default: \"localhost:5037\"",
                                 "default": "localhost:5037"
                             },
+                            "jdwpPort": {
+                                "type": "integer",
+                                "description": "Manually specify the local port used for connecting to the on-device debugger client.\nThis can be useful if you are using port-forwarding to connect to a remote device.\nThe specified port must be available and different from the ADB socket port.\nSet to 0 for automatic (dynamic) assignment.\nDefault: 0",
+                                "default": 0
+                            },
                             "processId": {
                                 "type": "string",
                                 "description": "PID of process to attach to.\n\"${command:PickAndroidProcess}\" will display a list of debuggable PIDs to choose from during launch.",
