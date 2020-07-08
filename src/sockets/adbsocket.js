@@ -7,10 +7,17 @@ const AndroidSocket = require('./androidsocket');
 class ADBSocket extends AndroidSocket {
 
     /**
-     * The port number to run ADB on.
-     * The value can be overriden by the adbPort value in each configuration.
+     * The host and port number to run ADB commands on, in 'host:port' format (host part is optional).
+     * The value can be overriden by the adbSocket (or the deprecated adbPort) value in each debug configuration.
+     * 
+     * The default host value is left blank as this is the simplest way to
+     * specify "connect to the local machine" without explicitly specifying 
+     * 'localhost' or '127.0.0.1' (which may be mapped to something else)
      */
-    static ADBPort = 5037;
+    static HostPort = `:5037`;
+    static get DefaultHostPort() {
+        return `:5037`
+    }
 
     constructor() {
         super('ADBSocket');
@@ -18,13 +25,14 @@ class ADBSocket extends AndroidSocket {
 
     /**
      * Reads and checks the reply from an ADB command
+     * @param {string} command
      * @param {boolean} [throw_on_fail] true if the function should throw on non-OKAY status
      */
-    async read_adb_status(throw_on_fail = true) {
+    async read_adb_status(command, throw_on_fail = true) {
         // read back the status
         const status = await this.read_bytes(4, 'latin1')
         if (status !== 'OKAY' && throw_on_fail) {
-            throw new Error(`ADB command failed. Status: '${status}'`);
+            throw new Error(`ADB command '${command}' failed. Status: '${status}'`);
         }
         return status;
     }
@@ -57,7 +65,7 @@ class ADBSocket extends AndroidSocket {
      */
     async cmd_and_status(command) {
         await this.write_adb_command(command);
-        return this.read_adb_status();
+        return this.read_adb_status(command);
     }
 
     /**
@@ -104,7 +112,7 @@ class ADBSocket extends AndroidSocket {
         await this.write_bytes(done_and_mtime);
 
         // read the final status and any error message
-        const result = await this.read_adb_status(false);
+        const result = await this.read_adb_status('sync:', false);
         const failmsg = await this.read_le_length_data('latin1');
         
         // finish the transfer mode

@@ -325,8 +325,11 @@ class AndroidDebugSession extends DebugSession {
 
     /**
      * @typedef AndroidAttachArguments
+     * @property {number} adbPort
+     * @property {string} adbSocket
      * @property {string} appSrcRoot
      * @property {boolean} autoStartADB
+     * @property {number} jdwpPort
      * @property {number} processId
      * @property {string} targetDevice
      * @property {boolean} trace
@@ -340,7 +343,7 @@ class AndroidDebugSession extends DebugSession {
             this.trace = args.trace;
             onMessagePrint(this.LOG.bind(this));
         }
-        D(`Attach: ${JSON.stringify(args)}`);
+        D(JSON.stringify({type: 'attach', args, env:process.env}, null, ' '));
 
         if (args.targetDevice === 'null') {
             // "null" is returned from the device picker if there's an error or if the
@@ -366,6 +369,18 @@ class AndroidDebugSession extends DebugSession {
             this.terminate_reason = "null-attachinfo";
             this.sendEvent(new TerminatedEvent(false));
             return;
+        }
+
+        // set the custom ADB host and port
+        if (typeof args.adbSocket === 'string' && args.adbSocket) {
+            ADBSocket.HostPort = args.adbSocket;
+        } else if (typeof args.adbPort === 'number' && args.adbPort >= 0 && args.adbPort <= 65535) {
+            ADBSocket.HostPort = `:${args.adbPort}`;
+        }
+
+        // set the fixed JDWP port number (if any)
+        if (typeof args.jdwpPort === 'number' && args.jdwpPort >= 0 && args.jdwpPort <= 65535) {
+            Debugger.portManager.fixedport = args.jdwpPort;
         }
 
         try {
@@ -446,10 +461,10 @@ class AndroidDebugSession extends DebugSession {
             if (/^ADB server is not running/.test(e.msg)) {
                 this.LOG('Make sure the Android SDK Platform Tools are installed and run:');
                 this.LOG('      adb start-server');
-                this.LOG('If you are running ADB on a non-default port, also make sure the adbPort value in your launch.json is correct.');
+                this.LOG('If you are running ADB using a non-default configuration, also make sure the adbSocket value in your launch.json is correct.');
             }
             if (/ADB|JDWP/.test(msg)) {
-                this.LOG('Ensure any instances of Android Studio are closed.');
+                this.LOG('Ensure any instances of Android Studio are closed and ADB is running.');
             }
             // tell the client we're done
             this.terminate_reason = `start-exception: ${msg}`;
@@ -460,11 +475,13 @@ class AndroidDebugSession extends DebugSession {
     /**
      * @typedef AndroidLaunchArguments
      * @property {number} adbPort
+     * @property {string} adbSocket
      * @property {string[]} amStartArgs 
      * @property {string} apkFile
      * @property {string} appSrcRoot
      * @property {boolean} autoStartADB
      * @property {number} callStackDisplaySize
+     * @property {number} jdwpPort
      * @property {string} launchActivity
      * @property {string} manifestFile
      * @property {string[]} pmInstallArgs
@@ -484,7 +501,7 @@ class AndroidDebugSession extends DebugSession {
             this.trace = args.trace;
             onMessagePrint(this.LOG.bind(this));
         }
-        D(`Launch: ${JSON.stringify(args)}`);
+        D(JSON.stringify({type: 'launch', args, env:process.env}, null, ' '));
 
         if (args.targetDevice === 'null') {
             // "null" is returned from the device picker if there's an error or if the
@@ -512,9 +529,16 @@ class AndroidDebugSession extends DebugSession {
             return;
         }
 
-        // set the custom ADB port - this should be changed to pass it to each ADBClient instance
-        if (typeof args.adbPort === 'number' && args.adbPort >= 0 && args.adbPort <= 65535) {
-            ADBSocket.ADBPort = args.adbPort;
+        // set the custom ADB host and port
+        if (typeof args.adbSocket === 'string' && args.adbSocket) {
+            ADBSocket.HostPort = args.adbSocket;
+        } else if (typeof args.adbPort === 'number' && args.adbPort >= 0 && args.adbPort <= 65535) {
+            ADBSocket.HostPort = `:${args.adbPort}`;
+        }
+
+        // set the fixed JDWP port number (if any)
+        if (typeof args.jdwpPort === 'number' && args.jdwpPort >= 0 && args.jdwpPort <= 65535) {
+            Debugger.portManager.fixedport = args.jdwpPort;
         }
 
         try {
