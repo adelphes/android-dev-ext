@@ -1,8 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { ADBClient } = require('../adbclient');
-const ADBSocket = require('../sockets/adbsocket');
+const { ADBClient, getADBSocketParams } = require('../adbclient');
 const { LOG } = require('../utils/print');
 
 function getAndroidSDKFolder() {
@@ -41,19 +40,21 @@ function getADBPathName() {
     return path.join(android_sdk, 'platform-tools', /^win/.test(process.platform)?'adb.exe':'adb');    
 }
 
-/**
- * @param {number} port 
- */
-function startADBServer(port) {
-    if (typeof port !== 'number' || port <= 0 || port >= 65536) {
-        return false;
-    }
-    
+function startADBServer() {    
     const adb_exe_path = getADBPathName();
     if (!adb_exe_path) {
         return false;
     }
-    const adb_start_server_args = ['-P',`${port}`,'start-server'];
+    const adb_socket = getADBSocketParams();
+    // don't try and start ADB if the server is on a remote host
+    if (!/^(localhost|127\.\d+\.\d+\.\d+)?$/.test(adb_socket.host)) {
+        LOG(`Cannot launch adb server on remote host ${adb_socket.host}:${adb_socket.port}`);
+        return;
+    }
+    const adb_start_server_args = ['-P',`${adb_socket.port}`,'start-server'];
+    if (adb_socket.host) {
+        adb_start_server_args.unshift(`-H`, adb_socket.host);
+    }
     try {
         LOG([adb_exe_path, ...adb_start_server_args].join(' '));
         const stdout = require('child_process').execFileSync(adb_exe_path, adb_start_server_args, {
@@ -73,7 +74,7 @@ async function checkADBStarted(auto_start) {
     const err = await new ADBClient().test_adb_connection();
     // if adb is not running, see if we can start it ourselves using ANDROID_HOME (and a sensible port number)
     if (err && auto_start) {
-        return startADBServer(ADBSocket.ADBPort);
+        return startADBServer();
     }
     return !err;
 }
