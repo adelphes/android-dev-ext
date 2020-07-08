@@ -25,13 +25,14 @@ class ADBSocket extends AndroidSocket {
 
     /**
      * Reads and checks the reply from an ADB command
+     * @param {string} command
      * @param {boolean} [throw_on_fail] true if the function should throw on non-OKAY status
      */
-    async read_adb_status(throw_on_fail = true) {
+    async read_adb_status(command, throw_on_fail = true) {
         // read back the status
         const status = await this.read_bytes(4, 'latin1')
         if (status !== 'OKAY' && throw_on_fail) {
-            throw new Error(`ADB command failed. Status: '${status}'`);
+            throw new Error(`ADB command '${command}' failed. Status: '${status}'`);
         }
         return status;
     }
@@ -64,7 +65,7 @@ class ADBSocket extends AndroidSocket {
      */
     async cmd_and_status(command) {
         await this.write_adb_command(command);
-        return this.read_adb_status();
+        return this.read_adb_status(command);
     }
 
     /**
@@ -111,7 +112,7 @@ class ADBSocket extends AndroidSocket {
         await this.write_bytes(done_and_mtime);
 
         // read the final status and any error message
-        const result = await this.read_adb_status(false);
+        const result = await this.read_adb_status('sync:', false);
         const failmsg = await this.read_le_length_data('latin1');
         
         // finish the transfer mode
