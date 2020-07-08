@@ -61,6 +61,14 @@ function getADBSocketParams() {
  */
 function getIntialADBSocketParams() {
 
+    /**
+     * Retrieve a trimmed environment variable or return a blank string
+     * @param {string} name 
+     */
+    function envValue(name) {
+        return (process.env[name] || '').trim();
+    }
+
     function decode_port_string(s) {
         if (!/^\d+$/.test(s)) {
             return;
@@ -88,7 +96,7 @@ function getIntialADBSocketParams() {
     }
     
     // ADB_SERVER_SOCKET=tcp:<host>:<port>
-    const adb_server_socket_match = (process.env['ADB_SERVER_SOCKET'] || '').match(/^tcp(?::(.*))?(?::(\d+))$/);
+    const adb_server_socket_match = envValue('ADB_SERVER_SOCKET').match(/^\s*tcp(?::(.*))?(?::(\d+))\s*$/);
     if (adb_server_socket_match) {
         return {
             host: adb_server_socket_match[1] || default_host,
@@ -97,8 +105,8 @@ function getIntialADBSocketParams() {
     }
 
     return {
-        host: process.env['ANDROID_ADB_SERVER_ADDRESS'] || default_host,
-        port: decode_port_string(process.env['ANDROID_ADB_SERVER_PORT']) || default_port,
+        host: envValue('ANDROID_ADB_SERVER_ADDRESS') || default_host,
+        port: decode_port_string(envValue('ANDROID_ADB_SERVER_PORT')) || default_port,
     }
 }
 
