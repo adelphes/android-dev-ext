@@ -247,7 +247,10 @@ class ADBClient {
         // note that upon success, this method does not close the connection (it must be left open for
         // future commands to be sent over the jdwp socket)
         this.jdwp_socket = new JDWPSocket(o.onreply, o.ondisconnect);
-        await this.jdwp_socket.connect(o.localport)
+        // assume the 'local' port (routed to connect to the process on the device) 
+        // is set up on the same host that the adb server is running on
+        const adb_server_socket = getADBSocketParams();
+        await this.jdwp_socket.connect(o.localport, adb_server_socket.host);
         await this.jdwp_socket.start();
         return true;
     }
