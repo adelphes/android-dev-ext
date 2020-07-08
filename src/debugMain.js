@@ -466,6 +466,7 @@ class AndroidDebugSession extends DebugSession {
      * @property {string} appSrcRoot
      * @property {boolean} autoStartADB
      * @property {number} callStackDisplaySize
+     * @property {number} jdwpPort
      * @property {string} launchActivity
      * @property {string} manifestFile
      * @property {string[]} pmInstallArgs
@@ -518,6 +519,11 @@ class AndroidDebugSession extends DebugSession {
             ADBSocket.HostPort = args.adbSocket;
         } else if (typeof args.adbPort === 'number' && args.adbPort >= 0 && args.adbPort <= 65535) {
             ADBSocket.HostPort = `:${args.adbPort}`;
+        }
+
+        // set the fixed JDWP port number (if any)
+        if (typeof args.jdwpPort === 'number' && args.jdwpPort >= 0 && args.jdwpPort <= 65535) {
+            Debugger.portManager.fixedport = args.jdwpPort;
         }
 
         try {

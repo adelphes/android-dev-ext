@@ -52,9 +52,14 @@ class Debugger extends EventEmitter {
 
     static portManager = {
         portrange: { lowest: 31000, highest: 31099 },
+        fixedport: 0,
         inuseports: new Set(),
         debuggers: {},
         reserveport: function () {
+            if (this.fixedport > 0 && this.fixedport < 65536) {
+                this.inuseports.add(this.fixedport);
+                return this.fixedport;
+            }
             // choose a random port to use each time
             for (let i = 0; i < 10000; i++) {
                 const portidx = this.portrange.lowest + ((Math.random() * 100) | 0);

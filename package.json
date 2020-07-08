@@ -282,6 +282,11 @@
                                 "description": "Number of entries to display in call stack views (for locations outside of the project source). 0 shows the entire call stack. Default: 1",
                                 "default": 1
                             },
+                            "jdwpPort": {
+                                "type": "integer",
+                                "description": "Manually specify the local port used for connecting to the on-device debugger client.\nThis can be useful if you are using port-forwarding to connect to a remote device.\nThe specified port must be available and different from the ADB socket port.\nSet to 0 for automatic (dynamic) assignment.\nDefault: 0",
+                                "default": 0
+                            },
                             "launchActivity": {
                                 "type": "string",
                                 "description": "Manually specify the activity to run when the app is started.",
