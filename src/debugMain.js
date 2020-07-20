@@ -6,7 +6,6 @@ const {
 // node and external modules
 const os = require('os');
 const path = require('path');
-const uuidv4 = require('uuid').v4;
 
 // our stuff
 const { ADBClient } = require('./adbclient');
