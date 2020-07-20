@@ -111,9 +111,8 @@ class AndroidDebugSession extends DebugSession {
 
         this.terminate_reason = '';
 
-        this.session_id = uuidv4();
         this.session_start = new Date();
-        analytics.init();
+        analytics.init(undefined, undefined, undefined, '', require('../package.json'), {}, 'debugger-start');
 
         // this debugger uses one-based lines and columns
 		this.setDebuggerLinesStartAt1(true);
@@ -139,8 +138,8 @@ class AndroidDebugSession extends DebugSession {
         response.body.supportsExceptionInfoRequest = true;
         response.body.supportsHitConditionalBreakpoints = true;
 
-		this.sendResponse(response);
-	}
+        this.sendResponse(response);
+    }
 
     /**
      * @param {string} msg 
@@ -445,8 +444,7 @@ class AndroidDebugSession extends DebugSession {
             await this.dbgr.resume();
             
             analytics.event('debug-started', {
-                dbg_session_id: this.session_id,
-                dbg_start: this.session_start.toLocaleTimeString(),
+                dbg_start: this.session_start.toTimeString(),
                 dbg_tz: this.session_start.getTimezoneOffset(),
                 dbg_kind: 'attach',
                 dbg_device_api: this.device_api_level,
@@ -611,8 +609,7 @@ class AndroidDebugSession extends DebugSession {
             await this.dbgr.resume();
             
             analytics.event('debug-started', {
-                dbg_session_id: this.session_id,
-                dbg_start: this.session_start.toLocaleTimeString(),
+                dbg_start: this.session_start.toTimeString(),
                 dbg_tz: this.session_start.getTimezoneOffset(),
                 dbg_kind: 'debug',
                 dbg_device_api: this.device_api_level,
@@ -817,7 +814,6 @@ class AndroidDebugSession extends DebugSession {
         D('disconnectRequest');
         this._isDisconnecting = true;
         analytics.event('debug-end', {
-            dbg_session_id: this.session_id,
             dbg_elapsed: Math.trunc((Date.now() - this.session_start.getTime())/1e3),
             dbg_kind: this.debug_mode,
             dbg_term_reason: this.terminate_reason,

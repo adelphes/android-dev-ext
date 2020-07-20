@@ -12,8 +12,11 @@ const { selectTargetDevice } = require('./src/utils/device');
 
 /**
  * @param {vscode.ExtensionContext} context
+ * @param {string} uid
+ * @param {number} session_id
+ * @param {*} vscode_props
  */
-async function createLanguageClient(context) {
+async function createLanguageClient(context, uid, session_id, vscode_props) {
   // The server is implemented in node
   let serverModule = context.asAbsolutePath(path.join('langserver', 'server.js'));
   // The debug options for the server
@@ -45,8 +48,6 @@ async function createLanguageClient(context) {
   }
   const sourceFiles = (await vscode.workspace.findFiles(`${globSearchRoot}**/*.java`, null, 1000, null)).map(uri => uri.toString());
 
-  const mpids = analytics.getIDs(context);
-
   // Options to control the language client
   /** @type {import('vscode-languageclient').LanguageClientOptions} */
   let clientOptions = {
@@ -57,11 +58,11 @@ async function createLanguageClient(context) {
     initializationOptions: {
         // extensionPath points to the root of the extension (the folder where this file is)
         extensionPath: context.extensionPath,
-        mpuid: mpids.uid,
-        mpsid: mpids.sid,
+        uid,
+        session_id,
+        vscode_props,
         initialSettings: config,
         sourceFiles,
-        vscodeVersion: vscode.version,
         workspaceFolders: (vscode.workspace.workspaceFolders || []).map(z => z.uri.toString()),
     },
     synchronize: {
@@ -114,10 +115,18 @@ function activate(context) {
     /* Only the logcat stuff is configured here. The debugger is launched from src/debugMain.js  */
     AndroidContentProvider.register(context, vscode.workspace);
 
-    const mpids = analytics.getIDs(context);
-    analytics.init(undefined, mpids.uid, mpids.sid, package_json, { vscode_version: vscode.version });
+    const { uid } = analytics.getIDs(context);
+    const session_id = Math.trunc(Math.random() * Number.MAX_SAFE_INTEGER);
+    const vscode_props = {
+        appName: vscode.env.appName,
+        language: vscode.env.language,
+        shell: vscode.env.shell,
+        uiKind: vscode.env.uiKind,
+        vscode_version: vscode.version,
+    }
+    analytics.init(undefined, uid, session_id, '', package_json, vscode_props, 'extension-start');
 
-    createLanguageClient(context).then(client => {
+    createLanguageClient(context, uid, session_id, vscode_props).then(client => {
         languageClient = client;
         refreshLanguageServerEnabledState();
     });

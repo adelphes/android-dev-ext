@@ -1,43 +1,53 @@
 const os = require('os');
-let mp;
+const uuid = require('uuid').v4;
+let client;
 /** @type {string} */
 let uid;
 /** @type {string} */
-let sid;
+let did = uuid();
+/** @type {number} */
+let session_id;
 /** @type {Map<string,[number,number]>} */
 const timeLabels = new Map();
 let session_start = Date.now();
 /** @type {string|Promise<string>} */
-let ip = getCurrentIP()
-    .catch(() => null)
-    .then(res => ip = res);
+let ip = '';
 let queued_events = null;
+let package_info = null;
+let vscode_info = null;
 
 /**
  * @param {string} [t] 
- * @param {string} [u]
- * @param {string} [s]
- * @param {{name:string,version:string}} [package_json]
- * @param {*} [props]
+ * @param {string} u
+ * @param {number} s
+ * @param {string} ipaddr
+ * @param {{name:string,version:string}} package_json
+ * @param {*} vscode_props
+ * @param {string} caller
  */
-function init(t = '0cca95950055c6553804a46ce7e3df18', u, s, package_json, props) {
-    if (mp) {
+function init(t = '94635b4642d80407accd3739fa35bed6', u, s, ipaddr, package_json, vscode_props, caller) {
+    if (client) {
         return;
     }
     try {
-        mp = require('mixpanel').init(t);
+        client = require('@amplitude/node').init(t);
     }
     catch {
         return;
     }
     uid = u;
-    sid = s;
+    session_id = s || Math.trunc(Math.random() * Number.MAX_SAFE_INTEGER);
+    ip = ipaddr || (getCurrentIP()
+        .catch(() => '')
+        .then(res => ip = res));
+    package_info = package_json;
+    vscode_info = vscode_props;
 
-    if (!props) {
+    if (!caller) {
         return;
     }
     const now = new Date();
-    event(`${package_json.name}-start`, {
+    event(caller, {
         extension: package_json.name,
         ext_version: package_json.version,
         arch: process.arch,
@@ -48,7 +58,7 @@ function init(t = '0cca95950055c6553804a46ce7e3df18', u, s, package_json, props)
         release: os.release(),
         localtime: now.toTimeString(),
         tz: now.getTimezoneOffset(),
-        ...props
+        ...vscode_props,
     });
 }
 
@@ -69,7 +79,7 @@ function getCurrentIP() {
  * @param {*} [properties] 
  */
 function event(eventName, properties) {
-    if (!mp) {
+    if (!client || !eventName || (!uid && !did) || !ip) {
         return;
     }
     if (queued_events) {
@@ -86,23 +96,22 @@ function event(eventName, properties) {
         return;
     }
     try {
-        if (uid) {
-            mp.track(eventName, {
-                ip,
-                distinct_id: uid,
-                session_id: sid,
+        /* client.logEvent */ let data = ({
+            event_type: eventName,
+            user_id: uid,
+            device_id: uid ? undefined : did,
+            app_version: package_info.version,
+            ip,
+            language: vscode_info.language,
+            os_name: process.platform,
+            os_version: os.release(),
+            session_id,
+            event_properties: {
                 session_length: Math.trunc((Date.now() - session_start) / 60e3),
                 ...properties,
-            });
-        } else {
-            mp.track(eventName, {
-                ip,
-                platform: process.platform,
-                release: os.release(),
-                node_version: process.version,
-                ...properties,
-            });
-        }
+            }
+        });
+        console.log('client.logEvent:', JSON.stringify(data, null, ' '));
     } catch {}
 }
 
@@ -149,29 +158,18 @@ function timeEnd(label, time_unit = 'ms', additionalProps = {}) {
 function getIDs(context) {
     if (!context || !context.globalState) {
         return {
-            uid: '', sid: ''
+            uid: '',
         };
-    }
-    let uuidv4 = () => {
-        try {
-            uuidv4 = require('uuid').v4;
-            return uuidv4();
-        } catch {
-            return '';
-        }
     }
     let u = uid || (uid = context.globalState.get('mix-panel-id'));
     if (typeof u !== 'string' || u.length > 36) {
-        u = uid = uuidv4();
+        u = uid = uuid();
         context.globalState.update('mix-panel-id', u);
     }
-    let s = sid || (sid = uuidv4());
     return {
         uid: u,
-        sid: s,
     }
 }
-
 exports.init = init;
 exports.event = event;
 exports.time = time;
