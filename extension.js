@@ -181,6 +181,7 @@ function activate(context) {
 
 // this method is called when your extension is deactivated
 function deactivate() {
+    analytics.event('extension-deactivate');
 }
 
 exports.activate = activate;
