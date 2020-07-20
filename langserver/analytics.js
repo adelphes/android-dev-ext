@@ -96,7 +96,7 @@ function event(eventName, properties) {
         return;
     }
     try {
-        /* client.logEvent */ let data = ({
+        client.logEvent({
             event_type: eventName,
             user_id: uid,
             device_id: uid ? undefined : did,
@@ -111,7 +111,6 @@ function event(eventName, properties) {
                 ...properties,
             }
         });
-        console.log('client.logEvent:', JSON.stringify(data, null, ' '));
     } catch {}
 }
 
