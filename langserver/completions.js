@@ -370,7 +370,10 @@ async function getCompletionItems(params, liveParsers, androidLibrary) {
 
     completionRequestCount += 1;
     if ((completionRequestCount === 1) || (completionRequestCount === 5) || ((completionRequestCount % 25) === 0)) {
-        event('completion-requests', { comp_req_count: completionRequestCount });
+        event('completion-requests', {
+            comp_req_count: completionRequestCount, // total count for this session
+            comp_req_partial_count: (completionRequestCount % 25) || 25,
+        });
     }
 
     let parsed = docinfo.parsed;
