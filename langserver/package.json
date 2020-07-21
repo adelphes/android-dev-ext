@@ -1,6 +1,6 @@
 {
   "name": "langserver",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Language server for Android development",
   "main": "server.js",
   "scripts": {

@@ -1,5 +1,9 @@
 # Change Log
 
+### version 1.3.2
+* Update analytics library
+* Update lodash version - security advisory https://www.npmjs.com/advisories/1523
+
 ### version 1.3.0
 * Support `ADB_SERVER_SOCKET`, `ANDROID_ADB_SERVER_ADDRESS` & `ANDROID_ADB_SERVER_PORT` env vars when connecting to ADB.
 * Replace `adbPort` configuration option with a new `adbSocket` value to allow ADB server host to be overidden. (`adbPort` is now deprecated).
