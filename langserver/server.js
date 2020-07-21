@@ -135,7 +135,7 @@ connection.onInitialize((params) => {
     }
 
     Settings.set(startupOpts.initialSettings);
-    analytics.init(undefined, startupOpts.mpuid, uuidv4(), package_json, { vscode_version: startupOpts.vscodeVersion });
+    analytics.init(undefined, startupOpts.uid, startupOpts.session_id, '', package_json, startupOpts.vscode_props, 'langserver-start');
 
     loadCodeCompletionLibrary(startupOpts.extensionPath, Settings.codeCompletionLibraries);
 

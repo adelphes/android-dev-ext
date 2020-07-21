@@ -9,8 +9,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@amplitude/node": "^0.3.3",
     "java-mti": "adelphes/java-mti#ec164ac",
-    "mixpanel": "0.11.0",
     "uuid": "8.2.0",
     "vscode-languageserver": "6.1.1",
     "vscode-languageserver-textdocument": "1.0.1",

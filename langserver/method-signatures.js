@@ -41,7 +41,10 @@ async function getSignatureHelp(request, liveParsers) {
 
     methodsigRequestCount += 1;
     if ((methodsigRequestCount === 1) || (methodsigRequestCount === 5) || ((methodsigRequestCount % 25) === 0)) {
-        event('method-sig-requests', { methsig_req_count: methodsigRequestCount });
+        event('method-sig-requests', {
+            methsig_req_count: methodsigRequestCount,
+            methsig_req_partial_count: (methodsigRequestCount % 25) || 25,
+        });
     }
 
     // locate the token at the requested position
