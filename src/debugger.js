@@ -567,13 +567,15 @@ class Debugger extends EventEmitter {
      * @param {DebuggerBreakpoint} bp 
      */
     async initialiseBreakpoint(bp) {
-        // try and load the class - if the runtime hasn't loaded it yet, this will just return a TypeNotAvailable instance
+        // try and load the classes in the package - if the runtime hasn't loaded it yet, this will just return a TypeNotAvailable instance
         let classes = await Promise.all(
             [...this.session.loadedClasses]
                 .filter(signature => bp.sigpattern.test(signature))
                 .map(signature => this.loadClassInfo(signature))
         );
-        let bploc = Debugger.findBreakpointLocation(classes, bp);
+        // find classes with a matching sourcefile name
+        classes = classes.filter(c => c.src.sourcefile === bp.file);
+        const bploc = Debugger.findBreakpointLocation(classes, bp);
         if (!bploc) {
             // we couldn't identify a matching location - either the class is not yet loaded or the
             // location doesn't correspond to any code. In case it's the former, make sure we are notified
@@ -1661,6 +1663,7 @@ class Debugger extends EventEmitter {
         let bploc = null;
         classes.find(c =>
             bp.sigpattern.test(c.type.signature)
+                && bp.file === c.src.sourcefile
                 && c.methods.find(m => {
                     const line = m.linetable.lines.find(line => line.linenum === bp.linenum);
                     if (line) {

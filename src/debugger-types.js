@@ -610,12 +610,16 @@ class DebuggerBreakpoint {
         const cls = splitSourcePath(srcfpn);
         this.id = DebuggerBreakpoint.makeBreakpointID(srcfpn, linenum);
         this.srcfpn = srcfpn;
+        this.file = cls.file;
         this.qtype = cls.qtype;
         this.pkg = cls.pkg;
         this.type = cls.type;
         this.linenum = linenum;
         this.options = options;
-        this.sigpattern = new RegExp(`^L${cls.qtype}([$][$a-zA-Z0-9_]+)?;$`),
+        // sigpattern is used to match up source files with class signatures but because
+        // kotlin allows filenames that differ from class names, we now only match up to
+        // the package level and use the source name retuned by JDWP to narrow it down futher.
+        this.sigpattern = new RegExp(`^L${cls.pkg.replace(/[.]/g, '/')}/[^/]+;$`)
         this.state = initialState;     // set,notloaded,enabled,removed
         this.hitcount = 0;      // number of times this bp was hit during execution
         this.stopcount = 0;     // number of times this bp caused a break into the debugger

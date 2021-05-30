@@ -6,12 +6,16 @@ function hasValidSourceFileExtension(s) {
 	return /\.(java|kt)$/i.test(s);
 }
 
+/**
+ * @param {string} filepath 
+ */
 function splitSourcePath(filepath) {
-    const m = filepath.match(/^\/([^/]+(?:\/[^/]+)*)?\/([^./]+)\.(java|kt)$/);
+    const m = filepath.match(/^\/([^/]+(?:\/[^/]+)*)?\/([^./]+)\.(java|kt)$/i);
     return {
         pkg: m[1].replace(/\/+/g, '.'),
         type: m[2],
         qtype: `${m[1]}/${m[2]}`,
+        file: `${m[2]}.${m[3]}`,
     }
 }
 
