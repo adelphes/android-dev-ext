@@ -428,10 +428,10 @@
         "test": "node ./node_modules/vscode/bin/test"
     },
     "dependencies": {
+        "@vscode/debugadapter": "1.64.0",
         "long": "4.0.0",
         "unzipper": "0.10.11",
         "uuid": "8.2.0",
-        "vscode-debugadapter": "1.40.0",
         "vscode-debugprotocol": "1.40.0",
         "vscode-languageclient": "6.1.3",
         "ws": "7.3.0",

@@ -1,7 +1,7 @@
 const {
 	DebugSession,
 	InitializedEvent, TerminatedEvent, StoppedEvent, BreakpointEvent, ThreadEvent, OutputEvent,
-    Thread, StackFrame, Scope, Source, Breakpoint } = require('vscode-debugadapter');
+    Thread, StackFrame, Scope, Source, Breakpoint } = require('@vscode/debugadapter');
 
 // node and external modules
 const os = require('os');
