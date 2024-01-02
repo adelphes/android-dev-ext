@@ -6,10 +6,11 @@
         "node": true
     },
     "parserOptions": {
+        "ecmaVersion": 10,
         "ecmaFeatures": {
-            "jsx": true
+            "jsx": false
         },
-        "sourceType": "module"
+        "sourceType": "commonjs"
     },
     "rules": {
         "no-const-assign": "warn",
