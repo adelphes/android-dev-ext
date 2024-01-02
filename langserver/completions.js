@@ -1,11 +1,16 @@
-const { JavaType, CEIType, ArrayType, PrimitiveType } = require('java-mti');
+const { CEIType, ArrayType, PrimitiveType } = require('java-mti');
 const { getTypeInheritanceList } = require('./java/expression-resolver');
-const { CompletionItem, CompletionItemKind } = require('vscode-languageserver');
+const { CompletionItemKind } = require('vscode-languageserver');
 const { SourceType } = require('./java/source-types');
 const { indexAt } = require('./document');
 const { formatDoc } = require('./doc-formatter');
 const { trace } = require('./logging');
 const { event } = require('./analytics');
+
+/**
+ * @typedef {import('vscode-languageserver').CompletionItem} CompletionItem
+ * @typedef {import('java-mti').JavaType} JavaType
+ */
 
 /**
  * Case-insensitive sort routines
@@ -116,7 +121,7 @@ function getTypedNameCompletion(typemap, type_signature, opts, typelist) {
                     && !type_signature.slice(subtype_search.length).includes('$')
             )
             .map(type_signature => typemap.get(type_signature))
-            .forEach((t,idx) => inner_types.set(t.simpleTypeName, { t }));
+            .forEach((t) => inner_types.set(t.simpleTypeName, { t }));
     }
 
     return [

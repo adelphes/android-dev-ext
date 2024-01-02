@@ -1,9 +1,11 @@
-const { CEIType } = require('java-mti');
-const ParseProblem = require('./java/parsetypes/parse-problem');
 const { parse } = require('./java/body-parser');
-const { SourceUnit } = require('./java/source-types');
 const { parseMethodBodies } = require('./java/validater');
 const { time, timeEnd, trace } = require('./logging');
+
+/**
+ * @typedef {import('java-mti').CEIType} CEIType
+ * @typedef {import('./java/source-types').SourceUnit} SourceUnit
+ */
 
 /**
  * Marker to prevent early parsing of source files before we've completed our
