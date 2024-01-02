@@ -20,7 +20,7 @@ const { D } = require('../utils/print');
 const { decodeJavaCharLiteral } = require('../utils/char-decode');
 
 /**
- * @param {Long.Long} long 
+ * @param {Long} long 
  */
 function hex_long(long) {
     return long.toUnsigned().toString(16).padStart(64/4, '0');
@@ -334,7 +334,7 @@ function evaluate_binary_long_expression(lhs, rhs, operator) {
         return Long.fromString(`${local.value}`, false, radix);
     }
 
-    /** @type {Long.Long|boolean} */
+    /** @type {Long|boolean} */
     let a = longify(lhs), b = longify(rhs);
 
     // dividend cannot be zero for / and %
@@ -362,7 +362,7 @@ function evaluate_binary_long_expression(lhs, rhs, operator) {
         case '>=': a = a.gte(b); break;
         default: throw invalid_operator(operator);
     }
-    /** @type {boolean|Long.Long|string} */
+    /** @type {boolean|Long|string} */
     let value = a, result_type = 'boolean';
     if (typeof a !== 'boolean') {
         value = hex_long(a);
@@ -875,7 +875,7 @@ function incompatible_cast(type, local) {
 }
 
 /**
- * @param {Long.Long} value 
+ * @param {Long} value 
  * @param {8|16|32} bits 
  */
 function signed_from_long(value, bits) {

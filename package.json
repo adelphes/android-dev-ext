@@ -430,7 +430,7 @@
     "dependencies": {
         "@vscode/debugadapter": "1.64.0",
         "@vscode/debugprotocol": "^1.64.0",
-        "long": "4.0.0",
+        "long": "^5.2.3",
         "unzipper": "0.10.11",
         "uuid": "8.2.0",
         "vscode-languageclient": "6.1.3",
