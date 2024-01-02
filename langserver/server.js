@@ -19,7 +19,6 @@ const { clearDefaultCompletionEntries, getCompletionItems, resolveCompletionItem
 const { getSignatureHelp } = require('./method-signatures');
 const { FileURIMap, JavaDocInfo, indexAt, reparse } = require('./document');
 
-const { v4: uuidv4 } = require('uuid');
 const analytics = require('./analytics');
 const package_json = require('./package.json');
 
