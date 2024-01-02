@@ -99,9 +99,26 @@ class Reply {
 			return;
 		}
 	
+		if (this.errorcode === 50945) {
+			// errorcode===50945 (0xC701) refers to a DDM chunk (set 199, cmd 1) for a
+			// previous command. It's unclear why these are being sent but it appears 
+			// they're safe to ignore.
+			//
+			// see https://android.googlesource.com/platform/art/+/master/adbconnection/adbconnection.cc
+			this.decoded = {
+				empty: true,
+				errorcode: 0
+			}
+			return;
+		}
+
 		if (this.errorcode !== 0) {
 			// https://docs.oracle.com/javase/7/docs/platform/jpda/jdwp/jdwp-protocol.html#JDWP_Error
-			E(`JDWP command failed '${this.command.name}'. Error ${this.errorcode}`, this);
+			if (this.command !== undefined) {
+				E(`JDWP command failed '${this.command.name}'. Error ${this.errorcode}`, this);
+			} else {
+				E(`Unknown JDWP command with id '${this.id}' failed. Error ${this.errorcode}`, this);
+			}
 		}
 		
 		if (!this.errorcode && this.command && this.command.replydecodefn) {
