@@ -1,10 +1,11 @@
 const { D, E } = require('./utils/print');
-const {
-	DebuggerMethodInfo,
-	DebuggerTypeInfo,
-	JavaTaggedValue,
-} = require('./debugger-types');
 const { JavaType } = require('./debugger-types');
+
+/**
+ * @typedef {import('./debugger-types').DebuggerMethodInfo} DebuggerMethodInfo
+ * @typedef {import('./debugger-types').DebuggerTypeInfo} DebuggerTypeInfo
+ * @typedef {import('./debugger-types').JavaTaggedValue} JavaTaggedValue
+ */
 
 /** the next command ID */
 let gCommandId = 0;

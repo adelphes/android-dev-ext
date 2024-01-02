@@ -1,8 +1,12 @@
-const { Debugger } = require('./debugger');
-const { DebuggerFrameInfo, DebuggerValue, JavaType, LiteralValue, VariableValue } = require('./debugger-types');
+const { DebuggerValue, JavaType, LiteralValue, VariableValue } = require('./debugger-types');
 const { assignVariable } = require('./expression/assign');
 const { NumberBaseConverter } = require('./utils/nbc');
 const { VariableManager } = require('./variable-manager');
+
+/**
+ * @typedef {import('./debugger').Debugger} Debugger
+ * @typedef {import('./debugger-types').DebuggerFrameInfo} DebuggerFrameInfo
+ */
 
 /**
  * @param {DebuggerValue[]} variables 

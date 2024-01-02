@@ -1,7 +1,12 @@
-const { Debugger } = require('./debugger');
-const { DebuggerException, DebuggerFrameInfo, SourceLocation } = require('./debugger-types');
 const { DebuggerStackFrame } = require('./stack-frame');
 const { VariableManager } = require('./variable-manager');
+
+/**
+ * @typedef {import('./debugger').Debugger} Debugger
+ * @typedef {import('./debugger-types').DebuggerException} DebuggerException
+ * @typedef {import('./debugger-types').DebuggerFrameInfo} DebuggerFrameInfo
+ * @typedef {import('./debugger-types').SourceLocation} SourceLocation
+ */
 
 // vscode doesn't like thread id reuse (the Android runtime is OK with it)
 let nextVSCodeThreadId = 0;

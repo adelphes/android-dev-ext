@@ -19,7 +19,7 @@ async function loadAndroidSystemLibrary(extensionPath, additional_libs) {
         }
         const cache_folder = path.join(extensionPath, 'langserver', '.library-cache');
         trace(`loading android library from ${cache_folder} with androidx libs: ${JSON.stringify(additional_libs)}`)
-        const typemap = await loadJavaLibraryCacheFile(path.join(cache_folder, 'android-29.zip'));
+        const typemap = await loadJavaLibraryCacheFile(path.join(cache_folder, 'android-34.zip'));
         if (Array.isArray(additional_libs) && additional_libs.length) {
             await loadJavaLibraryCacheFile(path.join(cache_folder, 'androidx-20200701.zip'), additional_libs, typemap);
         }

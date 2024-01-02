@@ -7,11 +7,9 @@ const {
 } = require('vscode-languageserver');
 const fs = require('fs');
 
-const { TextDocument } = require('vscode-languageserver-textdocument');
 const { URI } = require('vscode-uri');
 
 const { loadAndroidSystemLibrary } = require('./java/java-libraries');
-const { CEIType } = require('java-mti');
 
 const { Settings } = require('./settings');
 const { trace } = require('./logging');
@@ -19,9 +17,13 @@ const { clearDefaultCompletionEntries, getCompletionItems, resolveCompletionItem
 const { getSignatureHelp } = require('./method-signatures');
 const { FileURIMap, JavaDocInfo, indexAt, reparse } = require('./document');
 
-const { v4: uuidv4 } = require('uuid');
 const analytics = require('./analytics');
 const package_json = require('./package.json');
+
+/**
+ * @typedef {import('vscode-languageserver-textdocument').TextDocument} TextDocument
+ * @typedef {import('java-mti').CEIType} CEIType
+ */
 
 /**
  * The global map of Android system types

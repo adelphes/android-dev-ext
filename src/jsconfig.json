@@ -5,7 +5,8 @@
         "checkJs": true,
         "lib": [
             "es2018"
-        ]
+        ],
+        "resolveJsonModule": true
     },
     "exclude": [
         "node_modules"

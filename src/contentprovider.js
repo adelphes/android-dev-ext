@@ -4,7 +4,7 @@ const { workspace, EventEmitter, Uri } = vscode;
 class AndroidContentProvider {
 
     constructor() {
-        /** @type {Map<Uri,*>} */
+        /** @type {Map<vscode.Uri,*>} */
         this._docs = new Map();    // Map<uri, LogcatContent>
         this._onDidChange = new EventEmitter();
     }
@@ -27,11 +27,11 @@ class AndroidContentProvider {
      * [document](TextDocument). Resources allocated should be released when
      * the corresponding document has been [closed](#workspace.onDidCloseTextDocument).
      *
-     * @param {Uri} uri An uri which scheme matches the scheme this provider was [registered](#workspace.registerTextDocumentContentProvider) for.
-     * @param {vscode.CancellationToken} token A cancellation token.
+     * @param {vscode.Uri} uri An uri which scheme matches the scheme this provider was [registered](#workspace.registerTextDocumentContentProvider) for.
+     * @param {vscode.CancellationToken} _token A cancellation token.
      * @return {string|Thenable<string>} A string or a thenable that resolves to such.
      */
-    provideTextDocumentContent(uri, token) {
+    provideTextDocumentContent(uri, _token) {
         const doc = this._docs.get(uri);
         if (doc) {
             return doc.content();
@@ -44,7 +44,7 @@ class AndroidContentProvider {
     }
 
     /**
-     * @param {Uri} uri
+     * @param {vscode.Uri} uri
      */
     provideLogcatDocumentContent(uri) {
         // LogcatContent depends upon AndroidContentProvider, so we must delay-load this
