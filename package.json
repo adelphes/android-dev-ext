@@ -443,7 +443,7 @@
         "@types/node": "^10.12.5",
         "@types/vscode": "^1.24.0",
         "eslint": "^5.9.0",
-        "mocha": "^5.2.0",
+        "mocha": "^10.2.0",
         "typescript": "^3.8.3"
     }
 }
