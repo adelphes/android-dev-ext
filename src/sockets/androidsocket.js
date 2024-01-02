@@ -15,12 +15,13 @@ class AndroidSocket extends EventEmitter {
     }
 
     connect(port, hostname) {
+        const stackOnError = new Error().stack;
         return new Promise((resolve, reject) => {
             if (this.socket) {
-                return reject(new Error(`${this.which} Socket connect failed. Socket already connected.`));
+                return reject(new Error(`${this.which} Socket connect failed. Socket already connected. ${stackOnError}`));
             }
             const connection_error = err => {
-                return reject(new Error(`${this.which} Socket connect failed. ${err.message}.`));
+                return reject(new Error(`${this.which} Socket connect failed. ${err.message}. ${stackOnError}`));
             }
             const post_connection_error = err => {
                 this.socket_error = err;
@@ -45,7 +46,8 @@ class AndroidSocket extends EventEmitter {
                     resolve();
                 })
                 .on('error', err => error_handler(err));
-            this.socket.connect(port, hostname);
+            // for some reason if hostname is left blank, it will sometimes return ECONNREFUSED
+            this.socket.connect(port, hostname || '127.0.0.1');
         });
     }
 
