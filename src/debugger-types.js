@@ -1,7 +1,9 @@
-const { ADBClient } = require('./adbclient');
-const { PackageInfo } = require('./package-searcher');
-//const { JavaType } = require('./util');
 const { splitSourcePath } = require('./utils/source-file');
+
+/**
+ * @typedef {import('./package-searcher').PackageInfo} PackageInfo
+ * @typedef {import('./adbclient').ADBClient} ADBClient
+ */
 
 class BuildInfo {
     /**
@@ -713,8 +715,8 @@ class TypeNotAvailable extends DebuggerTypeInfo  {
 
     constructor(type) {
         super(TypeNotAvailable.info, type);
-        super.fields = [];
-        super.methods = [];
+        this.fields = [];
+        this.methods = [];
     }
 }
 

@@ -66,24 +66,27 @@ function parseManifest(xml) {
         launcher: '',
     }
     const doc = new dom().parseFromString(xml);
+    const attributeValue = (/** @type {xpath.SelectedValue} */ selectedValue) => {
+        return xpath.isAttribute(selectedValue) ? selectedValue.value : '';
+    };
     // extract the package name from the manifest
     const pkg_xpath = '/manifest/@package';
-    result.package = xpath.select1(pkg_xpath, doc).value;
+    result.package = attributeValue(xpath.select1(pkg_xpath, doc));
     const android_select = xpath.useNamespaces({"android": "http://schemas.android.com/apk/res/android"});
     
     // extract a list of all the (named) activities declared in the manifest
     const activity_xpath = '/manifest/application/activity/@android:name';
     const activity_nodes = android_select(activity_xpath, doc);
-    if (activity_nodes) {
-        result.activities = activity_nodes.map(n => n.value);
+    if (Array.isArray(activity_nodes)) {
+        result.activities = activity_nodes.map(n => attributeValue(n));
     }
 
     // extract the default launcher activity
     const launcher_xpath = '/manifest/application/activity[intent-filter/action[@android:name="android.intent.action.MAIN"] and intent-filter/category[@android:name="android.intent.category.LAUNCHER"]]/@android:name';
     const launcher_nodes = android_select(launcher_xpath, doc);
     // should we warn if there's more than one?
-    if (launcher_nodes && launcher_nodes.length >= 1) {
-        result.launcher = launcher_nodes[0].value
+    if (Array.isArray(launcher_nodes) && launcher_nodes.length >= 1) {
+        result.launcher = attributeValue(launcher_nodes[0]);
     }
 
     return result;

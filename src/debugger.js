@@ -8,9 +8,7 @@ const { D } = require('./utils/print');
 const { sleep } = require('./utils/thread');
 const { decodeJavaStringLiteral } = require('./utils/char-decode');
 const {
-    AttachBuildInfo,
     BreakpointLocation,
-    BreakpointOptions,
     DebuggerBreakpoint,
     DebuggerFrameInfo,
     DebuggerMethodInfo,
@@ -29,6 +27,11 @@ const {
     SourceLocation,
     TypeNotAvailable,
 } = require('./debugger-types');
+
+/**
+ * @typedef {import('./debugger-types').AttachBuildInfo} AttachBuildInfo
+ * @typedef {import('./debugger-types').BreakpointOptions} BreakpointOptions
+ */
 
 class Debugger extends EventEmitter {
 

@@ -1,5 +1,9 @@
-const { DebuggerValue, JavaType, VariableValue } = require('./debugger-types');
+const { JavaType, VariableValue } = require('./debugger-types');
 const { NumberBaseConverter } = require('./utils/nbc');
+
+/**
+ * @typedef {import('./debugger-types').DebuggerValue} DebuggerValue
+ */
 
 /**
  * Class to manage variable references used by VS code.

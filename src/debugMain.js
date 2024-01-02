@@ -11,7 +11,7 @@ const path = require('path');
 const { ADBClient } = require('./adbclient');
 const { APKFileInfo } = require('./apk-file-info');
 const { Debugger } = require('./debugger');
-const { AttachBuildInfo, BreakpointOptions, DebuggerException, DebuggerValue, JavaBreakpointEvent, JavaClassType, JavaExceptionEvent, LaunchBuildInfo, SourceLocation } = require('./debugger-types');
+const { AttachBuildInfo, BreakpointOptions, DebuggerException, JavaClassType, LaunchBuildInfo } = require('./debugger-types');
 const { evaluate } = require('./expression/evaluate');
 const { PackageInfo } = require('./package-searcher');
 const ADBSocket = require('./sockets/adbsocket');
@@ -19,8 +19,15 @@ const { AndroidThread } = require('./threads');
 const { checkADBStarted, getAndroidSourcesFolder } = require('./utils/android');
 const { D, initLogToClient, onMessagePrint } = require('./utils/print');
 const { hasValidSourceFileExtension } = require('./utils/source-file');
-const { VariableManager } = require('./variable-manager');
 const analytics = require('../langserver/analytics');
+
+/**
+ * @typedef {import('./debugger-types').DebuggerValue} DebuggerValue
+ * @typedef {import('./debugger-types').JavaBreakpointEvent} JavaBreakpointEvent
+ * @typedef {import('./debugger-types').JavaExceptionEvent} JavaExceptionEvent
+ * @typedef {import('./debugger-types').SourceLocation} SourceLocation
+ * @typedef {import('./variable-manager').VariableManager} VariableManager
+ */
 
 class AndroidDebugSession extends DebugSession {
 

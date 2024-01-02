@@ -68,17 +68,20 @@ class AndroidSocket extends EventEmitter {
      */
     async read_bytes(length, format, timeout_ms) {
         //D(`reading ${length} bytes`);
-        let actual_length = length;
-        if (typeof actual_length === 'undefined') {
+        let actual_length = undefined;
+        if (typeof length === 'undefined') {
             if (this.readbuffer.byteLength > 0 || this.socket_ended) {
                 actual_length = this.readbuffer.byteLength;
             }
         }
-        if (actual_length < 0) {
-            throw new Error(`${this.which} socket read failed. Attempt to read ${actual_length} bytes.`);
-        }
         if (length === 'length+data' && this.readbuffer.byteLength >= 4) {
             length = actual_length = this.readbuffer.readUInt32BE(0);
+        }
+        if (typeof length === 'number') {
+            actual_length = length;
+        }
+        if (actual_length < 0) {
+            throw new Error(`${this.which} socket read failed. Attempt to read ${actual_length} bytes.`);
         }
         if (this.socket_ended) {
             if (actual_length <= 0 || (this.readbuffer.byteLength < actual_length)) {
@@ -88,12 +91,10 @@ class AndroidSocket extends EventEmitter {
         // do we have enough data in the buffer?
         if (this.readbuffer.byteLength >= actual_length) {
             //D(`got ${actual_length} bytes`);
-            let data = this.readbuffer.slice(0, actual_length);
+            const data = this.readbuffer.slice(0, actual_length);
             this.readbuffer = this.readbuffer.slice(actual_length);
-            if (format) {
-                data = data.toString(format);
-            }
-            return Promise.resolve(data);
+            const result = format ? data.toString(format) : data;
+            return Promise.resolve(result);
         }
         // wait for the socket to update and then retry the read
         await this.wait_for_socket_data(timeout_ms);
