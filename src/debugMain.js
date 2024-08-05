@@ -568,7 +568,7 @@ class AndroidDebugSession extends DebugSession {
 
             // check we have something to launch - we do this again later, but it's a bit better to do it before we start device comms
             let launchActivity = args.launchActivity;
-            if (!launchActivity)
+            if (!launchActivity && !this.am_start_args?.length)
                 if (!(launchActivity = this.apk_file_info.manifest.launcher))
                     throw new Error('No valid launch activity found in AndroidManifest.xml or launch.json');
 
