@@ -81,8 +81,8 @@ function parseManifest(xml) {
         result.activities = activity_nodes.map(n => attributeValue(n));
     }
 
-    // extract the default launcher activity
-    const launcher_xpath = '/manifest/application/activity[intent-filter/action[@android:name="android.intent.action.MAIN"] and intent-filter/category[@android:name="android.intent.category.LAUNCHER"]]/@android:name';
+    // extract the default launcher activity (Looking for <activity> or <activity-alias> with intent-filter action=MAIN and category=LAUNCHER)
+    const launcher_xpath = '(/manifest/application/activity[intent-filter/action[@android:name="android.intent.action.MAIN"] and intent-filter/category[@android:name="android.intent.category.LAUNCHER"] and not(@android:enabled="false")] | /manifest/application/activity-alias[intent-filter/action[@android:name="android.intent.action.MAIN"] and intent-filter/category[@android:name="android.intent.category.LAUNCHER"] and not(@android:enabled="false")])/@android:name';
     const launcher_nodes = android_select(launcher_xpath, doc);
     // should we warn if there's more than one?
     if (Array.isArray(launcher_nodes) && launcher_nodes.length >= 1) {
